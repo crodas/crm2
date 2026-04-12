@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::amount::Amount;
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Quote {
     pub id: i64,
@@ -7,7 +9,7 @@ pub struct Quote {
     pub status: String,
     pub title: String,
     pub description: Option<String>,
-    pub total_amount: f64,
+    pub total_amount: Amount,
     pub is_debt: bool,
     pub valid_until: Option<String>,
     pub created_at: String,
@@ -20,7 +22,7 @@ pub struct QuoteLine {
     pub quote_id: i64,
     pub description: String,
     pub quantity: f64,
-    pub unit_price: f64,
+    pub unit_price: Amount,
     pub service_id: Option<i64>,
     pub line_type: String,
     pub created_at: String,
@@ -30,7 +32,7 @@ pub struct QuoteLine {
 pub struct PaymentUtxo {
     pub id: i64,
     pub quote_id: i64,
-    pub amount: f64,
+    pub amount: Amount,
     pub method: Option<String>,
     pub notes: Option<String>,
     pub paid_at: String,
@@ -50,7 +52,7 @@ pub struct CreateQuote {
 pub struct CreateQuoteLine {
     pub description: String,
     pub quantity: f64,
-    pub unit_price: f64,
+    pub unit_price: Amount,
     pub service_id: Option<i64>,
     pub line_type: Option<String>,
 }
@@ -62,7 +64,7 @@ pub struct UpdateQuoteStatus {
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePayment {
-    pub amount: f64,
+    pub amount: Amount,
     pub method: Option<String>,
     pub notes: Option<String>,
 }
@@ -72,7 +74,7 @@ pub struct CreateDebt {
     pub customer_id: i64,
     pub title: String,
     pub description: Option<String>,
-    pub amount: f64,
+    pub amount: Amount,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +82,6 @@ pub struct QuoteDetail {
     pub quote: Quote,
     pub lines: Vec<QuoteLine>,
     pub payments: Vec<PaymentUtxo>,
-    pub total_paid: f64,
-    pub balance: f64,
+    pub total_paid: Amount,
+    pub balance: Amount,
 }

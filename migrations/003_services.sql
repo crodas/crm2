@@ -22,7 +22,7 @@ CREATE TABLE quotes (
                  CHECK (status IN ('draft','sent','follow_up','accepted','booked')),
     title        TEXT NOT NULL,
     description  TEXT,
-    total_amount REAL NOT NULL DEFAULT 0,
+    total_amount INTEGER NOT NULL DEFAULT 0,
     is_debt      INTEGER NOT NULL DEFAULT 0,
     valid_until  TEXT,
     created_at   TEXT NOT NULL DEFAULT (datetime('now')),
@@ -37,7 +37,7 @@ CREATE TABLE quote_lines (
     quote_id    INTEGER NOT NULL REFERENCES quotes(id),
     description TEXT NOT NULL,
     quantity    REAL NOT NULL DEFAULT 1,
-    unit_price  REAL NOT NULL,
+    unit_price  INTEGER NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -48,7 +48,7 @@ CREATE TABLE quote_lines (
 CREATE TABLE payment_utxos (
     id         INTEGER PRIMARY KEY,
     quote_id   INTEGER NOT NULL REFERENCES quotes(id),
-    amount     REAL NOT NULL CHECK (amount > 0),
+    amount     INTEGER NOT NULL CHECK (amount > 0),
     method     TEXT,
     notes      TEXT,
     paid_at    TEXT NOT NULL DEFAULT (datetime('now')),

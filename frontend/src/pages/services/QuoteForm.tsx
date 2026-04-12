@@ -30,16 +30,11 @@ export default function QuoteForm() {
   const selectedCustomer = customers?.find((c: any) => c.id === customerId)
   const customerGroup = customerGroups?.find((g: any) => g.customer_type_id === selectedCustomer?.customer_type_id)
 
-  // Fetch latest prices for the customer's group
-  const { data: latestPrices } = useQuery({
-    queryKey: ['latest-prices', customerGroup?.id],
-    queryFn: () => api.get<any[]>(`/inventory/prices?customer_group_id=${customerGroup!.id}`),
-    enabled: !!customerGroup,
-  })
-
+  // Get product price from the enriched products response
   const getProductPrice = (productId: number): number => {
-    const p = latestPrices?.find((lp: any) => lp.product_id === productId)
-    return p?.price_per_unit ?? 0
+    const product = allProducts?.find((p: any) => p.id === productId)
+    if (!product?.prices || !customerGroup) return 0
+    return product.prices[customerGroup.name] ?? 0
   }
 
   const addProduct = () => {
@@ -68,7 +63,6 @@ export default function QuoteForm() {
     const updated = [...lines]
     ;(updated[idx] as any)[field] = value
 
-    // When selecting a product/service, prefill description and price
     if (field === 'service_id' && value) {
       const item = allProducts?.find((p: any) => p.id === value)
       if (item) {
@@ -83,9 +77,9 @@ export default function QuoteForm() {
     setLines(updated)
   }
 
-  // Re-fill product prices when latestPrices loads or customer changes
+  // Re-fill product prices when customer group changes
   useEffect(() => {
-    if (!latestPrices || lines.length === 0) return
+    if (!customerGroup || !allProducts || lines.length === 0) return
     setLines(prev => prev.map(line => {
       if (line.line_type === 'product' && line.service_id) {
         const price = getProductPrice(line.service_id)
@@ -93,7 +87,7 @@ export default function QuoteForm() {
       }
       return line
     }))
-  }, [latestPrices])
+  }, [customerGroup?.id, allProducts])
 
   const removeLine = (idx: number) => setLines(lines.filter((_, i) => i !== idx))
 
@@ -158,12 +152,7 @@ export default function QuoteForm() {
               >
                 <option value="">Select...</option>
                 {(line.line_type === 'service' ? services : products).map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                    {line.line_type === 'service'
-                      ? ` — ${p.suggested_price.toLocaleString()}`
-                      : ''}
-                  </option>
+                  <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>

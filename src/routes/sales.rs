@@ -4,6 +4,7 @@ use axum::{
 };
 use sqlx::SqlitePool;
 
+use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::inventory::InventoryUtxo;
 use crate::models::sale::*;
@@ -15,10 +16,10 @@ pub async fn create_sale(
     let mut tx = pool.begin().await?;
 
     // Calculate total
-    let total: f64 = body
+    let total: Amount = body
         .lines
         .iter()
-        .map(|l| l.quantity * l.price_per_unit)
+        .map(|l| l.price_per_unit.mul_qty(l.quantity))
         .sum();
 
     let sale = sqlx::query_as::<_, Sale>(

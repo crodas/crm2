@@ -19,8 +19,9 @@ export default function CustomerDetail() {
 
   if (!customer) return <p>Loading...</p>
 
-  const typeLabel: Record<string, string> = { quote: 'Quote', sale: 'Sale', booking: 'Booking' }
-  const typeLink: Record<string, string> = { quote: '/quotes', sale: '/sales', booking: '/bookings' }
+  const typeLabel: Record<string, string> = { quote: 'Quote', sale: 'Sale', booking: 'Booking', payment: 'Payment' }
+  const typeLink: Record<string, string> = { quote: '/quotes', sale: '/sales', booking: '/bookings', payment: '/quotes' }
+  const typeBadge: Record<string, string> = { quote: 'sent', sale: 'accepted', booking: 'scheduled', payment: 'completed' }
 
   return (
     <div>
@@ -49,7 +50,7 @@ export default function CustomerDetail() {
         {timeline && timeline.length > 0 ? timeline.map((e: any, i: number) => (
           <div key={i} className="timeline-item">
             <div className="timeline-type">
-              <span className={`badge badge-${e.event_type === 'quote' ? 'sent' : e.event_type === 'sale' ? 'accepted' : 'scheduled'}`}>
+              <span className={`badge badge-${typeBadge[e.event_type] || 'draft'}`}>
                 {typeLabel[e.event_type] || e.event_type}
               </span>
             </div>

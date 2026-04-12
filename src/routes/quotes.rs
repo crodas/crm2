@@ -5,6 +5,7 @@ use axum::{
 use serde::Deserialize;
 use sqlx::SqlitePool;
 
+use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
 
@@ -56,7 +57,7 @@ pub async fn create_quote(
 ) -> Result<Json<Quote>, AppError> {
     let mut tx = pool.begin().await?;
 
-    let total: f64 = body.lines.iter().map(|l| l.quantity * l.unit_price).sum();
+    let total: Amount = body.lines.iter().map(|l| l.unit_price.mul_qty(l.quantity)).sum();
 
     let quote = sqlx::query_as::<_, Quote>(
         "INSERT INTO quotes (customer_id, title, description, total_amount, valid_until)
@@ -111,7 +112,7 @@ pub async fn get_quote(
             .fetch_all(&pool)
             .await?;
 
-    let total_paid: f64 = payments.iter().map(|p| p.amount).sum();
+    let total_paid: Amount = payments.iter().map(|p| p.amount).sum();
     let balance = quote.total_amount - total_paid;
 
     Ok(Json(QuoteDetail {

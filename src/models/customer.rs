@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::amount::Amount;
+
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
 pub struct CustomerType {
     pub id: i64,
@@ -63,5 +65,5 @@ pub struct TimelineEvent {
     pub id: i64,
     pub summary: String,
     pub date: String,
-    pub amount: Option<f64>,
+    pub amount: Option<Amount>,
 }

@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::amount::Amount;
+
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct InventoryReceipt {
     pub id: i64,
@@ -16,7 +18,7 @@ pub struct InventoryUtxo {
     pub product_id: i64,
     pub warehouse_id: i64,
     pub quantity: f64,
-    pub cost_per_unit: f64,
+    pub cost_per_unit: Amount,
     pub receipt_id: Option<i64>,
     pub source_sale_id: Option<i64>,
     pub spent: bool,
@@ -37,7 +39,7 @@ pub struct ReceiptPrice {
     pub receipt_id: i64,
     pub product_id: i64,
     pub customer_group_id: i64,
-    pub price_per_unit: f64,
+    pub price_per_unit: Amount,
 }
 
 #[derive(Debug, Deserialize)]
@@ -53,14 +55,14 @@ pub struct ReceiveInventoryLine {
     pub product_id: i64,
     pub warehouse_id: i64,
     pub quantity: f64,
-    pub cost_per_unit: f64,
+    pub cost_per_unit: Amount,
     pub prices: Vec<LinePrice>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct LinePrice {
     pub customer_group_id: i64,
-    pub price_per_unit: f64,
+    pub price_per_unit: Amount,
 }
 
 #[derive(Debug, Deserialize)]
@@ -73,5 +75,5 @@ pub struct LatestPriceQuery {
 pub struct LatestPrice {
     pub product_id: i64,
     pub customer_group_id: i64,
-    pub price_per_unit: f64,
+    pub price_per_unit: Amount,
 }

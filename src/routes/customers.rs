@@ -184,17 +184,20 @@ pub async fn customer_timeline(
 ) -> Result<Json<Vec<TimelineEvent>>, AppError> {
     let events = sqlx::query_as::<_, TimelineEvent>(
         "SELECT 'quote' as event_type, id, title as summary, created_at as date, total_amount as amount
-         FROM quotes WHERE customer_id = ?
+         FROM quotes WHERE customer_id = ?1
          UNION ALL
          SELECT 'sale' as event_type, id, COALESCE(notes, 'Sale') as summary, sold_at as date, total_amount as amount
-         FROM sales WHERE customer_id = ?
+         FROM sales WHERE customer_id = ?1
          UNION ALL
          SELECT 'booking' as event_type, id, title as summary, start_at as date, NULL as amount
-         FROM bookings WHERE customer_id = ?
+         FROM bookings WHERE customer_id = ?1
+         UNION ALL
+         SELECT 'payment' as event_type, p.id, ('Payment on: ' || q.title) as summary, p.paid_at as date, p.amount as amount
+         FROM payment_utxos p
+         JOIN quotes q ON q.id = p.quote_id
+         WHERE q.customer_id = ?1
          ORDER BY date DESC",
     )
-    .bind(id)
-    .bind(id)
     .bind(id)
     .fetch_all(&pool)
     .await?;

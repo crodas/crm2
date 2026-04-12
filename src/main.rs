@@ -1,7 +1,9 @@
+mod amount;
 mod db;
 mod error;
 mod models;
 mod routes;
+mod seed;
 
 use axum::{
     routing::{get, patch, post, put},
@@ -62,6 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize database
     let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:crm2.db?mode=rwc".into());
     let pool = db::init_pool(&database_url).await?;
+
+    // Seed dev data (only in debug mode)
+    if !is_release {
+        seed::seed_dev_data(&pool).await?;
+    }
 
     // API routes
     let api = Router::new()

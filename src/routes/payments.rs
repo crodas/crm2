@@ -5,15 +5,16 @@ use axum::{
 use serde::Serialize;
 use sqlx::SqlitePool;
 
+use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
 
 #[derive(Serialize)]
 pub struct CustomerBalance {
     pub customer_id: i64,
-    pub total_owed: f64,
-    pub total_paid: f64,
-    pub outstanding: f64,
+    pub total_owed: Amount,
+    pub total_paid: Amount,
+    pub outstanding: Amount,
 }
 
 pub async fn record_payment(
@@ -21,18 +22,16 @@ pub async fn record_payment(
     Path(quote_id): Path<i64>,
     Json(body): Json<CreatePayment>,
 ) -> Result<Json<PaymentUtxo>, AppError> {
-    // Verify quote exists
     let _quote = sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE id = ?")
         .bind(quote_id)
         .fetch_optional(&pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Quote not found".into()))?;
 
-    if body.amount <= 0.0 {
+    if body.amount.0 <= 0 {
         return Err(AppError::BadRequest("Amount must be positive".into()));
     }
 
-    // Append-only: just insert, never update
     let payment = sqlx::query_as::<_, PaymentUtxo>(
         "INSERT INTO payment_utxos (quote_id, amount, method, notes) VALUES (?, ?, ?, ?) RETURNING *",
     )
@@ -51,8 +50,8 @@ pub async fn customer_balance(
 ) -> Result<Json<CustomerBalance>, AppError> {
     #[derive(sqlx::FromRow)]
     struct Row {
-        total_owed: f64,
-        total_paid: f64,
+        total_owed: Amount,
+        total_paid: Amount,
     }
 
     let row = sqlx::query_as::<_, Row>(

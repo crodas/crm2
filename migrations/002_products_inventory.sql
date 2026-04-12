@@ -51,7 +51,7 @@ CREATE TABLE sales (
     customer_id       INTEGER NOT NULL REFERENCES customers(id),
     customer_group_id INTEGER NOT NULL REFERENCES customer_groups(id),
     notes             TEXT,
-    total_amount      REAL NOT NULL DEFAULT 0,
+    total_amount      INTEGER NOT NULL DEFAULT 0,
     sold_at           TEXT NOT NULL DEFAULT (datetime('now')),
     created_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -64,7 +64,7 @@ CREATE TABLE inventory_utxos (
     product_id       INTEGER NOT NULL REFERENCES products(id),
     warehouse_id     INTEGER NOT NULL REFERENCES warehouses(id),
     quantity         REAL NOT NULL CHECK (quantity > 0),
-    cost_per_unit    REAL NOT NULL CHECK (cost_per_unit >= 0),
+    cost_per_unit    INTEGER NOT NULL CHECK (cost_per_unit >= 0),
 
     -- Origin
     receipt_id       INTEGER REFERENCES inventory_receipts(id),
@@ -87,7 +87,7 @@ CREATE TABLE inventory_receipt_prices (
     receipt_id        INTEGER NOT NULL REFERENCES inventory_receipts(id),
     product_id        INTEGER NOT NULL REFERENCES products(id),
     customer_group_id INTEGER NOT NULL REFERENCES customer_groups(id),
-    price_per_unit    REAL NOT NULL CHECK (price_per_unit >= 0),
+    price_per_unit    INTEGER NOT NULL CHECK (price_per_unit >= 0),
     UNIQUE(receipt_id, product_id, customer_group_id)
 );
 
@@ -97,7 +97,7 @@ CREATE TABLE sale_lines (
     sale_id        INTEGER NOT NULL REFERENCES sales(id),
     product_id     INTEGER NOT NULL REFERENCES products(id),
     quantity       REAL NOT NULL CHECK (quantity > 0),
-    price_per_unit REAL NOT NULL,
+    price_per_unit INTEGER NOT NULL,
     created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

@@ -11,6 +11,7 @@ export default function QuoteDetail() {
     queryKey: ['quote', id],
     queryFn: () => api.get<any>(`/quotes/${id}`),
   })
+  const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => api.get<any[]>('/customers') })
 
   const [payAmount, setPayAmount] = useState(0)
   const [payMethod, setPayMethod] = useState('cash')
@@ -37,6 +38,7 @@ export default function QuoteDetail() {
   if (!data) return <p>Loading...</p>
 
   const { quote, lines, payments, total_paid, balance } = data
+  const customer = customers?.find((c: any) => c.id === quote.customer_id)
   const statuses = ['draft', 'sent', 'follow_up', 'accepted', 'booked']
 
   return (
@@ -52,6 +54,7 @@ export default function QuoteDetail() {
       <div className="grid-2">
         <div className="card">
           <h2>Details</h2>
+          <p><strong>Customer:</strong> {customer?.name ?? quote.customer_id}</p>
           <p><strong>Description:</strong> {quote.description || '—'}</p>
           <p><strong>Total:</strong> {quote.total_amount.toLocaleString()}</p>
           <p><strong>Paid:</strong> {total_paid.toLocaleString()}</p>
