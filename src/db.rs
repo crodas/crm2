@@ -38,6 +38,14 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             "003_services",
             include_str!("../migrations/003_services.sql"),
         ),
+        (
+            "004_sort_order",
+            include_str!("../migrations/004_sort_order.sql"),
+        ),
+        (
+            "005_services_catalog",
+            include_str!("../migrations/005_services_catalog.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {

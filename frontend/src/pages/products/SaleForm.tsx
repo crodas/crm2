@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
@@ -33,20 +33,48 @@ export default function SaleForm() {
     [groups, selectedCustomer]
   )
 
+  // Fetch latest prices for the selected customer group
+  const { data: latestPrices } = useQuery({
+    queryKey: ['latest-prices', customerGroup?.id],
+    queryFn: () => api.get<any[]>(`/inventory/prices?customer_group_id=${customerGroup!.id}`),
+    enabled: !!customerGroup,
+  })
+
+  const getPrice = (productId: number): number => {
+    if (!latestPrices) return 0
+    const p = latestPrices.find((lp: any) => lp.product_id === productId)
+    return p?.price_per_unit ?? 0
+  }
+
   const addLine = () => {
+    const pid = products?.[0]?.id ?? 0
     setLines([...lines, {
-      product_id: products?.[0]?.id ?? 0,
+      product_id: pid,
       warehouse_id: warehouses?.[0]?.id ?? 0,
       quantity: 1,
-      price_per_unit: 0,
+      price_per_unit: getPrice(pid),
     }])
   }
 
   const updateLine = (idx: number, field: string, value: number) => {
     const updated = [...lines]
     ;(updated[idx] as any)[field] = value
+    // Auto-fill price when product changes
+    if (field === 'product_id') {
+      updated[idx].price_per_unit = getPrice(value)
+    }
     setLines(updated)
   }
+
+  // Re-fill prices when customer group changes (latestPrices updates)
+  useEffect(() => {
+    if (latestPrices && lines.length > 0) {
+      setLines(prev => prev.map(line => ({
+        ...line,
+        price_per_unit: getPrice(line.product_id) || line.price_per_unit,
+      })))
+    }
+  }, [latestPrices])
 
   const removeLine = (idx: number) => setLines(lines.filter((_, i) => i !== idx))
 

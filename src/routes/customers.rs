@@ -17,10 +17,47 @@ pub struct ListParams {
 pub async fn list_customer_types(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<CustomerType>>, AppError> {
-    let types = sqlx::query_as::<_, CustomerType>("SELECT * FROM customer_types ORDER BY name")
-        .fetch_all(&pool)
-        .await?;
+    let types = sqlx::query_as::<_, CustomerType>(
+        "SELECT * FROM customer_types ORDER BY sort_order, name",
+    )
+    .fetch_all(&pool)
+    .await?;
     Ok(Json(types))
+}
+
+pub async fn reorder_customer_types(
+    State(pool): State<SqlitePool>,
+    Json(ids): Json<Vec<i64>>,
+) -> Result<Json<Vec<CustomerType>>, AppError> {
+    let mut tx = pool.begin().await?;
+    for (i, id) in ids.iter().enumerate() {
+        sqlx::query("UPDATE customer_types SET sort_order = ? WHERE id = ?")
+            .bind(i as i64)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    list_customer_types(State(pool)).await
+}
+
+pub async fn update_customer_type(
+    State(pool): State<SqlitePool>,
+    Path(id): Path<i64>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<CustomerType>, AppError> {
+    let name = body["name"]
+        .as_str()
+        .ok_or_else(|| AppError::BadRequest("name is required".into()))?;
+    let ct = sqlx::query_as::<_, CustomerType>(
+        "UPDATE customer_types SET name = ? WHERE id = ? RETURNING *",
+    )
+    .bind(name)
+    .bind(id)
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Customer type not found".into()))?;
+    Ok(Json(ct))
 }
 
 pub async fn create_customer_type(

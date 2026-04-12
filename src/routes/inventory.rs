@@ -185,6 +185,52 @@ pub async fn list_utxos(
     Ok(Json(utxos))
 }
 
+/// Returns the latest receipt price for each product per customer group.
+/// If product_id is given, returns only for that product.
+/// If customer_group_id is given, filters to that group.
+pub async fn latest_prices(
+    State(pool): State<SqlitePool>,
+    Query(params): Query<LatestPriceQuery>,
+) -> Result<Json<Vec<LatestPrice>>, AppError> {
+    // Build query dynamically since SQLite + sqlx doesn't handle "? IS NULL OR col = ?" well
+    let mut where_clauses = Vec::new();
+    if params.product_id.is_some() {
+        where_clauses.push("product_id = ?");
+    }
+    if params.customer_group_id.is_some() {
+        where_clauses.push("customer_group_id = ?");
+    }
+    let where_sql = if where_clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", where_clauses.join(" AND "))
+    };
+
+    let sql = format!(
+        "SELECT p.product_id, p.customer_group_id, p.price_per_unit
+         FROM inventory_receipt_prices p
+         INNER JOIN (
+             SELECT product_id, customer_group_id, MAX(receipt_id) as max_receipt_id
+             FROM inventory_receipt_prices
+             {where_sql}
+             GROUP BY product_id, customer_group_id
+         ) latest ON p.product_id = latest.product_id
+                  AND p.customer_group_id = latest.customer_group_id
+                  AND p.receipt_id = latest.max_receipt_id"
+    );
+
+    let mut query = sqlx::query_as::<_, LatestPrice>(&sql);
+    if let Some(pid) = params.product_id {
+        query = query.bind(pid);
+    }
+    if let Some(gid) = params.customer_group_id {
+        query = query.bind(gid);
+    }
+
+    let prices = query.fetch_all(&pool).await?;
+    Ok(Json(prices))
+}
+
 pub async fn product_history(
     State(pool): State<SqlitePool>,
     Path(product_id): Path<i64>,

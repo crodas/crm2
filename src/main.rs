@@ -69,6 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/config", get(routes::config::get_config).put(routes::config::update_config))
         // Customer types
         .route("/customer-types", get(routes::customers::list_customer_types).post(routes::customers::create_customer_type))
+        .route("/customer-types/{id}", put(routes::customers::update_customer_type))
+        .route("/customer-types/reorder", put(routes::customers::reorder_customer_types))
         // Customer groups
         .route("/customer-groups", get(routes::customer_groups::list_groups).post(routes::customer_groups::create_group))
         .route("/customer-groups/{id}", put(routes::customer_groups::update_group))
@@ -82,12 +84,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/products/{id}", get(routes::products::get_product).put(routes::products::update_product))
         // Warehouses
         .route("/warehouses", get(routes::warehouses::list_warehouses).post(routes::warehouses::create_warehouse))
+        .route("/warehouses/{id}", put(routes::warehouses::update_warehouse))
+        .route("/warehouses/reorder", put(routes::warehouses::reorder_warehouses))
         // Inventory
         .route("/inventory/receive", post(routes::inventory::receive_inventory))
         .route("/inventory/stock", get(routes::inventory::get_stock))
         .route("/inventory/receipts", get(routes::inventory::list_receipts))
         .route("/inventory/receipts/{id}", get(routes::inventory::get_receipt))
         .route("/inventory/utxos", get(routes::inventory::list_utxos))
+        .route("/inventory/prices", get(routes::inventory::latest_prices))
         .route("/inventory/history/{product_id}", get(routes::inventory::product_history))
         // Sales
         .route("/sales", get(routes::sales::list_sales).post(routes::sales::create_sale))

@@ -71,14 +71,17 @@ pub async fn create_quote(
     .await?;
 
     for line in &body.lines {
+        let line_type = line.line_type.as_deref().unwrap_or("item");
         sqlx::query(
-            "INSERT INTO quote_lines (quote_id, description, quantity, unit_price)
-             VALUES (?, ?, ?, ?)",
+            "INSERT INTO quote_lines (quote_id, description, quantity, unit_price, service_id, line_type)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(quote.id)
         .bind(&line.description)
         .bind(line.quantity)
         .bind(line.unit_price)
+        .bind(line.service_id)
+        .bind(line_type)
         .execute(&mut *tx)
         .await?;
     }

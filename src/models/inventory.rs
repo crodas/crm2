@@ -62,3 +62,16 @@ pub struct LinePrice {
     pub customer_group_id: i64,
     pub price_per_unit: f64,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct LatestPriceQuery {
+    pub product_id: Option<i64>,
+    pub customer_group_id: Option<i64>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct LatestPrice {
+    pub product_id: i64,
+    pub customer_group_id: i64,
+    pub price_per_unit: f64,
+}

@@ -9,6 +9,7 @@ import InventoryView from './pages/products/InventoryView'
 import InventoryReceive from './pages/products/InventoryReceive'
 import SaleList from './pages/products/SaleList'
 import SaleForm from './pages/products/SaleForm'
+import SaleDetail from './pages/products/SaleDetail'
 import CalendarView from './pages/services/CalendarView'
 import QuoteList from './pages/services/QuoteList'
 import QuoteForm from './pages/services/QuoteForm'
@@ -68,6 +69,7 @@ export default function App() {
           <Route path="/inventory/receive" element={<InventoryReceive />} />
           <Route path="/sales" element={<SaleList />} />
           <Route path="/sales/new" element={<SaleForm />} />
+          <Route path="/sales/:id" element={<SaleDetail />} />
           <Route path="/calendar" element={<CalendarView />} />
           <Route path="/quotes" element={<QuoteList />} />
           <Route path="/quotes/new" element={<QuoteForm />} />

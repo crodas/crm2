@@ -10,14 +10,12 @@ use crate::models::customer::CustomerGroup;
 
 #[derive(Deserialize)]
 pub struct CreateGroupReq {
-    pub name: String,
     pub customer_type_id: i64,
     pub default_markup_pct: f64,
 }
 
 #[derive(Deserialize)]
 pub struct UpdateGroupReq {
-    pub name: Option<String>,
     pub default_markup_pct: Option<f64>,
 }
 
@@ -25,7 +23,7 @@ pub async fn list_groups(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<CustomerGroup>>, AppError> {
     let groups =
-        sqlx::query_as::<_, CustomerGroup>("SELECT * FROM customer_groups ORDER BY name")
+        sqlx::query_as::<_, CustomerGroup>("SELECT * FROM customer_groups ORDER BY id")
             .fetch_all(&pool)
             .await?;
     Ok(Json(groups))
@@ -35,10 +33,17 @@ pub async fn create_group(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateGroupReq>,
 ) -> Result<Json<CustomerGroup>, AppError> {
+    // Auto-derive name from customer type
+    let type_name: String = sqlx::query_scalar("SELECT name FROM customer_types WHERE id = ?")
+        .bind(body.customer_type_id)
+        .fetch_optional(&pool)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("Customer type not found".into()))?;
+
     let group = sqlx::query_as::<_, CustomerGroup>(
         "INSERT INTO customer_groups (name, customer_type_id, default_markup_pct) VALUES (?, ?, ?) RETURNING *",
     )
-    .bind(&body.name)
+    .bind(&type_name)
     .bind(body.customer_type_id)
     .bind(body.default_markup_pct)
     .fetch_one(&pool)
@@ -59,9 +64,8 @@ pub async fn update_group(
             .ok_or_else(|| AppError::NotFound("Customer group not found".into()))?;
 
     let group = sqlx::query_as::<_, CustomerGroup>(
-        "UPDATE customer_groups SET name = ?, default_markup_pct = ? WHERE id = ? RETURNING *",
+        "UPDATE customer_groups SET default_markup_pct = ? WHERE id = ? RETURNING *",
     )
-    .bind(body.name.as_deref().unwrap_or(&existing.name))
     .bind(body.default_markup_pct.unwrap_or(existing.default_markup_pct))
     .bind(id)
     .fetch_one(&pool)

@@ -21,6 +21,8 @@ pub struct QuoteLine {
     pub description: String,
     pub quantity: f64,
     pub unit_price: f64,
+    pub service_id: Option<i64>,
+    pub line_type: String,
     pub created_at: String,
 }
 
@@ -49,6 +51,8 @@ pub struct CreateQuoteLine {
     pub description: String,
     pub quantity: f64,
     pub unit_price: f64,
+    pub service_id: Option<i64>,
+    pub line_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
