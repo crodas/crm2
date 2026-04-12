@@ -1,0 +1,6 @@
+target/
+node_modules/
+frontend/dist/
+crm2.db
+crm2.db-shm
+crm2.db-wal

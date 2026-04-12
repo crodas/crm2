@@ -1,0 +1,12 @@
+pub mod config;
+pub mod customers;
+pub mod customer_groups;
+pub mod products;
+pub mod warehouses;
+pub mod inventory;
+pub mod sales;
+pub mod teams;
+pub mod quotes;
+pub mod payments;
+pub mod bookings;
+pub mod calendar;
