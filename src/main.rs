@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/customers/{id}", get(routes::customers::get_customer).put(routes::customers::update_customer))
         .route("/customers/{id}/timeline", get(routes::customers::customer_timeline))
         .route("/customers/{id}/balance", get(routes::payments::customer_balance))
+        .route("/receivables", get(routes::payments::total_receivables))
         // Products
         .route("/products", get(routes::products::list_products).post(routes::products::create_product))
         .route("/products/{id}", get(routes::products::get_product).put(routes::products::update_product))
@@ -99,6 +100,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/inventory/stock", get(routes::inventory::get_stock))
         .route("/inventory/receipts", get(routes::inventory::list_receipts))
         .route("/inventory/receipts/{id}", get(routes::inventory::get_receipt))
+        .route("/inventory/receipts/{id}/payments", post(routes::inventory::record_supplier_payment))
+        .route("/supplier-balance", get(routes::inventory::supplier_balance))
         .route("/inventory/utxos", get(routes::inventory::list_utxos))
         .route("/inventory/prices", get(routes::inventory::latest_prices))
         .route("/inventory/history/{product_id}", get(routes::inventory::product_history))

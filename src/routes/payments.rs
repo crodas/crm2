@@ -85,3 +85,41 @@ pub async fn customer_balance(
         outstanding: row.total_owed - row.total_paid,
     }))
 }
+
+#[derive(Serialize)]
+pub struct ReceivablesBalance {
+    pub total_owed: Amount,
+    pub total_paid: Amount,
+    pub outstanding: Amount,
+}
+
+pub async fn total_receivables(
+    State(pool): State<SqlitePool>,
+) -> Result<Json<ReceivablesBalance>, AppError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        total_owed: Amount,
+        total_paid: Amount,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        "SELECT
+            COALESCE(SUM(q.total_amount), 0) as total_owed,
+            COALESCE(SUM(COALESCE(p.paid, 0)), 0) as total_paid
+         FROM quotes q
+         LEFT JOIN (
+            SELECT quote_id, SUM(amount) as paid
+            FROM payment_utxos
+            GROUP BY quote_id
+         ) p ON p.quote_id = q.id
+         WHERE q.status IN ('accepted', 'booked')",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    Ok(Json(ReceivablesBalance {
+        total_owed: row.total_owed,
+        total_paid: row.total_paid,
+        outstanding: row.total_owed - row.total_paid,
+    }))
+}

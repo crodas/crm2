@@ -28,19 +28,25 @@ pub async fn receive_inventory(
 ) -> Result<Json<InventoryReceipt>, AppError> {
     let mut tx = pool.begin().await?;
 
+    // Calculate total_cost from lines
+    let total_cost: i64 = body.lines.iter().map(|l| {
+        (l.quantity * l.cost_per_unit.cents() as f64).round() as i64
+    }).sum();
+
     let prev_receipt = version::latest_version_id(&mut *tx, "inventory_receipts").await?;
     let receipt_vid = version::compute_version_id(
-        &version::inventory_receipt_fields(&body.reference, &body.supplier_name, &body.notes),
+        &version::inventory_receipt_fields(&body.reference, &body.supplier_name, &body.notes, total_cost),
         &prev_receipt,
     );
 
     let receipt = sqlx::query_as::<_, InventoryReceipt>(
-        "INSERT INTO inventory_receipts (reference, supplier_name, notes, version_id)
-         VALUES (?, ?, ?, ?) RETURNING *",
+        "INSERT INTO inventory_receipts (reference, supplier_name, notes, total_cost, version_id)
+         VALUES (?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.reference)
     .bind(&body.supplier_name)
     .bind(&body.notes)
+    .bind(total_cost)
     .bind(&receipt_vid)
     .fetch_one(&mut *tx)
     .await?;
@@ -93,6 +99,52 @@ pub async fn receive_inventory(
             .bind(price.customer_group_id)
             .bind(price.price_per_unit)
             .bind(&price_vid)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Create supplier ledger entries based on payment type
+    let is_credit = body.is_credit.unwrap_or(false);
+    let paid_cash = body.paid_cash.unwrap_or(false);
+
+    if is_credit || paid_cash {
+        // Debt entry (negative)
+        let prev_ledger = version::latest_version_id(&mut *tx, "supplier_ledger_utxos").await?;
+        let method: Option<String> = None;
+        let debt_notes: Option<String> = Some("Inventory received".into());
+        let ledger_vid = version::compute_version_id(
+            &version::supplier_ledger_utxo_fields(receipt.id, -total_cost, &method, &debt_notes),
+            &prev_ledger,
+        );
+        sqlx::query(
+            "INSERT INTO supplier_ledger_utxos (receipt_id, amount, method, notes, version_id) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(receipt.id)
+        .bind(-total_cost)
+        .bind(&method)
+        .bind(&debt_notes)
+        .bind(&ledger_vid)
+        .execute(&mut *tx)
+        .await?;
+
+        if paid_cash {
+            // Immediate payment entry (positive)
+            let prev_ledger2 = version::latest_version_id(&mut *tx, "supplier_ledger_utxos").await?;
+            let cash_method: Option<String> = Some("cash".into());
+            let pay_notes: Option<String> = Some("Paid in cash".into());
+            let pay_vid = version::compute_version_id(
+                &version::supplier_ledger_utxo_fields(receipt.id, total_cost, &cash_method, &pay_notes),
+                &prev_ledger2,
+            );
+            sqlx::query(
+                "INSERT INTO supplier_ledger_utxos (receipt_id, amount, method, notes, version_id) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind(receipt.id)
+            .bind(total_cost)
+            .bind(&cash_method)
+            .bind(&pay_notes)
+            .bind(&pay_vid)
             .execute(&mut *tx)
             .await?;
         }
@@ -176,10 +228,23 @@ pub async fn get_receipt(
     .fetch_all(&pool)
     .await?;
 
+    let ledger = sqlx::query_as::<_, SupplierLedgerUtxo>(
+        "SELECT * FROM supplier_ledger_utxos WHERE receipt_id = ? ORDER BY id ASC",
+    )
+    .bind(id)
+    .fetch_all(&pool)
+    .await?;
+
+    let total_paid: i64 = ledger.iter().filter(|e| e.amount.cents() > 0).map(|e| e.amount.cents()).sum();
+    let balance: i64 = ledger.iter().map(|e| e.amount.cents()).sum();
+
     Ok(Json(serde_json::json!({
         "receipt": receipt,
         "utxos": utxos,
         "prices": prices,
+        "ledger": ledger,
+        "total_paid": total_paid as f64 / 100.0,
+        "balance": balance as f64 / 100.0,
     })))
 }
 
@@ -270,4 +335,66 @@ pub async fn product_history(
     .fetch_all(&pool)
     .await?;
     Ok(Json(utxos))
+}
+
+pub async fn record_supplier_payment(
+    State(pool): State<SqlitePool>,
+    Path(receipt_id): Path<i64>,
+    Json(body): Json<CreateSupplierPayment>,
+) -> Result<Json<SupplierLedgerUtxo>, AppError> {
+    let _receipt = sqlx::query_as::<_, InventoryReceipt>(
+        "SELECT * FROM inventory_receipts WHERE id = ?",
+    )
+    .bind(receipt_id)
+    .fetch_optional(&pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound("Receipt not found".into()))?;
+
+    if body.amount.cents() <= 0 {
+        return Err(AppError::BadRequest("Amount must be positive".into()));
+    }
+
+    let prev = version::latest_version_id(&pool, "supplier_ledger_utxos").await?;
+    let vid = version::compute_version_id(
+        &version::supplier_ledger_utxo_fields(receipt_id, body.amount.cents(), &body.method, &body.notes),
+        &prev,
+    );
+
+    let entry = sqlx::query_as::<_, SupplierLedgerUtxo>(
+        "INSERT INTO supplier_ledger_utxos (receipt_id, amount, method, notes, version_id) VALUES (?, ?, ?, ?, ?) RETURNING *",
+    )
+    .bind(receipt_id)
+    .bind(body.amount)
+    .bind(&body.method)
+    .bind(&body.notes)
+    .bind(&vid)
+    .fetch_one(&pool)
+    .await?;
+    Ok(Json(entry))
+}
+
+pub async fn supplier_balance(
+    State(pool): State<SqlitePool>,
+) -> Result<Json<SupplierBalance>, AppError> {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        total_owed: i64,
+        total_paid: i64,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        "SELECT
+            COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0) as total_owed,
+            COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) as total_paid
+         FROM supplier_ledger_utxos",
+    )
+    .fetch_one(&pool)
+    .await?;
+
+    use crate::amount::Amount;
+    Ok(Json(SupplierBalance {
+        total_owed: Amount(row.total_owed),
+        total_paid: Amount(row.total_paid),
+        outstanding: Amount(row.total_owed - row.total_paid),
+    }))
 }

@@ -65,6 +65,10 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             "008_merge_work_orders_into_bookings",
             include_str!("../migrations/008_merge_work_orders_into_bookings.sql"),
         ),
+        (
+            "009_supplier_ledger",
+            include_str!("../migrations/009_supplier_ledger.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -88,11 +92,10 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 .execute(pool)
                 .await?;
 
-            // Backfill version_id hash chains for existing rows
-            if name == "006_version_chain" {
-                tracing::info!("Backfilling version_id chains (append-only tables)...");
-                version::recompute_append_only_chains(pool).await?;
-            } else if name == "008_merge_work_orders_into_bookings" {
+            // Backfill version_id hash chains for existing rows.
+            // Only recompute on the latest migration that changes chains,
+            // since earlier recomputes would use stale field definitions.
+            if name == "009_supplier_ledger" {
                 tracing::info!("Backfilling version_id chains (all tables)...");
                 version::recompute_all_chains(pool).await?;
             }
