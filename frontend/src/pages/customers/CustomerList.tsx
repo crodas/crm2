@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function CustomerList() {
+  const { t } = useTranslation()
   const [search, setSearch] = useState('')
   const { data: customers, isLoading } = useQuery({
     queryKey: ['customers', search],
@@ -19,20 +21,20 @@ export default function CustomerList() {
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Customers</h1>
-        <Link to="/customers/new" className="btn btn-primary">Add Customer</Link>
+        <h1>{t('customers.title')}</h1>
+        <Link to="/customers/new" className="btn btn-primary">{t('customers.addCustomer')}</Link>
       </div>
       <input
-        placeholder="Search customers..."
+        placeholder={t('customers.searchPlaceholder')}
         value={search}
         onChange={e => setSearch(e.target.value)}
         style={{ marginBottom: '1rem' }}
       />
-      {isLoading ? <p>Loading...</p> : (
+      {isLoading ? <p>{t('common.loading')}</p> : (
         <div className="table-wrap">
           <table>
             <thead>
-              <tr><th>Name</th><th>Type</th><th>Phone</th><th>Email</th></tr>
+              <tr><th>{t('common.name')}</th><th>{t('common.type')}</th><th>{t('common.phone')}</th><th>{t('common.email')}</th></tr>
             </thead>
             <tbody>
               {customers?.map((c: any) => (

@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function ProductList() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: allProducts, isLoading } = useQuery({
     queryKey: ['products'],
@@ -27,20 +29,20 @@ export default function ProductList() {
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Products & Services</h1>
+        <h1>{t('products.title')}</h1>
         <div className="flex gap-1">
-          <Link to="/products/new?type=product" className="btn btn-primary">Add Product</Link>
-          <Link to="/products/new?type=service" className="btn">Add Service</Link>
+          <Link to="/products/new?type=product" className="btn btn-primary">{t('products.addProduct')}</Link>
+          <Link to="/products/new?type=service" className="btn">{t('products.addService')}</Link>
         </div>
       </div>
 
-      {isLoading ? <p>Loading...</p> : (
+      {isLoading ? <p>{t('common.loading')}</p> : (
         <>
-          <h2>Products</h2>
+          <h2>{t('products.productsSection')}</h2>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>SKU</th><th>Name</th><th>Unit</th></tr>
+                <tr><th>{t('products.sku')}</th><th>{t('common.name')}</th><th>{t('products.unit')}</th></tr>
               </thead>
               <tbody>
                 {products.map((p: any) => (
@@ -51,17 +53,17 @@ export default function ProductList() {
                   </tr>
                 ))}
                 {products.length === 0 && (
-                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No products</td></tr>
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('products.noProducts')}</td></tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          <h2 className="mt-2">Services</h2>
+          <h2 className="mt-2">{t('products.servicesSection')}</h2>
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Name</th><th>Description</th><th>Suggested Price</th></tr>
+                <tr><th>{t('common.name')}</th><th>{t('common.description')}</th><th>{t('products.suggestedPrice')}</th></tr>
               </thead>
               <tbody>
                 {services.map((s: any) => (
@@ -72,7 +74,7 @@ export default function ProductList() {
                   </tr>
                 ))}
                 {services.length === 0 && (
-                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No services</td></tr>
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('products.noServices')}</td></tr>
                 )}
               </tbody>
             </table>
@@ -80,29 +82,29 @@ export default function ProductList() {
         </>
       )}
 
-      <h2 className="mt-2">Warehouses</h2>
+      <h2 className="mt-2">{t('products.warehousesSection')}</h2>
       <div className="card mb-1">
         <div className="flex gap-1" style={{ alignItems: 'flex-end' }}>
           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-            <label>Name</label>
-            <input value={whName} onChange={e => setWhName(e.target.value)} placeholder="Warehouse name" />
+            <label>{t('common.name')}</label>
+            <input value={whName} onChange={e => setWhName(e.target.value)} placeholder={t('products.warehouseName')} />
           </div>
           <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
-            <label>Address</label>
-            <input value={whAddress} onChange={e => setWhAddress(e.target.value)} placeholder="Address (optional)" />
+            <label>{t('common.address')}</label>
+            <input value={whAddress} onChange={e => setWhAddress(e.target.value)} placeholder={t('products.addressOptional')} />
           </div>
-          <button className="btn btn-primary" onClick={() => createWarehouse.mutate()} disabled={!whName}>Add</button>
+          <button className="btn btn-primary" onClick={() => createWarehouse.mutate()} disabled={!whName}>{t('common.add')}</button>
         </div>
       </div>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Name</th><th>Address</th></tr></thead>
+          <thead><tr><th>{t('common.name')}</th><th>{t('common.address')}</th></tr></thead>
           <tbody>
             {warehouses?.map((w: any) => (
               <tr key={w.id}><td>{w.name}</td><td>{w.address || '—'}</td></tr>
             ))}
             {warehouses?.length === 0 && (
-              <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No warehouses</td></tr>
+              <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('products.noWarehouses')}</td></tr>
             )}
           </tbody>
         </table>

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 interface QLine {
   line_type: 'service' | 'product'
@@ -12,6 +13,7 @@ interface QLine {
 }
 
 export default function QuoteForm() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const qc = useQueryClient()
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => api.get<any[]>('/customers') })
@@ -111,46 +113,46 @@ export default function QuoteForm() {
 
   return (
     <div>
-      <h1>New Quote</h1>
+      <h1>{t('quotes.newQuote')}</h1>
       <div className="card">
         <div className="grid-2 mb-2">
           <div className="form-group">
-            <label>Customer</label>
+            <label>{t('quotes.customer')}</label>
             <select value={customerId} onChange={e => setCustomerId(Number(e.target.value))}>
-              <option value={0}>Select...</option>
+              <option value={0}>{t('common.select')}</option>
               {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
           <div className="form-group">
-            <label>Title</label>
+            <label>{t('common.title')}</label>
             <input value={title} onChange={e => setTitle(e.target.value)} />
           </div>
         </div>
         <div className="form-group mb-2">
-          <label>Description</label>
+          <label>{t('common.description')}</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} />
         </div>
 
-        <h2>Line Items</h2>
+        <h2>{t('quotes.lineItems')}</h2>
         {lines.map((line, idx) => (
           <div key={idx} className="card" style={{ background: 'var(--bg-app)' }}>
             <div className="flex-between mb-1">
               <strong>
                 <span className={`badge ${line.line_type === 'service' ? 'badge-accepted' : 'badge-sent'}`}>
-                  {line.line_type}
+                  {line.line_type === 'service' ? t('products.service') : t('products.product')}
                 </span>
                 {' '}{idx + 1}
               </strong>
-              <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>Remove</button>
+              <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>{t('common.remove')}</button>
             </div>
 
             <div className="form-group">
-              <label>{line.line_type === 'service' ? 'Service' : 'Product'}</label>
+              <label>{line.line_type === 'service' ? t('products.service') : t('products.product')}</label>
               <select
                 value={line.service_id ?? ''}
                 onChange={e => updateLine(idx, 'service_id', Number(e.target.value))}
               >
-                <option value="">Select...</option>
+                <option value="">{t('common.select')}</option>
                 {(line.line_type === 'service' ? services : products).map((p: any) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
@@ -158,16 +160,16 @@ export default function QuoteForm() {
             </div>
 
             <div className="form-group">
-              <label>Description</label>
+              <label>{t('common.description')}</label>
               <input value={line.description} onChange={e => updateLine(idx, 'description', e.target.value)} />
             </div>
             <div className="grid-2">
               <div className="form-group">
-                <label>Quantity</label>
+                <label>{t('common.quantity')}</label>
                 <input type="number" value={line.quantity} onChange={e => updateLine(idx, 'quantity', Number(e.target.value))} />
               </div>
               <div className="form-group">
-                <label>Unit Price</label>
+                <label>{t('quotes.unitPrice')}</label>
                 <input type="number" value={line.unit_price} onChange={e => updateLine(idx, 'unit_price', Number(e.target.value))} />
               </div>
             </div>
@@ -175,18 +177,18 @@ export default function QuoteForm() {
         ))}
 
         <div className="flex gap-1 mt-1">
-          <button className="btn" onClick={addProduct}>+ Add Product</button>
-          <button className="btn" onClick={addService}>+ Add Service</button>
+          <button className="btn" onClick={addProduct}>{t('quotes.addProduct')}</button>
+          <button className="btn" onClick={addService}>{t('quotes.addService')}</button>
         </div>
 
         <div className="flex-between mt-2">
-          <strong>Total: {total.toLocaleString()}</strong>
+          <strong>{t('sales.total')} {total.toLocaleString()}</strong>
           <button
             className="btn btn-primary"
             onClick={() => mutation.mutate()}
             disabled={!customerId || !title || lines.length === 0 || mutation.isPending}
           >
-            {mutation.isPending ? 'Saving...' : 'Create Quote'}
+            {mutation.isPending ? t('common.saving') : t('quotes.createQuote')}
           </button>
         </div>
         {mutation.isError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{(mutation.error as Error).message}</p>}

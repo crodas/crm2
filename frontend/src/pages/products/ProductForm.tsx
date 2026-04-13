@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function ProductForm() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const qc = useQueryClient()
   const [searchParams] = useSearchParams()
@@ -28,43 +30,43 @@ export default function ProductForm() {
 
   return (
     <div>
-      <h1>New {isService ? 'Service' : 'Product'}</h1>
+      <h1>{isService ? t('products.newService') : t('products.newProduct')}</h1>
       <div className="card" style={{ maxWidth: 500 }}>
         <div className="form-group">
-          <label>Type</label>
+          <label>{t('common.type')}</label>
           <select value={form.product_type} onChange={e => set('product_type', e.target.value)}>
-            <option value="product">Product</option>
-            <option value="service">Service</option>
+            <option value="product">{t('products.product')}</option>
+            <option value="service">{t('products.service')}</option>
           </select>
         </div>
         {!isService && (
           <div className="grid-2">
             <div className="form-group">
-              <label>SKU</label>
+              <label>{t('products.sku')}</label>
               <input value={form.sku} onChange={e => set('sku', e.target.value)} />
             </div>
             <div className="form-group">
-              <label>Unit</label>
+              <label>{t('products.unit')}</label>
               <input value={form.unit} onChange={e => set('unit', e.target.value)} />
             </div>
           </div>
         )}
         <div className="form-group">
-          <label>Name *</label>
+          <label>{t('customers.nameRequired')}</label>
           <input value={form.name} onChange={e => set('name', e.target.value)} />
         </div>
         <div className="form-group">
-          <label>Description</label>
+          <label>{t('common.description')}</label>
           <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={3} />
         </div>
         {isService && (
           <div className="form-group">
-            <label>Suggested Price</label>
+            <label>{t('products.suggestedPrice')}</label>
             <input type="number" value={form.suggested_price} onChange={e => set('suggested_price', Number(e.target.value))} />
           </div>
         )}
         <button className="btn btn-primary" onClick={() => mutation.mutate()} disabled={!form.name}>
-          {mutation.isPending ? 'Saving...' : `Create ${isService ? 'Service' : 'Product'}`}
+          {mutation.isPending ? t('common.saving') : (isService ? t('products.createService') : t('products.createProduct'))}
         </button>
       </div>
     </div>

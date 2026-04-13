@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function QuoteDetail() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const qc = useQueryClient()
 
@@ -35,7 +37,7 @@ export default function QuoteDetail() {
     },
   })
 
-  if (!data) return <p>Loading...</p>
+  if (!data) return <p>{t('common.loading')}</p>
 
   const { quote, lines, payments, total_paid, balance } = data
   const customer = customers?.find((c: any) => c.id === quote.customer_id)
@@ -45,25 +47,25 @@ export default function QuoteDetail() {
     <div>
       <div className="flex-between mb-2">
         <h1>
-          Quote #{quote.id}: {quote.title}
-          {quote.is_debt ? <span className="badge badge-follow_up" style={{ marginLeft: '0.5rem' }}>debt</span> : null}
+          {t('quotes.quoteNumber', { id: quote.id })} {quote.title}
+          {quote.is_debt ? <span className="badge badge-follow_up" style={{ marginLeft: '0.5rem' }}>{t('quotes.debt')}</span> : null}
         </h1>
         <span className={`badge badge-${quote.status}`}>{quote.status}</span>
       </div>
 
       <div className="grid-2">
         <div className="card">
-          <h2>Details</h2>
-          <p><strong>Customer:</strong> {customer?.name ?? quote.customer_id}</p>
-          <p><strong>Description:</strong> {quote.description || '—'}</p>
-          <p><strong>Total:</strong> {quote.total_amount.toLocaleString()}</p>
-          <p><strong>Paid:</strong> {total_paid.toLocaleString()}</p>
-          <p><strong>Balance:</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
+          <h2>{t('common.details')}</h2>
+          <p><strong>{t('sales.customer_label')}</strong> {customer?.name ?? quote.customer_id}</p>
+          <p><strong>{t('quotes.description_label')}</strong> {quote.description || '—'}</p>
+          <p><strong>{t('quotes.total_label')}</strong> {quote.total_amount.toLocaleString()}</p>
+          <p><strong>{t('quotes.paid_label')}</strong> {total_paid.toLocaleString()}</p>
+          <p><strong>{t('quotes.balance_label')}</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
             {balance.toLocaleString()}
           </span></p>
-          <p><strong>Created:</strong> {new Date(quote.created_at).toLocaleDateString()}</p>
+          <p><strong>{t('quotes.created_label')}</strong> {new Date(quote.created_at).toLocaleDateString()}</p>
 
-          <h2 className="mt-2">Status</h2>
+          <h2 className="mt-2">{t('quotes.status')}</h2>
           <div className="flex gap-1">
             {statuses.map(s => (
               <button
@@ -79,22 +81,22 @@ export default function QuoteDetail() {
         </div>
 
         <div className="card">
-          <h2>Record Payment</h2>
+          <h2>{t('quotes.recordPayment')}</h2>
           <div className="form-group">
-            <label>Amount</label>
+            <label>{t('common.amount')}</label>
             <input type="number" value={payAmount} onChange={e => setPayAmount(Number(e.target.value))} />
           </div>
           <div className="form-group">
-            <label>Method</label>
+            <label>{t('common.method')}</label>
             <select value={payMethod} onChange={e => setPayMethod(e.target.value)}>
-              <option value="cash">Cash</option>
-              <option value="card">Card</option>
-              <option value="transfer">Transfer</option>
-              <option value="check">Check</option>
+              <option value="cash">{t('quotes.cash')}</option>
+              <option value="card">{t('quotes.card')}</option>
+              <option value="transfer">{t('quotes.transfer')}</option>
+              <option value="check">{t('quotes.check')}</option>
             </select>
           </div>
           <div className="form-group">
-            <label>Notes</label>
+            <label>{t('common.notes')}</label>
             <input value={payNotes} onChange={e => setPayNotes(e.target.value)} />
           </div>
           <button
@@ -102,15 +104,15 @@ export default function QuoteDetail() {
             onClick={() => payMutation.mutate()}
             disabled={payAmount <= 0 || payMutation.isPending}
           >
-            {payMutation.isPending ? 'Recording...' : 'Record Payment'}
+            {payMutation.isPending ? t('common.recording') : t('quotes.recordPayment')}
           </button>
         </div>
       </div>
 
-      <h2 className="mt-2">Line Items</h2>
+      <h2 className="mt-2">{t('quotes.lineItems')}</h2>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+          <thead><tr><th>{t('common.description')}</th><th>{t('quotes.qty')}</th><th>{t('quotes.unitPrice')}</th><th>{t('common.total')}</th></tr></thead>
           <tbody>
             {lines.map((l: any) => (
               <tr key={l.id}>
@@ -124,11 +126,11 @@ export default function QuoteDetail() {
         </table>
       </div>
 
-      <h2 className="mt-2">Payment History</h2>
+      <h2 className="mt-2">{t('quotes.paymentHistory')}</h2>
       {payments.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Notes</th></tr></thead>
+            <thead><tr><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
             <tbody>
               {payments.map((p: any) => (
                 <tr key={p.id}>
@@ -141,7 +143,7 @@ export default function QuoteDetail() {
             </tbody>
           </table>
         </div>
-      ) : <p>No payments recorded</p>}
+      ) : <p>{t('quotes.noPayments')}</p>}
     </div>
   )
 }
