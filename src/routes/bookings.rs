@@ -95,9 +95,10 @@ pub async fn update_booking(
         .await?
         .ok_or_else(|| AppError::NotFound("Booking not found".into()))?;
 
+    let team_id = body["team_id"].as_i64().unwrap_or(existing.team_id);
     let booking = sqlx::query_as::<_, Booking>(
         "UPDATE bookings SET
-            title = ?, start_at = ?, end_at = ?, status = ?, notes = ?, updated_at = datetime('now')
+            title = ?, start_at = ?, end_at = ?, status = ?, notes = ?, team_id = ?, updated_at = datetime('now')
          WHERE id = ? RETURNING *",
     )
     .bind(body["title"].as_str().unwrap_or(&existing.title))
@@ -105,6 +106,7 @@ pub async fn update_booking(
     .bind(body["end_at"].as_str().unwrap_or(&existing.end_at))
     .bind(body["status"].as_str().unwrap_or(&existing.status))
     .bind(body["notes"].as_str().or(existing.notes.as_deref()))
+    .bind(team_id)
     .bind(id)
     .fetch_one(&pool)
     .await?;
