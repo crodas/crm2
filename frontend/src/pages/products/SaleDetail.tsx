@@ -1,8 +1,10 @@
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function SaleDetail() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const { data } = useQuery({
     queryKey: ['sale', id],
@@ -11,7 +13,7 @@ export default function SaleDetail() {
   const { data: products } = useQuery({ queryKey: ['products'], queryFn: () => api.get<any[]>('/products') })
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => api.get<any[]>('/customers') })
 
-  if (!data) return <p>Loading...</p>
+  if (!data) return <p>{t('common.loading')}</p>
 
   const { sale, lines } = data
   const customer = customers?.find((c: any) => c.id === sale.customer_id)
@@ -19,22 +21,22 @@ export default function SaleDetail() {
 
   return (
     <div>
-      <h1>Sale #{sale.id}</h1>
+      <h1>{t('sales.saleNumber', { id: sale.id })}</h1>
       <div className="grid-2 mb-2">
         <div className="card">
-          <h2>Details</h2>
-          <p><strong>Customer:</strong> {customer?.name ?? sale.customer_id}</p>
-          <p><strong>Date:</strong> {new Date(sale.sold_at).toLocaleString()}</p>
-          <p><strong>Total:</strong> {sale.total_amount.toLocaleString()}</p>
-          <p><strong>Notes:</strong> {sale.notes || '—'}</p>
+          <h2>{t('common.details')}</h2>
+          <p><strong>{t('sales.customer_label')}</strong> {customer?.name ?? sale.customer_id}</p>
+          <p><strong>{t('sales.date_label')}</strong> {new Date(sale.sold_at).toLocaleString()}</p>
+          <p><strong>{t('sales.total_label')}</strong> {sale.total_amount.toLocaleString()}</p>
+          <p><strong>{t('sales.notes_label')}</strong> {sale.notes || '—'}</p>
         </div>
       </div>
 
-      <h2>Line Items</h2>
+      <h2>{t('sales.lineItems')}</h2>
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Product</th><th>Quantity</th><th>Price/Unit</th><th>Subtotal</th></tr>
+            <tr><th>{t('sales.product')}</th><th>{t('common.quantity')}</th><th>{t('sales.priceUnit')}</th><th>{t('sales.subtotal')}</th></tr>
           </thead>
           <tbody>
             {lines.map((l: any) => (

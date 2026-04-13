@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function QuoteList() {
+  const { t } = useTranslation()
   const { data: quotes } = useQuery({
     queryKey: ['quotes'],
     queryFn: () => api.get<any[]>('/quotes'),
@@ -11,16 +13,16 @@ export default function QuoteList() {
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Quotes</h1>
+        <h1>{t('quotes.title')}</h1>
         <div className="flex gap-1">
-          <Link to="/debts/new" className="btn">Quick Debt</Link>
-          <Link to="/quotes/new" className="btn btn-primary">New Quote</Link>
+          <Link to="/debts/new" className="btn">{t('quotes.quickDebt')}</Link>
+          <Link to="/quotes/new" className="btn btn-primary">{t('quotes.newQuote')}</Link>
         </div>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>ID</th><th>Title</th><th>Status</th><th>Amount</th><th>Date</th></tr>
+            <tr><th>{t('common.id')}</th><th>{t('common.title')}</th><th>{t('common.status')}</th><th>{t('common.amount')}</th><th>{t('common.date')}</th></tr>
           </thead>
           <tbody>
             {quotes?.map((q: any) => (
@@ -28,7 +30,7 @@ export default function QuoteList() {
                 <td><Link to={`/quotes/${q.id}`}>#{q.id}</Link></td>
                 <td>
                   {q.title}
-                  {q.is_debt ? <span className="badge badge-follow_up" style={{ marginLeft: '0.5rem' }}>debt</span> : null}
+                  {q.is_debt ? <span className="badge badge-follow_up" style={{ marginLeft: '0.5rem' }}>{t('quotes.debt')}</span> : null}
                 </td>
                 <td><span className={`badge badge-${q.status}`}>{q.status}</span></td>
                 <td>{q.total_amount.toLocaleString()}</td>

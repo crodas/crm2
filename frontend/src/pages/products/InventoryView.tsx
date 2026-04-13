@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function InventoryView() {
+  const { t } = useTranslation()
   const { data: stock } = useQuery({
     queryKey: ['stock'],
     queryFn: () => api.get<any[]>('/inventory/stock'),
@@ -22,14 +24,14 @@ export default function InventoryView() {
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Current Stock</h1>
-        <Link to="/inventory/receive" className="btn btn-primary">Receive Inventory</Link>
+        <h1>{t('inventory.currentStock')}</h1>
+        <Link to="/inventory/receive" className="btn btn-primary">{t('inventory.receiveInventory')}</Link>
       </div>
 
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>Product</th><th>Warehouse</th><th>Quantity</th></tr>
+            <tr><th>{t('sales.product')}</th><th>{t('sales.warehouse')}</th><th>{t('common.quantity')}</th></tr>
           </thead>
           <tbody>
             {stock?.map((s: any, i: number) => (
@@ -40,7 +42,7 @@ export default function InventoryView() {
               </tr>
             ))}
             {stock?.length === 0 && (
-              <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No stock yet</td></tr>
+              <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>{t('inventory.noStock')}</td></tr>
             )}
           </tbody>
         </table>

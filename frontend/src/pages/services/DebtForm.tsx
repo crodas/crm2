@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function DebtForm() {
+  const { t } = useTranslation()
   const nav = useNavigate()
   const qc = useQueryClient()
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => api.get<any[]>('/customers') })
@@ -25,25 +27,25 @@ export default function DebtForm() {
 
   return (
     <div>
-      <h1>Quick Debt</h1>
+      <h1>{t('debt.title')}</h1>
       <div className="card" style={{ maxWidth: 500 }}>
         <div className="form-group">
-          <label>Customer</label>
+          <label>{t('debt.customer')}</label>
           <select value={customerId} onChange={e => setCustomerId(Number(e.target.value))}>
-            <option value={0}>Select...</option>
+            <option value={0}>{t('common.select')}</option>
             {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
         <div className="form-group">
-          <label>Title</label>
+          <label>{t('common.title')}</label>
           <input value={title} onChange={e => setTitle(e.target.value)} />
         </div>
         <div className="form-group">
-          <label>Description</label>
+          <label>{t('common.description')}</label>
           <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2} />
         </div>
         <div className="form-group">
-          <label>Amount</label>
+          <label>{t('common.amount')}</label>
           <input type="number" value={amount} onChange={e => setAmount(Number(e.target.value))} />
         </div>
         <button
@@ -51,7 +53,7 @@ export default function DebtForm() {
           onClick={() => mutation.mutate()}
           disabled={!customerId || !title || amount <= 0 || mutation.isPending}
         >
-          {mutation.isPending ? 'Saving...' : 'Create Debt'}
+          {mutation.isPending ? t('common.saving') : t('debt.createDebt')}
         </button>
         {mutation.isError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{(mutation.error as Error).message}</p>}
       </div>

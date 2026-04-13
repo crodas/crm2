@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function TeamList() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: teams } = useQuery({ queryKey: ['teams'], queryFn: () => api.get<any[]>('/teams') })
   const [selectedTeam, setSelectedTeam] = useState<number | null>(null)
@@ -30,32 +32,32 @@ export default function TeamList() {
 
   return (
     <div>
-      <h1>Teams</h1>
+      <h1>{t('teams.title')}</h1>
       <div className="grid-2">
         <div>
           <div className="card">
-            <h2>Create Team</h2>
+            <h2>{t('teams.createTeam')}</h2>
             <div className="grid-2">
               <div className="form-group">
-                <label>Name</label>
+                <label>{t('common.name')}</label>
                 <input value={teamName} onChange={e => setTeamName(e.target.value)} />
               </div>
               <div className="form-group">
-                <label>Color</label>
+                <label>{t('common.color')}</label>
                 <input type="color" value={teamColor} onChange={e => setTeamColor(e.target.value)} />
               </div>
             </div>
-            <button className="btn btn-primary" onClick={() => createTeam.mutate()} disabled={!teamName}>Create</button>
+            <button className="btn btn-primary" onClick={() => createTeam.mutate()} disabled={!teamName}>{t('common.create')}</button>
           </div>
 
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Team</th><th>Color</th></tr></thead>
+              <thead><tr><th>{t('bookings.team')}</th><th>{t('common.color')}</th></tr></thead>
               <tbody>
-                {teams?.map((t: any) => (
-                  <tr key={t.id} onClick={() => setSelectedTeam(t.id)} style={{ cursor: 'pointer' }}>
-                    <td><strong>{t.name}</strong></td>
-                    <td><span style={{ display: 'inline-block', width: 16, height: 16, borderRadius: '50%', background: t.color || '#ccc' }} /></td>
+                {teams?.map((tm: any) => (
+                  <tr key={tm.id} onClick={() => setSelectedTeam(tm.id)} style={{ cursor: 'pointer' }}>
+                    <td><strong>{tm.name}</strong></td>
+                    <td><span style={{ display: 'inline-block', width: 16, height: 16, borderRadius: '50%', background: tm.color || '#ccc' }} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -67,24 +69,24 @@ export default function TeamList() {
           {selectedTeam ? (
             <>
               <div className="card">
-                <h2>Add Member</h2>
+                <h2>{t('teams.addMember')}</h2>
                 <div className="grid-2">
                   <div className="form-group">
-                    <label>Name</label>
+                    <label>{t('common.name')}</label>
                     <input value={memberName} onChange={e => setMemberName(e.target.value)} />
                   </div>
                   <div className="form-group">
-                    <label>Role</label>
+                    <label>{t('common.role')}</label>
                     <input value={memberRole} onChange={e => setMemberRole(e.target.value)} />
                   </div>
                 </div>
-                <button className="btn btn-primary" onClick={() => addMember.mutate()} disabled={!memberName}>Add</button>
+                <button className="btn btn-primary" onClick={() => addMember.mutate()} disabled={!memberName}>{t('common.add')}</button>
               </div>
 
-              <h2>Members</h2>
+              <h2>{t('teams.members')}</h2>
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Name</th><th>Role</th></tr></thead>
+                  <thead><tr><th>{t('common.name')}</th><th>{t('common.role')}</th></tr></thead>
                   <tbody>
                     {members?.map((m: any) => (
                       <tr key={m.id}><td>{m.name}</td><td>{m.role || '—'}</td></tr>
@@ -93,7 +95,7 @@ export default function TeamList() {
                 </table>
               </div>
             </>
-          ) : <p className="card">Select a team to view members</p>}
+          ) : <p className="card">{t('teams.selectTeam')}</p>}
         </div>
       </div>
     </div>

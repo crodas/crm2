@@ -2,8 +2,10 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function BookingDetail() {
+  const { t } = useTranslation()
   const { id } = useParams()
   const qc = useQueryClient()
 
@@ -27,32 +29,32 @@ export default function BookingDetail() {
     },
   })
 
-  if (!data) return <p>Loading...</p>
+  if (!data) return <p>{t('common.loading')}</p>
 
   const { booking, work_orders, quotes } = data
 
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Booking: {booking.title}</h1>
+        <h1>{t('bookings.bookingTitle')} {booking.title}</h1>
         <span className={`badge badge-${booking.status}`}>{booking.status}</span>
       </div>
 
       <div className="grid-2">
         <div className="card">
-          <h2>Details</h2>
-          <p><strong>Start:</strong> {new Date(booking.start_at).toLocaleString()}</p>
-          <p><strong>End:</strong> {new Date(booking.end_at).toLocaleString()}</p>
-          <p><strong>Notes:</strong> {booking.notes || '—'}</p>
+          <h2>{t('common.details')}</h2>
+          <p><strong>{t('bookings.start_label')}</strong> {new Date(booking.start_at).toLocaleString()}</p>
+          <p><strong>{t('bookings.end_label')}</strong> {new Date(booking.end_at).toLocaleString()}</p>
+          <p><strong>{t('bookings.notes_label')}</strong> {booking.notes || '—'}</p>
         </div>
         <div className="card">
-          <h2>Add Work Order</h2>
+          <h2>{t('bookings.addWorkOrder')}</h2>
           <div className="form-group">
-            <label>Description</label>
+            <label>{t('common.description')}</label>
             <textarea value={woDesc} onChange={e => setWoDesc(e.target.value)} rows={2} />
           </div>
           <div className="form-group">
-            <label>Location</label>
+            <label>{t('common.location')}</label>
             <input value={woLocation} onChange={e => setWoLocation(e.target.value)} />
           </div>
           <button
@@ -60,16 +62,16 @@ export default function BookingDetail() {
             onClick={() => woMutation.mutate()}
             disabled={!woDesc || woMutation.isPending}
           >
-            Add Work Order
+            {t('bookings.addWorkOrder')}
           </button>
         </div>
       </div>
 
-      <h2 className="mt-2">Work Orders</h2>
+      <h2 className="mt-2">{t('bookings.workOrders')}</h2>
       {work_orders.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Description</th><th>Location</th></tr></thead>
+            <thead><tr><th>{t('common.id')}</th><th>{t('common.description')}</th><th>{t('common.location')}</th></tr></thead>
             <tbody>
               {work_orders.map((wo: any) => (
                 <tr key={wo.id}>
@@ -81,13 +83,13 @@ export default function BookingDetail() {
             </tbody>
           </table>
         </div>
-      ) : <p>No work orders</p>}
+      ) : <p>{t('bookings.noWorkOrders')}</p>}
 
-      <h2 className="mt-2">Linked Quotes</h2>
+      <h2 className="mt-2">{t('bookings.linkedQuotes')}</h2>
       {quotes.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Amount</th></tr></thead>
+            <thead><tr><th>{t('common.id')}</th><th>{t('common.title')}</th><th>{t('common.status')}</th><th>{t('common.amount')}</th></tr></thead>
             <tbody>
               {quotes.map((q: any) => (
                 <tr key={q.id}>
@@ -100,7 +102,7 @@ export default function BookingDetail() {
             </tbody>
           </table>
         </div>
-      ) : <p>No linked quotes</p>}
+      ) : <p>{t('bookings.noLinkedQuotes')}</p>}
     </div>
   )
 }

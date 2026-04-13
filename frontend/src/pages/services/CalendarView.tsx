@@ -1,7 +1,8 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 function getWeekDays(date: Date): Date[] {
   const day = date.getDay()
@@ -39,6 +40,7 @@ const HOUR_HEIGHT = 60 // px per hour
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
 export default function CalendarView() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const nav = useNavigate()
   const [view, setView] = useState<'week' | 'month'>('week')
@@ -142,7 +144,7 @@ export default function CalendarView() {
       <div className="cal-week-grid" style={{ border: '1px solid var(--border-default)' }}>
         {/* Time gutter */}
         <div style={{ width: 50, flexShrink: 0, background: 'var(--bg-app)', borderRight: '1px solid var(--border-default)' }}>
-          <div style={{ height: 32 }} /> {/* header spacer */}
+          <div style={{ height: 32 }} />
           {HOURS.map(h => (
             <div key={h} style={{ height: HOUR_HEIGHT, fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', padding: '0 4px', borderTop: '1px solid var(--border-default)' }}>
               {pad(h)}:00
@@ -173,9 +175,8 @@ export default function CalendarView() {
                 {DAY_NAMES[di]} {day.getDate()}
               </div>
 
-              {/* Time slots — layered: drop targets underneath, bookings on top */}
+              {/* Time slots */}
               <div style={{ flex: 1, position: 'relative', overflow: 'auto' }}>
-                {/* Layer 1: Hour grid lines + drop targets (always interactive) */}
                 {HOURS.map(h => (
                   <div
                     key={h}
@@ -204,7 +205,7 @@ export default function CalendarView() {
                   />
                 ))}
 
-                {/* Layer 2: Booking blocks — pointer-events disabled during drag so drops pass through */}
+                {/* Booking blocks */}
                 <div style={{
                   position: 'absolute',
                   top: 0,
@@ -354,24 +355,24 @@ export default function CalendarView() {
       {/* Header */}
       <div className="cal-header">
         <div className="cal-header-left">
-          <h1 style={{ margin: 0, fontSize: '1.3rem' }}>Calendar</h1>
+          <h1 style={{ margin: 0, fontSize: '1.3rem' }}>{t('calendar.title')}</h1>
           <div className="cal-nav">
             <button className="btn btn-sm" onClick={prev}>&larr;</button>
             <span style={{ fontWeight: 600, minWidth: 100, textAlign: 'center' }}>{fmtLabel(currentDate)}</span>
             <button className="btn btn-sm" onClick={next}>&rarr;</button>
-            <button className="btn btn-sm" onClick={() => setCurrentDate(new Date())}>Today</button>
+            <button className="btn btn-sm" onClick={() => setCurrentDate(new Date())}>{t('calendar.today')}</button>
           </div>
         </div>
         <div className="cal-header-right">
           <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
-            <button className={`tab ${view === 'week' ? 'active' : ''}`} onClick={() => setView('week')}>Week</button>
-            <button className={`tab ${view === 'month' ? 'active' : ''}`} onClick={() => setView('month')}>Month</button>
+            <button className={`tab ${view === 'week' ? 'active' : ''}`} onClick={() => setView('week')}>{t('calendar.week')}</button>
+            <button className={`tab ${view === 'month' ? 'active' : ''}`} onClick={() => setView('month')}>{t('calendar.month')}</button>
           </div>
           <select value={teamId ?? ''} onChange={e => setTeamId(e.target.value ? Number(e.target.value) : null)} style={{ width: 'auto', padding: '0.3rem 0.5rem' }}>
-            <option value="">All Teams</option>
-            {teams?.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            <option value="">{t('calendar.allTeams')}</option>
+            {teams?.map((tm: any) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
           </select>
-          <Link to="/bookings/new" className="btn btn-primary btn-sm">+ Booking</Link>
+          <Link to="/bookings/new" className="btn btn-primary btn-sm">{t('calendar.addBooking')}</Link>
         </div>
       </div>
 
@@ -385,30 +386,30 @@ export default function CalendarView() {
         >
           <div className="card" style={{ width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginBottom: '0.75rem' }}>
-              New Booking — {creating.date} at {pad(creating.hour)}:00
+              {t('calendar.newBookingAt', { date: creating.date, time: `${pad(creating.hour)}:00` })}
             </h2>
             <div className="form-group">
-              <label>Title</label>
+              <label>{t('common.title')}</label>
               <input value={qcTitle} onChange={e => setQcTitle(e.target.value)} autoFocus />
             </div>
             <div className="grid-2">
               <div className="form-group">
-                <label>Team</label>
+                <label>{t('bookings.team')}</label>
                 <select value={qcTeam} onChange={e => setQcTeam(Number(e.target.value))}>
-                  <option value={0}>Select...</option>
-                  {teams?.map((t: any) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                  <option value={0}>{t('common.select')}</option>
+                  {teams?.map((tm: any) => <option key={tm.id} value={tm.id}>{tm.name}</option>)}
                 </select>
               </div>
               <div className="form-group">
-                <label>Customer</label>
+                <label>{t('bookings.customer')}</label>
                 <select value={qcCustomer} onChange={e => setQcCustomer(Number(e.target.value))}>
-                  <option value={0}>Select...</option>
+                  <option value={0}>{t('common.select')}</option>
                   {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             </div>
             <div className="form-group">
-              <label>Duration (hours)</label>
+              <label>{t('calendar.duration')}</label>
               <select value={qcDuration} onChange={e => setQcDuration(Number(e.target.value))}>
                 {[0.5, 1, 1.5, 2, 3, 4, 6, 8].map(h => <option key={h} value={h}>{h}h</option>)}
               </select>
@@ -419,9 +420,9 @@ export default function CalendarView() {
                 onClick={() => quickCreate.mutate()}
                 disabled={!qcTitle || !qcTeam || !qcCustomer || quickCreate.isPending}
               >
-                {quickCreate.isPending ? 'Creating...' : 'Create'}
+                {quickCreate.isPending ? t('common.creating') : t('common.create')}
               </button>
-              <button className="btn" onClick={() => setCreating(null)}>Cancel</button>
+              <button className="btn" onClick={() => setCreating(null)}>{t('common.cancel')}</button>
             </div>
             {quickCreate.isError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{(quickCreate.error as Error).message}</p>}
           </div>

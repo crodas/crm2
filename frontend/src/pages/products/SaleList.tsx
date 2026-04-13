@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { api } from '../../api'
+import { useTranslation } from '../../i18n'
 
 export default function SaleList() {
+  const { t } = useTranslation()
   const { data: sales } = useQuery({
     queryKey: ['sales'],
     queryFn: () => api.get<any[]>('/sales'),
@@ -11,13 +13,13 @@ export default function SaleList() {
   return (
     <div>
       <div className="flex-between mb-2">
-        <h1>Sales</h1>
-        <Link to="/sales/new" className="btn btn-primary">New Sale</Link>
+        <h1>{t('sales.title')}</h1>
+        <Link to="/sales/new" className="btn btn-primary">{t('sales.newSale')}</Link>
       </div>
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>ID</th><th>Date</th><th>Total</th><th>Notes</th></tr>
+            <tr><th>{t('common.id')}</th><th>{t('common.date')}</th><th>{t('common.total')}</th><th>{t('common.notes')}</th></tr>
           </thead>
           <tbody>
             {sales?.map((s: any) => (

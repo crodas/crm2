@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
 import { LayoutDashboard, Users, FileText, Calendar, ShoppingCart, MoreHorizontal, Settings as SettingsIcon, Package, Warehouse, UsersRound, CalendarCheck, Sun, Moon } from 'lucide-react'
+import { useTranslation } from './i18n'
 import Dashboard from './pages/Dashboard'
 import CustomerList from './pages/customers/CustomerList'
 import CustomerForm from './pages/customers/CustomerForm'
@@ -67,6 +68,7 @@ function TopNav() {
   const moreRef = useRef<HTMLDivElement>(null)
   const moreBottomRef = useRef<HTMLDivElement>(null)
   const { isDark, toggle } = useTheme()
+  const { t } = useTranslation()
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
@@ -95,14 +97,14 @@ function TopNav() {
   const moreDropdown = moreOpen && (
     <div className="topbar-dropdown">
       <div className="topbar-dropdown-group">
-        <div className="topbar-dropdown-label">Products</div>
-        <Link to="/products"><Package size={17} />Catalog</Link>
-        <Link to="/inventory"><Warehouse size={17} />Inventory</Link>
+        <div className="topbar-dropdown-label">{t('nav.products')}</div>
+        <Link to="/products"><Package size={17} />{t('nav.catalog')}</Link>
+        <Link to="/inventory"><Warehouse size={17} />{t('nav.inventory')}</Link>
       </div>
       <div className="topbar-dropdown-group">
-        <div className="topbar-dropdown-label">Teams</div>
-        <Link to="/teams"><UsersRound size={17} />Teams</Link>
-        <Link to="/bookings"><CalendarCheck size={17} />Bookings</Link>
+        <div className="topbar-dropdown-label">{t('nav.teams')}</div>
+        <Link to="/teams"><UsersRound size={17} />{t('nav.teams')}</Link>
+        <Link to="/bookings"><CalendarCheck size={17} />{t('nav.bookings')}</Link>
       </div>
     </div>
   )
@@ -111,14 +113,14 @@ function TopNav() {
     <>
       <header className="topbar">
         <div className="topbar-left">
-          <Link to="/" className="topbar-brand">CRM2</Link>
+          <Link to="/" className="topbar-brand">{t('app.brand')}</Link>
         </div>
         <nav className="topbar-nav">
-          <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={18} />Dashboard</Link>
-          <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={18} />Customers</Link>
-          <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={18} />Quotes</Link>
-          <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={18} />Sales</Link>
-          <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={18} />Calendar</Link>
+          <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={18} />{t('nav.dashboard')}</Link>
+          <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={18} />{t('nav.customers')}</Link>
+          <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={18} />{t('nav.quotes')}</Link>
+          <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={18} />{t('nav.sales')}</Link>
+          <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={18} />{t('nav.calendar')}</Link>
 
           <div className="topbar-more" ref={moreRef}>
             <button
@@ -126,31 +128,31 @@ function TopNav() {
               onClick={() => setMoreOpen(o => !o)}
             >
               <MoreHorizontal size={18} />
-              More
+              {t('nav.more')}
             </button>
             {moreDropdown}
           </div>
         </nav>
         <div className="topbar-right">
-          <button className="theme-toggle" onClick={toggle} title="Toggle dark mode">
+          <button className="theme-toggle" onClick={toggle} title={t('app.toggleDarkMode')}>
             {isDark ? <Sun size={16} /> : <Moon size={16} />}
           </button>
-          <Link to="/settings" className={`topbar-util ${isActive('/settings') ? 'active' : ''}`}><SettingsIcon size={17} />Settings</Link>
+          <Link to="/settings" className={`topbar-util ${isActive('/settings') ? 'active' : ''}`}><SettingsIcon size={17} />{t('nav.settings')}</Link>
         </div>
       </header>
 
       <nav className="bottombar">
-        <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={20} /><span>Home</span></Link>
-        <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={20} /><span>Customers</span></Link>
-        <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={20} /><span>Quotes</span></Link>
-        <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={20} /><span>Sales</span></Link>
-        <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={20} /><span>Calendar</span></Link>
+        <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={20} /><span>{t('nav.home')}</span></Link>
+        <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={20} /><span>{t('nav.customers')}</span></Link>
+        <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={20} /><span>{t('nav.quotes')}</span></Link>
+        <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={20} /><span>{t('nav.sales')}</span></Link>
+        <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={20} /><span>{t('nav.calendar')}</span></Link>
         <div className="topbar-more" ref={moreBottomRef}>
           <button
             className={`bottombar-more-btn ${moreIsActive ? 'active' : ''}`}
             onClick={() => setMoreOpen(o => !o)}
           >
-            <MoreHorizontal size={20} /><span>More</span>
+            <MoreHorizontal size={20} /><span>{t('nav.more')}</span>
           </button>
           {moreDropdown}
         </div>
