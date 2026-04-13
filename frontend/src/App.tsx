@@ -65,6 +65,7 @@ function TopNav() {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
+  const moreBottomRef = useRef<HTMLDivElement>(null)
   const { isDark, toggle } = useTheme()
 
   const isActive = (path: string) => {
@@ -79,7 +80,10 @@ function TopNav() {
   useEffect(() => {
     if (!moreOpen) return
     const handler = (e: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false)
+      if (
+        moreRef.current && !moreRef.current.contains(e.target as Node) &&
+        (!moreBottomRef.current || !moreBottomRef.current.contains(e.target as Node))
+      ) setMoreOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -88,49 +92,70 @@ function TopNav() {
   // Close on route change
   useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
-  return (
-    <header className="topbar">
-      <div className="topbar-left">
-        <Link to="/" className="topbar-brand">CRM2</Link>
+  const moreDropdown = moreOpen && (
+    <div className="topbar-dropdown">
+      <div className="topbar-dropdown-group">
+        <div className="topbar-dropdown-label">Products</div>
+        <Link to="/products"><Package size={17} />Catalog</Link>
+        <Link to="/inventory"><Warehouse size={17} />Inventory</Link>
       </div>
-      <nav className="topbar-nav">
-        <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={18} />Dashboard</Link>
-        <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={18} />Customers</Link>
-        <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={18} />Quotes</Link>
-        <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={18} />Sales</Link>
-        <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={18} />Calendar</Link>
+      <div className="topbar-dropdown-group">
+        <div className="topbar-dropdown-label">Teams</div>
+        <Link to="/teams"><UsersRound size={17} />Teams</Link>
+        <Link to="/bookings"><CalendarCheck size={17} />Bookings</Link>
+      </div>
+    </div>
+  )
 
-        <div className="topbar-more" ref={moreRef}>
+  return (
+    <>
+      <header className="topbar">
+        <div className="topbar-left">
+          <Link to="/" className="topbar-brand">CRM2</Link>
+        </div>
+        <nav className="topbar-nav">
+          <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={18} />Dashboard</Link>
+          <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={18} />Customers</Link>
+          <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={18} />Quotes</Link>
+          <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={18} />Sales</Link>
+          <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={18} />Calendar</Link>
+
+          <div className="topbar-more" ref={moreRef}>
+            <button
+              className={`topbar-more-btn ${moreIsActive ? 'active' : ''}`}
+              onClick={() => setMoreOpen(o => !o)}
+            >
+              <MoreHorizontal size={18} />
+              More
+            </button>
+            {moreDropdown}
+          </div>
+        </nav>
+        <div className="topbar-right">
+          <button className="theme-toggle" onClick={toggle} title="Toggle dark mode">
+            {isDark ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
+          <Link to="/settings" className={`topbar-util ${isActive('/settings') ? 'active' : ''}`}><SettingsIcon size={17} />Settings</Link>
+        </div>
+      </header>
+
+      <nav className="bottombar">
+        <Link to="/" className={isActive('/') ? 'active' : ''}><LayoutDashboard size={20} /><span>Home</span></Link>
+        <Link to="/customers" className={isActive('/customers') ? 'active' : ''}><Users size={20} /><span>Customers</span></Link>
+        <Link to="/quotes" className={isActive('/quotes') || isActive('/debts') ? 'active' : ''}><FileText size={20} /><span>Quotes</span></Link>
+        <Link to="/sales" className={isActive('/sales') ? 'active' : ''}><ShoppingCart size={20} /><span>Sales</span></Link>
+        <Link to="/calendar" className={isActive('/calendar') ? 'active' : ''}><Calendar size={20} /><span>Calendar</span></Link>
+        <div className="topbar-more" ref={moreBottomRef}>
           <button
-            className={`topbar-more-btn ${moreIsActive ? 'active' : ''}`}
+            className={`bottombar-more-btn ${moreIsActive ? 'active' : ''}`}
             onClick={() => setMoreOpen(o => !o)}
           >
-            <MoreHorizontal size={18} />
-            More
+            <MoreHorizontal size={20} /><span>More</span>
           </button>
-          {moreOpen && (
-            <div className="topbar-dropdown">
-              <div className="topbar-dropdown-group">
-                <div className="topbar-dropdown-label">Products</div>
-                <Link to="/products"><Package size={17} />Catalog</Link>
-                <Link to="/inventory"><Warehouse size={17} />Inventory</Link>
-              </div>
-              <div className="topbar-dropdown-group">
-                <div className="topbar-dropdown-label">Teams</div>
-                <Link to="/teams"><UsersRound size={17} />Teams</Link>
-                <Link to="/bookings"><CalendarCheck size={17} />Bookings</Link>
-              </div>
-            </div>
-          )}
+          {moreDropdown}
         </div>
       </nav>
-      <div className="topbar-right">
-        <button className="theme-toggle" onClick={toggle} title="Toggle dark mode">
-          {isDark ? <Sun size={16} /> : <Moon size={16} />}
-        </button>
-        <Link to="/settings" className={`topbar-util ${isActive('/settings') ? 'active' : ''}`}><SettingsIcon size={17} />Settings</Link>
-      </div>
-    </header>
+    </>
   )
 }
 
