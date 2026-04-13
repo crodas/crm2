@@ -17,6 +17,11 @@ pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
+/// Run migrations on an already-connected pool (useful for tests with in-memory DBs).
+pub async fn init_pool_with(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    run_migrations(pool).await
+}
+
 async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _migrations (
