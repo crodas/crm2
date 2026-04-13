@@ -52,13 +52,6 @@ pub struct CustomerGroup {
     pub created_at: String,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct CreateCustomerGroup {
-    pub name: String,
-    pub customer_type_id: i64,
-    pub default_markup_pct: f64,
-}
-
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct TimelineEvent {
     pub event_type: String,

@@ -9,59 +9,60 @@ use crate::error::AppError;
 use crate::models::inventory::InventoryUtxo;
 use crate::models::sale::*;
 
-pub async fn create_sale(
-    State(pool): State<SqlitePool>,
-    Json(body): Json<CreateSaleRequest>,
-) -> Result<Json<Sale>, AppError> {
+/// Core sale creation logic, usable from both the HTTP handler and tests.
+/// Each tuple in `lines` is `(product_id, warehouse_id, quantity, price_per_unit_cents)`.
+pub async fn create_sale_tx(
+    pool: &SqlitePool,
+    customer_id: i64,
+    customer_group_id: i64,
+    notes: Option<&str>,
+    lines: &[(i64, i64, f64, i64)],
+) -> Result<Sale, AppError> {
     let mut tx = pool.begin().await?;
 
-    // Calculate total
-    let total: Amount = body
-        .lines
+    let total: Amount = lines
         .iter()
-        .map(|l| l.price_per_unit.mul_qty(l.quantity))
+        .map(|&(_, _, qty, price)| Amount(price).mul_qty(qty))
         .sum();
 
     let sale = sqlx::query_as::<_, Sale>(
         "INSERT INTO sales (customer_id, customer_group_id, notes, total_amount)
          VALUES (?, ?, ?, ?) RETURNING *",
     )
-    .bind(body.customer_id)
-    .bind(body.customer_group_id)
-    .bind(&body.notes)
+    .bind(customer_id)
+    .bind(customer_group_id)
+    .bind(notes)
     .bind(total)
     .fetch_one(&mut *tx)
     .await?;
 
-    for line in &body.lines {
-        if line.quantity <= 0.0 {
+    for &(product_id, warehouse_id, quantity, price_cents) in lines {
+        if quantity <= 0.0 {
             return Err(AppError::BadRequest("Quantity must be positive".into()));
         }
 
-        // Insert sale line
         let sale_line = sqlx::query_as::<_, SaleLine>(
             "INSERT INTO sale_lines (sale_id, product_id, quantity, price_per_unit)
              VALUES (?, ?, ?, ?) RETURNING *",
         )
         .bind(sale.id)
-        .bind(line.product_id)
-        .bind(line.quantity)
-        .bind(line.price_per_unit)
+        .bind(product_id)
+        .bind(quantity)
+        .bind(price_cents)
         .fetch_one(&mut *tx)
         .await?;
 
-        // Get unspent UTXOs for this product+warehouse (FIFO)
         let utxos = sqlx::query_as::<_, InventoryUtxo>(
             "SELECT * FROM inventory_utxos
              WHERE product_id = ? AND warehouse_id = ? AND spent = 0
              ORDER BY created_at ASC",
         )
-        .bind(line.product_id)
-        .bind(line.warehouse_id)
+        .bind(product_id)
+        .bind(warehouse_id)
         .fetch_all(&mut *tx)
         .await?;
 
-        let mut remaining = line.quantity;
+        let mut remaining = quantity;
 
         for utxo in &utxos {
             if remaining <= 0.0 {
@@ -71,7 +72,6 @@ pub async fn create_sale(
             let used = remaining.min(utxo.quantity);
             remaining -= used;
 
-            // Mark UTXO as spent
             sqlx::query(
                 "UPDATE inventory_utxos SET spent = 1, spent_by_sale_id = ? WHERE id = ?",
             )
@@ -80,7 +80,6 @@ pub async fn create_sale(
             .execute(&mut *tx)
             .await?;
 
-            // Record which UTXOs were consumed
             sqlx::query(
                 "INSERT INTO sale_line_utxo_inputs (sale_line_id, utxo_id, quantity_used)
                  VALUES (?, ?, ?)",
@@ -91,7 +90,6 @@ pub async fn create_sale(
             .execute(&mut *tx)
             .await?;
 
-            // Create change UTXO if partial consumption
             if used < utxo.quantity {
                 let change = utxo.quantity - used;
                 sqlx::query(
@@ -99,8 +97,8 @@ pub async fn create_sale(
                      (product_id, warehouse_id, quantity, cost_per_unit, source_sale_id, spent)
                      VALUES (?, ?, ?, ?, ?, 0)",
                 )
-                .bind(line.product_id)
-                .bind(line.warehouse_id)
+                .bind(product_id)
+                .bind(warehouse_id)
                 .bind(change)
                 .bind(utxo.cost_per_unit)
                 .bind(sale.id)
@@ -110,16 +108,30 @@ pub async fn create_sale(
         }
 
         if remaining > 0.0 {
-            let available = line.quantity - remaining;
+            let available = quantity - remaining;
             return Err(AppError::InsufficientStock {
-                product_id: line.product_id,
-                requested: line.quantity,
+                product_id,
+                requested: quantity,
                 available,
             });
         }
     }
 
     tx.commit().await?;
+    Ok(sale)
+}
+
+pub async fn create_sale(
+    State(pool): State<SqlitePool>,
+    Json(body): Json<CreateSaleRequest>,
+) -> Result<Json<Sale>, AppError> {
+    let lines: Vec<(i64, i64, f64, i64)> = body
+        .lines
+        .iter()
+        .map(|l| (l.product_id, l.warehouse_id, l.quantity, l.price_per_unit.cents()))
+        .collect();
+
+    let sale = create_sale_tx(&pool, body.customer_id, body.customer_group_id, body.notes.as_deref(), &lines).await?;
     Ok(Json(sale))
 }
 
