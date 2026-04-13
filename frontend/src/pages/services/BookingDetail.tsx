@@ -67,35 +67,39 @@ export default function BookingDetail() {
 
       <h2 className="mt-2">Work Orders</h2>
       {work_orders.length > 0 ? (
-        <table>
-          <thead><tr><th>ID</th><th>Description</th><th>Location</th></tr></thead>
-          <tbody>
-            {work_orders.map((wo: any) => (
-              <tr key={wo.id}>
-                <td>#{wo.id}</td>
-                <td>{wo.description}</td>
-                <td>{wo.location || '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Description</th><th>Location</th></tr></thead>
+            <tbody>
+              {work_orders.map((wo: any) => (
+                <tr key={wo.id}>
+                  <td>#{wo.id}</td>
+                  <td>{wo.description}</td>
+                  <td>{wo.location || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : <p>No work orders</p>}
 
       <h2 className="mt-2">Linked Quotes</h2>
       {quotes.length > 0 ? (
-        <table>
-          <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Amount</th></tr></thead>
-          <tbody>
-            {quotes.map((q: any) => (
-              <tr key={q.id}>
-                <td>#{q.id}</td>
-                <td>{q.title}</td>
-                <td><span className={`badge badge-${q.status}`}>{q.status}</span></td>
-                <td>{q.total_amount.toLocaleString()}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>ID</th><th>Title</th><th>Status</th><th>Amount</th></tr></thead>
+            <tbody>
+              {quotes.map((q: any) => (
+                <tr key={q.id}>
+                  <td>#{q.id}</td>
+                  <td>{q.title}</td>
+                  <td><span className={`badge badge-${q.status}`}>{q.status}</span></td>
+                  <td>{q.total_amount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : <p>No linked quotes</p>}
     </div>
   )

@@ -31,21 +31,23 @@ export default function SaleDetail() {
       </div>
 
       <h2>Line Items</h2>
-      <table>
-        <thead>
-          <tr><th>Product</th><th>Quantity</th><th>Price/Unit</th><th>Subtotal</th></tr>
-        </thead>
-        <tbody>
-          {lines.map((l: any) => (
-            <tr key={l.id}>
-              <td>{productName(l.product_id)}</td>
-              <td>{l.quantity}</td>
-              <td>{l.price_per_unit.toLocaleString()}</td>
-              <td>{(l.quantity * l.price_per_unit).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Product</th><th>Quantity</th><th>Price/Unit</th><th>Subtotal</th></tr>
+          </thead>
+          <tbody>
+            {lines.map((l: any) => (
+              <tr key={l.id}>
+                <td>{productName(l.product_id)}</td>
+                <td>{l.quantity}</td>
+                <td>{l.price_per_unit.toLocaleString()}</td>
+                <td>{(l.quantity * l.price_per_unit).toLocaleString()}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

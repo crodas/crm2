@@ -48,17 +48,19 @@ export default function TeamList() {
             <button className="btn btn-primary" onClick={() => createTeam.mutate()} disabled={!teamName}>Create</button>
           </div>
 
-          <table>
-            <thead><tr><th>Team</th><th>Color</th></tr></thead>
-            <tbody>
-              {teams?.map((t: any) => (
-                <tr key={t.id} onClick={() => setSelectedTeam(t.id)} style={{ cursor: 'pointer' }}>
-                  <td><strong>{t.name}</strong></td>
-                  <td><span style={{ display: 'inline-block', width: 16, height: 16, borderRadius: '50%', background: t.color || '#ccc' }} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table>
+              <thead><tr><th>Team</th><th>Color</th></tr></thead>
+              <tbody>
+                {teams?.map((t: any) => (
+                  <tr key={t.id} onClick={() => setSelectedTeam(t.id)} style={{ cursor: 'pointer' }}>
+                    <td><strong>{t.name}</strong></td>
+                    <td><span style={{ display: 'inline-block', width: 16, height: 16, borderRadius: '50%', background: t.color || '#ccc' }} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         <div>
@@ -80,14 +82,16 @@ export default function TeamList() {
               </div>
 
               <h2>Members</h2>
-              <table>
-                <thead><tr><th>Name</th><th>Role</th></tr></thead>
-                <tbody>
-                  {members?.map((m: any) => (
-                    <tr key={m.id}><td>{m.name}</td><td>{m.role || '—'}</td></tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="table-wrap">
+                <table>
+                  <thead><tr><th>Name</th><th>Role</th></tr></thead>
+                  <tbody>
+                    {members?.map((m: any) => (
+                      <tr key={m.id}><td>{m.name}</td><td>{m.role || '—'}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </>
           ) : <p className="card">Select a team to view members</p>}
         </div>

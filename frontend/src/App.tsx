@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Routes, Route, Link, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Users, FileText, Calendar, ShoppingCart, MoreHorizontal, Settings as SettingsIcon, Package, Warehouse, UsersRound, CalendarCheck } from 'lucide-react'
+import { LayoutDashboard, Users, FileText, Calendar, ShoppingCart, MoreHorizontal, Settings as SettingsIcon, Package, Warehouse, UsersRound, CalendarCheck, Sun, Moon } from 'lucide-react'
 import Dashboard from './pages/Dashboard'
 import CustomerList from './pages/customers/CustomerList'
 import CustomerForm from './pages/customers/CustomerForm'
@@ -22,10 +22,50 @@ import TeamList from './pages/services/TeamList'
 import DebtForm from './pages/services/DebtForm'
 import Settings from './pages/Settings'
 
+type Theme = 'light' | 'dark' | 'system'
+
+function resolveIsDark(t: Theme) {
+  return t === 'system'
+    ? window.matchMedia('(prefers-color-scheme: dark)').matches
+    : t === 'dark'
+}
+
+function useTheme() {
+  const [theme, setTheme] = useState<Theme>(() => {
+    return (localStorage.getItem('theme') as Theme) ?? 'system'
+  })
+  const [isDark, setIsDark] = useState(() => resolveIsDark(
+    (localStorage.getItem('theme') as Theme) ?? 'system'
+  ))
+
+  useEffect(() => {
+    const dark = resolveIsDark(theme)
+    setIsDark(dark)
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('theme', theme)
+
+    if (theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)')
+      const handler = () => {
+        const d = resolveIsDark('system')
+        setIsDark(d)
+        document.documentElement.setAttribute('data-theme', d ? 'dark' : 'light')
+      }
+      mq.addEventListener('change', handler)
+      return () => mq.removeEventListener('change', handler)
+    }
+  }, [theme])
+
+  const toggle = () => setTheme(isDark ? 'light' : 'dark')
+
+  return { isDark, toggle }
+}
+
 function TopNav() {
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
   const moreRef = useRef<HTMLDivElement>(null)
+  const { isDark, toggle } = useTheme()
 
   const isActive = (path: string) => {
     if (path === '/') return location.pathname === '/'
@@ -85,6 +125,9 @@ function TopNav() {
         </div>
       </nav>
       <div className="topbar-right">
+        <button className="theme-toggle" onClick={toggle} title="Toggle dark mode">
+          {isDark ? <Sun size={16} /> : <Moon size={16} />}
+        </button>
         <Link to="/settings" className={`topbar-util ${isActive('/settings') ? 'active' : ''}`}><SettingsIcon size={17} />Settings</Link>
       </div>
     </header>

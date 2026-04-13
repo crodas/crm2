@@ -29,21 +29,23 @@ export default function CustomerList() {
         style={{ marginBottom: '1rem' }}
       />
       {isLoading ? <p>Loading...</p> : (
-        <table>
-          <thead>
-            <tr><th>Name</th><th>Type</th><th>Phone</th><th>Email</th></tr>
-          </thead>
-          <tbody>
-            {customers?.map((c: any) => (
-              <tr key={c.id}>
-                <td><Link to={`/customers/${c.id}`}>{c.name}</Link></td>
-                <td><span className="badge badge-draft">{typeName(c.customer_type_id)}</span></td>
-                <td>{c.phone}</td>
-                <td>{c.email}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Name</th><th>Type</th><th>Phone</th><th>Email</th></tr>
+            </thead>
+            <tbody>
+              {customers?.map((c: any) => (
+                <tr key={c.id}>
+                  <td><Link to={`/customers/${c.id}`}>{c.name}</Link></td>
+                  <td><span className="badge badge-draft">{typeName(c.customer_type_id)}</span></td>
+                  <td>{c.phone}</td>
+                  <td>{c.email}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   )

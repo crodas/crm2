@@ -26,23 +26,25 @@ export default function InventoryView() {
         <Link to="/inventory/receive" className="btn btn-primary">Receive Inventory</Link>
       </div>
 
-      <table>
-        <thead>
-          <tr><th>Product</th><th>Warehouse</th><th>Quantity</th></tr>
-        </thead>
-        <tbody>
-          {stock?.map((s: any, i: number) => (
-            <tr key={i}>
-              <td>{productName(s.product_id)}</td>
-              <td>{warehouseName(s.warehouse_id)}</td>
-              <td><strong>{s.total_quantity}</strong></td>
-            </tr>
-          ))}
-          {stock?.length === 0 && (
-            <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No stock yet</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Product</th><th>Warehouse</th><th>Quantity</th></tr>
+          </thead>
+          <tbody>
+            {stock?.map((s: any, i: number) => (
+              <tr key={i}>
+                <td>{productName(s.product_id)}</td>
+                <td>{warehouseName(s.warehouse_id)}</td>
+                <td><strong>{s.total_quantity}</strong></td>
+              </tr>
+            ))}
+            {stock?.length === 0 && (
+              <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No stock yet</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

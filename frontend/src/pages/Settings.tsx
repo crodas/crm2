@@ -194,25 +194,27 @@ export default function Settings() {
               </div>
               <button className="btn btn-primary btn-sm" onClick={() => createWarehouse.mutate()} disabled={!whName}>Add</button>
             </div>
-            <table>
-              <thead><tr><th>Name</th><th>Address</th></tr></thead>
-              {warehouses && warehouses.length > 0 ? (
-                <DragList keys={warehouses.map((w: any) => w.id)} onReorder={ids => reorderWarehouses.mutate(ids)}>
-                  {warehouses.map((w: any) => (
-                    <>
-                      <td>
-                        <EditableCell value={w.name} onSave={name => updateWarehouse.mutate({ id: w.id, name, address: w.address })} />
-                      </td>
-                      <td>
-                        <EditableCell value={w.address ?? ''} onSave={address => updateWarehouse.mutate({ id: w.id, name: w.name, address: address || null })} />
-                      </td>
-                    </>
-                  ))}
-                </DragList>
-              ) : (
-                <tbody><tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No warehouses</td></tr></tbody>
-              )}
-            </table>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Name</th><th>Address</th></tr></thead>
+                {warehouses && warehouses.length > 0 ? (
+                  <DragList keys={warehouses.map((w: any) => w.id)} onReorder={ids => reorderWarehouses.mutate(ids)}>
+                    {warehouses.map((w: any) => (
+                      <>
+                        <td>
+                          <EditableCell value={w.name} onSave={name => updateWarehouse.mutate({ id: w.id, name, address: w.address })} />
+                        </td>
+                        <td>
+                          <EditableCell value={w.address ?? ''} onSave={address => updateWarehouse.mutate({ id: w.id, name: w.name, address: address || null })} />
+                        </td>
+                      </>
+                    ))}
+                  </DragList>
+                ) : (
+                  <tbody><tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No warehouses</td></tr></tbody>
+                )}
+              </table>
+            </div>
           </div>
 
           {/* Customer Types */}
@@ -227,20 +229,22 @@ export default function Settings() {
               </div>
               <button className="btn btn-primary btn-sm" onClick={() => createType.mutate()} disabled={!ctName}>Add</button>
             </div>
-            <table>
-              <thead><tr><th>Name</th></tr></thead>
-              {customerTypes && customerTypes.length > 0 ? (
-                <DragList keys={customerTypes.map((t: any) => t.id)} onReorder={ids => reorderTypes.mutate(ids)}>
-                  {customerTypes.map((t: any) => (
-                    <td key={t.id}>
-                      <EditableCell value={t.name} onSave={name => updateType.mutate({ id: t.id, name })} />
-                    </td>
-                  ))}
-                </DragList>
-              ) : (
-                <tbody><tr><td style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No types</td></tr></tbody>
-              )}
-            </table>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Name</th></tr></thead>
+                {customerTypes && customerTypes.length > 0 ? (
+                  <DragList keys={customerTypes.map((t: any) => t.id)} onReorder={ids => reorderTypes.mutate(ids)}>
+                    {customerTypes.map((t: any) => (
+                      <td key={t.id}>
+                        <EditableCell value={t.name} onSave={name => updateType.mutate({ id: t.id, name })} />
+                      </td>
+                    ))}
+                  </DragList>
+                ) : (
+                  <tbody><tr><td style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No types</td></tr></tbody>
+                )}
+              </table>
+            </div>
           </div>
 
           {/* Customer Groups (Pricing) */}
@@ -261,22 +265,24 @@ export default function Settings() {
               </div>
               <button className="btn btn-primary btn-sm" onClick={() => createGroup.mutate()} disabled={!cgTypeId}>Add</button>
             </div>
-            <table>
-              <thead><tr><th>Customer Type</th><th>Markup %</th></tr></thead>
-              <tbody>
-                {customerGroups?.map((g: any) => (
-                  <tr key={g.id}>
-                    <td>{typeName(g.customer_type_id)}</td>
-                    <td>
-                      <EditableNumber value={g.default_markup_pct} onSave={v => updateGroup.mutate({ id: g.id, default_markup_pct: v })} />
-                    </td>
-                  </tr>
-                ))}
-                {customerGroups?.length === 0 && (
-                  <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No groups</td></tr>
-                )}
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Customer Type</th><th>Markup %</th></tr></thead>
+                <tbody>
+                  {customerGroups?.map((g: any) => (
+                    <tr key={g.id}>
+                      <td>{typeName(g.customer_type_id)}</td>
+                      <td>
+                        <EditableNumber value={g.default_markup_pct} onSave={v => updateGroup.mutate({ id: g.id, default_markup_pct: v })} />
+                      </td>
+                    </tr>
+                  ))}
+                  {customerGroups?.length === 0 && (
+                    <tr><td colSpan={2} style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No groups</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

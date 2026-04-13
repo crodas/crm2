@@ -37,42 +37,46 @@ export default function ProductList() {
       {isLoading ? <p>Loading...</p> : (
         <>
           <h2>Products</h2>
-          <table>
-            <thead>
-              <tr><th>SKU</th><th>Name</th><th>Unit</th></tr>
-            </thead>
-            <tbody>
-              {products.map((p: any) => (
-                <tr key={p.id}>
-                  <td>{p.sku || '—'}</td>
-                  <td>{p.name}</td>
-                  <td>{p.unit}</td>
-                </tr>
-              ))}
-              {products.length === 0 && (
-                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No products</td></tr>
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>SKU</th><th>Name</th><th>Unit</th></tr>
+              </thead>
+              <tbody>
+                {products.map((p: any) => (
+                  <tr key={p.id}>
+                    <td>{p.sku || '—'}</td>
+                    <td>{p.name}</td>
+                    <td>{p.unit}</td>
+                  </tr>
+                ))}
+                {products.length === 0 && (
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No products</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
           <h2 className="mt-2">Services</h2>
-          <table>
-            <thead>
-              <tr><th>Name</th><th>Description</th><th>Suggested Price</th></tr>
-            </thead>
-            <tbody>
-              {services.map((s: any) => (
-                <tr key={s.id}>
-                  <td>{s.name}</td>
-                  <td>{s.description || '—'}</td>
-                  <td>{s.suggested_price.toLocaleString()}</td>
-                </tr>
-              ))}
-              {services.length === 0 && (
-                <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No services</td></tr>
-              )}
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Name</th><th>Description</th><th>Suggested Price</th></tr>
+              </thead>
+              <tbody>
+                {services.map((s: any) => (
+                  <tr key={s.id}>
+                    <td>{s.name}</td>
+                    <td>{s.description || '—'}</td>
+                    <td>{s.suggested_price.toLocaleString()}</td>
+                  </tr>
+                ))}
+                {services.length === 0 && (
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No services</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
@@ -90,17 +94,19 @@ export default function ProductList() {
           <button className="btn btn-primary" onClick={() => createWarehouse.mutate()} disabled={!whName}>Add</button>
         </div>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>Address</th></tr></thead>
-        <tbody>
-          {warehouses?.map((w: any) => (
-            <tr key={w.id}><td>{w.name}</td><td>{w.address || '—'}</td></tr>
-          ))}
-          {warehouses?.length === 0 && (
-            <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No warehouses</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Address</th></tr></thead>
+          <tbody>
+            {warehouses?.map((w: any) => (
+              <tr key={w.id}><td>{w.name}</td><td>{w.address || '—'}</td></tr>
+            ))}
+            {warehouses?.length === 0 && (
+              <tr><td colSpan={2} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>No warehouses</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

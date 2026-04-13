@@ -138,7 +138,8 @@ export default function CalendarView() {
     const weekDays = getWeekDays(currentDate)
 
     return (
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', borderRadius: 8, border: '1px solid var(--border-default)' }}>
+      <div className="cal-week-scroll">
+      <div className="cal-week-grid" style={{ border: '1px solid var(--border-default)' }}>
         {/* Time gutter */}
         <div style={{ width: 50, flexShrink: 0, background: 'var(--bg-app)', borderRight: '1px solid var(--border-default)' }}>
           <div style={{ height: 32 }} /> {/* header spacer */}
@@ -261,6 +262,7 @@ export default function CalendarView() {
           )
         })}
       </div>
+      </div>
     )
   }
 
@@ -348,20 +350,20 @@ export default function CalendarView() {
   )
 
   return (
-    <div style={{ margin: '-32px -40px', padding: '16px 24px', height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}>
+    <div className="calendar-fullbleed">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+      <div className="cal-header">
+        <div className="cal-header-left">
           <h1 style={{ margin: 0, fontSize: '1.3rem' }}>Calendar</h1>
-          <div className="flex gap-1" style={{ alignItems: 'center' }}>
+          <div className="cal-nav">
             <button className="btn btn-sm" onClick={prev}>&larr;</button>
-            <span style={{ fontWeight: 600, minWidth: 120, textAlign: 'center' }}>{fmtLabel(currentDate)}</span>
+            <span style={{ fontWeight: 600, minWidth: 100, textAlign: 'center' }}>{fmtLabel(currentDate)}</span>
             <button className="btn btn-sm" onClick={next}>&rarr;</button>
             <button className="btn btn-sm" onClick={() => setCurrentDate(new Date())}>Today</button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <div className="tabs" style={{ marginBottom: 0 }}>
+        <div className="cal-header-right">
+          <div className="tabs" style={{ marginBottom: 0, borderBottom: 'none' }}>
             <button className={`tab ${view === 'week' ? 'active' : ''}`} onClick={() => setView('week')}>Week</button>
             <button className={`tab ${view === 'month' ? 'active' : ''}`} onClick={() => setView('month')}>Month</button>
           </div>

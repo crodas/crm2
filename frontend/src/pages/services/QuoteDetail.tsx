@@ -108,35 +108,39 @@ export default function QuoteDetail() {
       </div>
 
       <h2 className="mt-2">Line Items</h2>
-      <table>
-        <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
-        <tbody>
-          {lines.map((l: any) => (
-            <tr key={l.id}>
-              <td>{l.description}</td>
-              <td>{l.quantity}</td>
-              <td>{l.unit_price.toLocaleString()}</td>
-              <td>{(l.quantity * l.unit_price).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <h2 className="mt-2">Payment History</h2>
-      {payments.length > 0 ? (
+      <div className="table-wrap">
         <table>
-          <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
           <tbody>
-            {payments.map((p: any) => (
-              <tr key={p.id}>
-                <td>{new Date(p.paid_at).toLocaleDateString()}</td>
-                <td>{p.amount.toLocaleString()}</td>
-                <td>{p.method}</td>
-                <td>{p.notes || '—'}</td>
+            {lines.map((l: any) => (
+              <tr key={l.id}>
+                <td>{l.description}</td>
+                <td>{l.quantity}</td>
+                <td>{l.unit_price.toLocaleString()}</td>
+                <td>{(l.quantity * l.unit_price).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+
+      <h2 className="mt-2">Payment History</h2>
+      {payments.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Notes</th></tr></thead>
+            <tbody>
+              {payments.map((p: any) => (
+                <tr key={p.id}>
+                  <td>{new Date(p.paid_at).toLocaleDateString()}</td>
+                  <td>{p.amount.toLocaleString()}</td>
+                  <td>{p.method}</td>
+                  <td>{p.notes || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : <p>No payments recorded</p>}
     </div>
   )
