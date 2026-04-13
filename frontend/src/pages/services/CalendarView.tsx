@@ -129,7 +129,7 @@ export default function CalendarView() {
     return bookings?.filter((b: any) => b.start_at.slice(0, 10) === ds) ?? []
   }
 
-  const teamColor = (tid: number) => teams?.find((t: any) => t.id === tid)?.color ?? '#0d6efd'
+  const teamColor = (tid: number) => teams?.find((t: any) => t.id === tid)?.color ?? '#5C7F63'
   const teamName = (tid: number) => teams?.find((t: any) => t.id === tid)?.name ?? ''
   const today = fmt(new Date())
 
@@ -138,12 +138,12 @@ export default function CalendarView() {
     const weekDays = getWeekDays(currentDate)
 
     return (
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', borderRadius: 8, border: '1px solid var(--border)' }}>
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', borderRadius: 8, border: '1px solid var(--border-default)' }}>
         {/* Time gutter */}
-        <div style={{ width: 50, flexShrink: 0, background: 'var(--bg)', borderRight: '1px solid var(--border)' }}>
+        <div style={{ width: 50, flexShrink: 0, background: 'var(--bg-app)', borderRight: '1px solid var(--border-default)' }}>
           <div style={{ height: 32 }} /> {/* header spacer */}
           {HOURS.map(h => (
-            <div key={h} style={{ height: HOUR_HEIGHT, fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', padding: '0 4px', borderTop: '1px solid var(--border)' }}>
+            <div key={h} style={{ height: HOUR_HEIGHT, fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'right', padding: '0 4px', borderTop: '1px solid var(--border-default)' }}>
               {pad(h)}:00
             </div>
           ))}
@@ -156,7 +156,7 @@ export default function CalendarView() {
           const dayBookings = getBookingsForDay(day)
 
           return (
-            <div key={di} style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: di > 0 ? '1px solid var(--border)' : undefined }}>
+            <div key={di} style={{ flex: 1, display: 'flex', flexDirection: 'column', borderLeft: di > 0 ? '1px solid var(--border-default)' : undefined }}>
               {/* Day header */}
               <div style={{
                 height: 32,
@@ -165,9 +165,9 @@ export default function CalendarView() {
                 justifyContent: 'center',
                 fontWeight: 600,
                 fontSize: '0.8rem',
-                background: isToday ? '#e3f2fd' : 'var(--bg)',
-                borderBottom: '1px solid var(--border)',
-                color: isToday ? 'var(--primary)' : 'var(--text)',
+                background: isToday ? 'var(--accent-primary-soft)' : 'var(--bg-app)',
+                borderBottom: '1px solid var(--border-default)',
+                color: isToday ? 'var(--accent-primary)' : 'var(--text-primary)',
               }}>
                 {DAY_NAMES[di]} {day.getDate()}
               </div>
@@ -194,10 +194,10 @@ export default function CalendarView() {
                     }}
                     style={{
                       height: HOUR_HEIGHT,
-                      borderTop: '1px solid var(--border)',
+                      borderTop: '1px solid var(--border-default)',
                       cursor: 'pointer',
-                      background: dropTarget === `${dayStr}-${h}` ? '#e8f0fe' :
-                        creating?.date === dayStr && creating?.hour === h ? '#fff9c4' : undefined,
+                      background: dropTarget === `${dayStr}-${h}` ? 'var(--accent-secondary-soft)' :
+                        creating?.date === dayStr && creating?.hour === h ? 'var(--status-warning-soft)' : undefined,
                       transition: 'background 0.1s',
                     }}
                   />
@@ -272,13 +272,13 @@ export default function CalendarView() {
       gridTemplateColumns: 'repeat(7, 1fr)',
       gridTemplateRows: 'auto repeat(6, 1fr)',
       gap: '1px',
-      background: 'var(--border)',
-      border: '1px solid var(--border)',
+      background: 'var(--border-default)',
+      border: '1px solid var(--border-default)',
       borderRadius: 8,
       overflow: 'hidden',
     }}>
       {DAY_NAMES.map(d => (
-        <div key={d} style={{ background: 'var(--bg)', padding: '0.3rem', textAlign: 'center', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+        <div key={d} style={{ background: 'var(--bg-app)', padding: '0.3rem', textAlign: 'center', fontWeight: 600, fontSize: '0.8rem', color: 'var(--text-muted)' }}>
           {d}
         </div>
       ))}
@@ -307,16 +307,16 @@ export default function CalendarView() {
               }
             }}
             style={{
-              background: isDrop ? '#e8f0fe' : isToday ? '#fffde7' : 'var(--surface)',
+              background: isDrop ? 'var(--accent-secondary-soft)' : isToday ? 'var(--accent-primary-soft)' : 'var(--bg-surface)',
               padding: '0.25rem',
               opacity: isCurrentMonth ? 1 : 0.35,
               overflow: 'auto',
               cursor: 'pointer',
-              outline: isDrop ? '2px solid var(--primary)' : undefined,
+              outline: isDrop ? '2px solid var(--accent-primary)' : undefined,
               outlineOffset: '-2px',
             }}
           >
-            <div style={{ fontSize: '0.72rem', fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--primary)' : 'var(--text-muted)', marginBottom: '0.1rem' }}>
+            <div style={{ fontSize: '0.72rem', fontWeight: isToday ? 700 : 500, color: isToday ? 'var(--accent-primary)' : 'var(--text-muted)', marginBottom: '0.1rem' }}>
               {day.getDate()}
             </div>
             {dayBookings.map((b: any) => (
@@ -348,7 +348,7 @@ export default function CalendarView() {
   )
 
   return (
-    <div style={{ margin: '-1.5rem', padding: '1rem', height: 'calc(100vh)', display: 'flex', flexDirection: 'column' }}>
+    <div style={{ margin: '-32px -40px', padding: '16px 24px', height: 'calc(100vh - 56px)', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>

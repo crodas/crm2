@@ -175,7 +175,7 @@ export default function Settings() {
           <button className="btn btn-primary mt-1" onClick={() => configMutation.mutate()} disabled={configMutation.isPending}>
             {configMutation.isPending ? 'Saving...' : 'Save Settings'}
           </button>
-          {configMutation.isSuccess && <p style={{ color: 'var(--success)', marginTop: '0.5rem' }}>Settings saved</p>}
+          {configMutation.isSuccess && <p style={{ color: 'var(--status-success)', marginTop: '0.5rem' }}>Settings saved</p>}
         </div>
 
         <div>

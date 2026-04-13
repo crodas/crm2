@@ -94,7 +94,7 @@ export default function InventoryReceive() {
 
         <h2>Line Items</h2>
         {lines.map((line, idx) => (
-          <div key={idx} className="card" style={{ background: 'var(--bg)' }}>
+          <div key={idx} className="card" style={{ background: 'var(--bg-app)' }}>
             <div className="flex-between mb-1">
               <strong>Item {idx + 1}</strong>
               <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>Remove</button>

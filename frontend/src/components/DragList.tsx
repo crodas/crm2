@@ -58,8 +58,8 @@ export default function DragList({ children, keys, onReorder }: DragListProps) {
           style={{
             cursor: 'grab',
             opacity: dragIdx === idx ? 0.4 : 1,
-            borderTop: overIdx === idx && dragIdx !== null && dragIdx > idx ? '2px solid var(--primary)' : undefined,
-            borderBottom: overIdx === idx && dragIdx !== null && dragIdx < idx ? '2px solid var(--primary)' : undefined,
+            borderTop: overIdx === idx && dragIdx !== null && dragIdx > idx ? '2px solid var(--accent-primary)' : undefined,
+            borderBottom: overIdx === idx && dragIdx !== null && dragIdx < idx ? '2px solid var(--accent-primary)' : undefined,
           }}
         >
           {child}

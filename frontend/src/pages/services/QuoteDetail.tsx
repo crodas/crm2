@@ -58,7 +58,7 @@ export default function QuoteDetail() {
           <p><strong>Description:</strong> {quote.description || '—'}</p>
           <p><strong>Total:</strong> {quote.total_amount.toLocaleString()}</p>
           <p><strong>Paid:</strong> {total_paid.toLocaleString()}</p>
-          <p><strong>Balance:</strong> <span style={{ color: balance > 0 ? 'var(--danger)' : 'var(--success)' }}>
+          <p><strong>Balance:</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
             {balance.toLocaleString()}
           </span></p>
           <p><strong>Created:</strong> {new Date(quote.created_at).toLocaleDateString()}</p>

@@ -14,7 +14,7 @@ export default function TeamList() {
   })
 
   const [teamName, setTeamName] = useState('')
-  const [teamColor, setTeamColor] = useState('#0d6efd')
+  const [teamColor, setTeamColor] = useState('#5C7F63')
   const [memberName, setMemberName] = useState('')
   const [memberRole, setMemberRole] = useState('')
 

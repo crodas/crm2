@@ -38,7 +38,7 @@ export default function CustomerDetail() {
             <h2>Balance</h2>
             <p><strong>Total Owed:</strong> {balance.total_owed.toLocaleString()}</p>
             <p><strong>Total Paid:</strong> {balance.total_paid.toLocaleString()}</p>
-            <p><strong>Outstanding:</strong> <span style={{ color: balance.outstanding > 0 ? 'var(--danger)' : 'var(--success)' }}>
+            <p><strong>Outstanding:</strong> <span style={{ color: balance.outstanding > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
               {balance.outstanding.toLocaleString()}
             </span></p>
           </div>

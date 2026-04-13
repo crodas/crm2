@@ -133,7 +133,7 @@ export default function QuoteForm() {
 
         <h2>Line Items</h2>
         {lines.map((line, idx) => (
-          <div key={idx} className="card" style={{ background: 'var(--bg)' }}>
+          <div key={idx} className="card" style={{ background: 'var(--bg-app)' }}>
             <div className="flex-between mb-1">
               <strong>
                 <span className={`badge ${line.line_type === 'service' ? 'badge-accepted' : 'badge-sent'}`}>
