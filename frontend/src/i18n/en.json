@@ -46,6 +46,7 @@
   "common.details": "Details",
   "common.location": "Location",
   "common.method": "Method",
+  "common.versionId": "Version",
 
   "dashboard.title": "Dashboard",
   "dashboard.customers": "Customers",
@@ -167,11 +168,10 @@
   "bookings.start_label": "Start:",
   "bookings.end_label": "End:",
   "bookings.notes_label": "Notes:",
-  "bookings.addWorkOrder": "Add Work Order",
-  "bookings.workOrders": "Work Orders",
-  "bookings.noWorkOrders": "No work orders",
   "bookings.linkedQuotes": "Linked Quotes",
   "bookings.noLinkedQuotes": "No linked quotes",
+  "bookings.linkedBookings": "Linked Bookings",
+  "bookings.noLinkedBookings": "No linked bookings",
 
   "calendar.title": "Calendar",
   "calendar.week": "Week",

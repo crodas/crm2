@@ -8,6 +8,7 @@ use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::inventory::InventoryUtxo;
 use crate::models::sale::*;
+use crate::version;
 
 /// Core sale creation logic, usable from both the HTTP handler and tests.
 /// Each tuple in `lines` is `(product_id, warehouse_id, quantity, price_per_unit_cents)`.
@@ -25,14 +26,22 @@ pub async fn create_sale_tx(
         .map(|&(_, _, qty, price)| Amount(price).mul_qty(qty))
         .sum();
 
+    let notes_owned = notes.map(|s| s.to_string());
+    let prev_sale = version::latest_version_id(&mut *tx, "sales").await?;
+    let sale_vid = version::compute_version_id(
+        &version::sale_fields(customer_id, customer_group_id, &notes_owned, total.cents()),
+        &prev_sale,
+    );
+
     let sale = sqlx::query_as::<_, Sale>(
-        "INSERT INTO sales (customer_id, customer_group_id, notes, total_amount)
-         VALUES (?, ?, ?, ?) RETURNING *",
+        "INSERT INTO sales (customer_id, customer_group_id, notes, total_amount, version_id)
+         VALUES (?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(customer_id)
     .bind(customer_group_id)
     .bind(notes)
     .bind(total)
+    .bind(&sale_vid)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -41,14 +50,21 @@ pub async fn create_sale_tx(
             return Err(AppError::BadRequest("Quantity must be positive".into()));
         }
 
+        let prev_sl = version::latest_version_id(&mut *tx, "sale_lines").await?;
+        let sl_vid = version::compute_version_id(
+            &version::sale_line_fields(sale.id, product_id, quantity, price_cents),
+            &prev_sl,
+        );
+
         let sale_line = sqlx::query_as::<_, SaleLine>(
-            "INSERT INTO sale_lines (sale_id, product_id, quantity, price_per_unit)
-             VALUES (?, ?, ?, ?) RETURNING *",
+            "INSERT INTO sale_lines (sale_id, product_id, quantity, price_per_unit, version_id)
+             VALUES (?, ?, ?, ?, ?) RETURNING *",
         )
         .bind(sale.id)
         .bind(product_id)
         .bind(quantity)
         .bind(price_cents)
+        .bind(&sl_vid)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -80,28 +96,45 @@ pub async fn create_sale_tx(
             .execute(&mut *tx)
             .await?;
 
+            let prev_input = version::latest_version_id(&mut *tx, "sale_line_utxo_inputs").await?;
+            let input_vid = version::compute_version_id(
+                &version::sale_line_utxo_input_fields(sale_line.id, utxo.id, used),
+                &prev_input,
+            );
+
             sqlx::query(
-                "INSERT INTO sale_line_utxo_inputs (sale_line_id, utxo_id, quantity_used)
-                 VALUES (?, ?, ?)",
+                "INSERT INTO sale_line_utxo_inputs (sale_line_id, utxo_id, quantity_used, version_id)
+                 VALUES (?, ?, ?, ?)",
             )
             .bind(sale_line.id)
             .bind(utxo.id)
             .bind(used)
+            .bind(&input_vid)
             .execute(&mut *tx)
             .await?;
 
             if used < utxo.quantity {
                 let change = utxo.quantity - used;
+                let prev_utxo = version::latest_version_id(&mut *tx, "inventory_utxos").await?;
+                let change_vid = version::compute_version_id(
+                    &version::inventory_utxo_fields(
+                        product_id, warehouse_id, change,
+                        utxo.cost_per_unit.cents(), None, Some(sale.id),
+                    ),
+                    &prev_utxo,
+                );
+
                 sqlx::query(
                     "INSERT INTO inventory_utxos
-                     (product_id, warehouse_id, quantity, cost_per_unit, source_sale_id, spent)
-                     VALUES (?, ?, ?, ?, ?, 0)",
+                     (product_id, warehouse_id, quantity, cost_per_unit, source_sale_id, spent, version_id)
+                     VALUES (?, ?, ?, ?, ?, 0, ?)",
                 )
                 .bind(product_id)
                 .bind(warehouse_id)
                 .bind(change)
                 .bind(utxo.cost_per_unit)
                 .bind(sale.id)
+                .bind(&change_vid)
                 .execute(&mut *tx)
                 .await?;
             }

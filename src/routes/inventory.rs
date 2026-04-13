@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 
 use crate::error::AppError;
 use crate::models::inventory::*;
+use crate::version;
 
 #[derive(Deserialize)]
 pub struct StockQuery {
@@ -27,13 +28,20 @@ pub async fn receive_inventory(
 ) -> Result<Json<InventoryReceipt>, AppError> {
     let mut tx = pool.begin().await?;
 
+    let prev_receipt = version::latest_version_id(&mut *tx, "inventory_receipts").await?;
+    let receipt_vid = version::compute_version_id(
+        &version::inventory_receipt_fields(&body.reference, &body.supplier_name, &body.notes),
+        &prev_receipt,
+    );
+
     let receipt = sqlx::query_as::<_, InventoryReceipt>(
-        "INSERT INTO inventory_receipts (reference, supplier_name, notes)
-         VALUES (?, ?, ?) RETURNING *",
+        "INSERT INTO inventory_receipts (reference, supplier_name, notes, version_id)
+         VALUES (?, ?, ?, ?) RETURNING *",
     )
     .bind(&body.reference)
     .bind(&body.supplier_name)
     .bind(&body.notes)
+    .bind(&receipt_vid)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -43,28 +51,48 @@ pub async fn receive_inventory(
         }
 
         // Create UTXO
+        let prev_utxo = version::latest_version_id(&mut *tx, "inventory_utxos").await?;
+        let utxo_vid = version::compute_version_id(
+            &version::inventory_utxo_fields(
+                line.product_id, line.warehouse_id, line.quantity,
+                line.cost_per_unit.cents(), Some(receipt.id), None,
+            ),
+            &prev_utxo,
+        );
+
         sqlx::query(
-            "INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id, version_id)
+             VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(line.product_id)
         .bind(line.warehouse_id)
         .bind(line.quantity)
         .bind(line.cost_per_unit)
         .bind(receipt.id)
+        .bind(&utxo_vid)
         .execute(&mut *tx)
         .await?;
 
         // Store prices for each customer group
         for price in &line.prices {
+            let prev_price = version::latest_version_id(&mut *tx, "inventory_receipt_prices").await?;
+            let price_vid = version::compute_version_id(
+                &version::receipt_price_fields(
+                    receipt.id, line.product_id, price.customer_group_id,
+                    price.price_per_unit.cents(),
+                ),
+                &prev_price,
+            );
+
             sqlx::query(
-                "INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit)
-                 VALUES (?, ?, ?, ?)",
+                "INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit, version_id)
+                 VALUES (?, ?, ?, ?, ?)",
             )
             .bind(receipt.id)
             .bind(line.product_id)
             .bind(price.customer_group_id)
             .bind(price.price_per_unit)
+            .bind(&price_vid)
             .execute(&mut *tx)
             .await?;
         }

@@ -10,6 +10,7 @@ pub struct InventoryReceipt {
     pub notes: Option<String>,
     pub received_at: String,
     pub created_at: String,
+    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -24,6 +25,7 @@ pub struct InventoryUtxo {
     pub spent: bool,
     pub spent_by_sale_id: Option<i64>,
     pub created_at: String,
+    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -40,6 +42,7 @@ pub struct ReceiptPrice {
     pub product_id: i64,
     pub customer_group_id: i64,
     pub price_per_unit: Amount,
+    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]

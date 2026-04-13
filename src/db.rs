@@ -1,5 +1,7 @@
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
+use crate::version;
+
 pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -51,6 +53,18 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             "005_services_catalog",
             include_str!("../migrations/005_services_catalog.sql"),
         ),
+        (
+            "006_version_chain",
+            include_str!("../migrations/006_version_chain.sql"),
+        ),
+        (
+            "007_version_chain_quotes_bookings",
+            include_str!("../migrations/007_version_chain_quotes_bookings.sql"),
+        ),
+        (
+            "008_merge_work_orders_into_bookings",
+            include_str!("../migrations/008_merge_work_orders_into_bookings.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -73,6 +87,15 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 .bind(name)
                 .execute(pool)
                 .await?;
+
+            // Backfill version_id hash chains for existing rows
+            if name == "006_version_chain" {
+                tracing::info!("Backfilling version_id chains (append-only tables)...");
+                version::recompute_append_only_chains(pool).await?;
+            } else if name == "008_merge_work_orders_into_bookings" {
+                tracing::info!("Backfilling version_id chains (all tables)...");
+                version::recompute_all_chains(pool).await?;
+            }
         }
     }
 

@@ -18,12 +18,14 @@ export default function BookingForm() {
     start_at: '',
     end_at: '',
     notes: '',
+    description: '',
+    location: '',
   })
 
   const set = (field: string, value: string | number) => setForm(f => ({ ...f, [field]: value }))
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/bookings', { ...form, notes: form.notes || null }),
+    mutationFn: () => api.post('/bookings', { ...form, notes: form.notes || null, description: form.description || null, location: form.location || null }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['bookings'] }); nav('/calendar') },
   })
 
@@ -62,8 +64,16 @@ export default function BookingForm() {
           </div>
         </div>
         <div className="form-group">
+          <label>{t('common.description')}</label>
+          <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={3} />
+        </div>
+        <div className="form-group">
+          <label>{t('common.location')}</label>
+          <input value={form.location} onChange={e => set('location', e.target.value)} />
+        </div>
+        <div className="form-group">
           <label>{t('common.notes')}</label>
-          <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={3} />
+          <textarea value={form.notes} onChange={e => set('notes', e.target.value)} rows={2} />
         </div>
         <button
           className="btn btn-primary"

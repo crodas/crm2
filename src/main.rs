@@ -4,6 +4,7 @@ mod error;
 mod models;
 mod routes;
 mod seed;
+mod version;
 
 use axum::{
     routing::{get, patch, post, put},
@@ -120,7 +121,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/bookings/{id}", get(routes::bookings::get_booking).put(routes::bookings::update_booking))
         .route("/bookings/{id}/quotes/{quote_id}", post(routes::bookings::link_quote))
         .route("/bookings/{id}/quotes/{quote_id}/unlink", post(routes::bookings::unlink_quote))
-        .route("/bookings/{id}/work-orders", post(routes::bookings::create_work_order))
         // Calendar
         .route("/calendar", get(routes::calendar::get_calendar));
 

@@ -7,6 +7,7 @@ use sqlx::SqlitePool;
 use crate::error::AppError;
 use crate::models::booking::*;
 use crate::models::quote::Quote;
+use crate::version;
 
 pub async fn list_bookings(
     State(pool): State<SqlitePool>,
@@ -24,9 +25,19 @@ pub async fn create_booking(
 ) -> Result<Json<Booking>, AppError> {
     let mut tx = pool.begin().await?;
 
+    let prev_booking = version::latest_version_id(&mut *tx, "bookings").await?;
+    let booking_vid = version::compute_version_id(
+        &version::booking_fields(
+            body.team_id, body.customer_id, &body.title,
+            &body.start_at, &body.end_at, &body.notes,
+            &body.description, &body.location,
+        ),
+        &prev_booking,
+    );
+
     let booking = sqlx::query_as::<_, Booking>(
-        "INSERT INTO bookings (team_id, customer_id, title, start_at, end_at, notes)
-         VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO bookings (team_id, customer_id, title, start_at, end_at, notes, description, location, version_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(body.team_id)
     .bind(body.customer_id)
@@ -34,6 +45,9 @@ pub async fn create_booking(
     .bind(&body.start_at)
     .bind(&body.end_at)
     .bind(&body.notes)
+    .bind(&body.description)
+    .bind(&body.location)
+    .bind(&booking_vid)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -61,13 +75,6 @@ pub async fn get_booking(
         .await?
         .ok_or_else(|| AppError::NotFound("Booking not found".into()))?;
 
-    let work_orders = sqlx::query_as::<_, WorkOrder>(
-        "SELECT * FROM work_orders WHERE booking_id = ?",
-    )
-    .bind(id)
-    .fetch_all(&pool)
-    .await?;
-
     let quotes = sqlx::query_as::<_, Quote>(
         "SELECT q.* FROM quotes q
          JOIN booking_quotes bq ON bq.quote_id = q.id
@@ -79,7 +86,6 @@ pub async fn get_booking(
 
     Ok(Json(serde_json::json!({
         "booking": booking,
-        "work_orders": work_orders,
         "quotes": quotes,
     })))
 }
@@ -98,7 +104,7 @@ pub async fn update_booking(
     let team_id = body["team_id"].as_i64().unwrap_or(existing.team_id);
     let booking = sqlx::query_as::<_, Booking>(
         "UPDATE bookings SET
-            title = ?, start_at = ?, end_at = ?, status = ?, notes = ?, team_id = ?, updated_at = datetime('now')
+            title = ?, start_at = ?, end_at = ?, status = ?, notes = ?, description = ?, location = ?, team_id = ?, updated_at = datetime('now')
          WHERE id = ? RETURNING *",
     )
     .bind(body["title"].as_str().unwrap_or(&existing.title))
@@ -106,6 +112,8 @@ pub async fn update_booking(
     .bind(body["end_at"].as_str().unwrap_or(&existing.end_at))
     .bind(body["status"].as_str().unwrap_or(&existing.status))
     .bind(body["notes"].as_str().or(existing.notes.as_deref()))
+    .bind(body["description"].as_str().or(existing.description.as_deref()))
+    .bind(body["location"].as_str().or(existing.location.as_deref()))
     .bind(team_id)
     .bind(id)
     .fetch_one(&pool)
@@ -135,28 +143,4 @@ pub async fn unlink_quote(
         .execute(&pool)
         .await?;
     Ok(Json(serde_json::json!({"ok": true})))
-}
-
-pub async fn create_work_order(
-    State(pool): State<SqlitePool>,
-    Path(booking_id): Path<i64>,
-    Json(body): Json<CreateWorkOrder>,
-) -> Result<Json<WorkOrder>, AppError> {
-    let booking = sqlx::query_as::<_, Booking>("SELECT * FROM bookings WHERE id = ?")
-        .bind(booking_id)
-        .fetch_optional(&pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Booking not found".into()))?;
-
-    let wo = sqlx::query_as::<_, WorkOrder>(
-        "INSERT INTO work_orders (booking_id, customer_id, description, location)
-         VALUES (?, ?, ?, ?) RETURNING *",
-    )
-    .bind(booking_id)
-    .bind(booking.customer_id)
-    .bind(&body.description)
-    .bind(&body.location)
-    .fetch_one(&pool)
-    .await?;
-    Ok(Json(wo))
 }

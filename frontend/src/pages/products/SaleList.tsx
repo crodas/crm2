@@ -19,12 +19,13 @@ export default function SaleList() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>{t('common.id')}</th><th>{t('common.date')}</th><th>{t('common.total')}</th><th>{t('common.notes')}</th></tr>
+            <tr><th>{t('common.id')}</th><th>{t('common.versionId')}</th><th>{t('common.date')}</th><th>{t('common.total')}</th><th>{t('common.notes')}</th></tr>
           </thead>
           <tbody>
             {sales?.map((s: any) => (
               <tr key={s.id}>
                 <td><Link to={`/sales/${s.id}`}>#{s.id}</Link></td>
+                <td><code title={s.version_id}>{s.version_id?.slice(0, 8)}</code></td>
                 <td>{new Date(s.sold_at).toLocaleDateString()}</td>
                 <td><strong>{s.total_amount.toLocaleString()}</strong></td>
                 <td>{s.notes || '—'}</td>

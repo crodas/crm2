@@ -22,12 +22,13 @@ export default function QuoteList() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>{t('common.id')}</th><th>{t('common.title')}</th><th>{t('common.status')}</th><th>{t('common.amount')}</th><th>{t('common.date')}</th></tr>
+            <tr><th>{t('common.id')}</th><th>{t('common.versionId')}</th><th>{t('common.title')}</th><th>{t('common.status')}</th><th>{t('common.amount')}</th><th>{t('common.date')}</th></tr>
           </thead>
           <tbody>
             {quotes?.map((q: any) => (
               <tr key={q.id}>
                 <td><Link to={`/quotes/${q.id}`}>#{q.id}</Link></td>
+                <td><code title={q.version_id}>{q.version_id?.slice(0, 8)}</code></td>
                 <td>
                   {q.title}
                   {q.is_debt ? <span className="badge badge-follow_up" style={{ marginLeft: '0.5rem' }}>{t('quotes.debt')}</span> : null}
