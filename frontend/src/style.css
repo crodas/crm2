@@ -308,6 +308,11 @@ a:hover { color: var(--accent-primary-hover); }
   background: var(--bg-subtle);
 }
 
+/* ---- Bottom Tab Bar (hidden by default, shown on mobile) ---- */
+.bottombar {
+  display: none;
+}
+
 /* ---- Typography ---- */
 h1 {
   font-size: 24px;
@@ -752,48 +757,82 @@ input:disabled, select:disabled {
   }
 }
 
-/* -- Mobile (≤640px): stacked topbar, scrollable nav -- */
+/* -- Mobile (≤640px): slim topbar + bottom tab bar -- */
 @media (max-width: 640px) {
+  /* Slim topbar: brand + utilities only */
   .topbar {
     display: flex;
-    flex-wrap: wrap;
-    height: auto;
-    padding: 0;
+    flex-wrap: nowrap;
+    height: 44px;
+    padding: 0 12px;
+    align-items: center;
   }
 
-  .topbar-left {
-    padding: 10px 16px;
-  }
+  .topbar-left { padding: 0; }
+  .topbar-right { margin-left: auto; padding: 0; }
 
-  .topbar-right {
-    margin-left: auto;
-    padding: 10px 16px;
-  }
+  /* Hide center nav in topbar */
+  .topbar-nav { display: none; }
 
-  .topbar-nav {
-    width: 100%;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
+  /* Show bottom tab bar */
+  .bottombar {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: var(--bg-surface);
     border-top: 1px solid var(--border-default);
-    padding: 6px 12px;
+    z-index: 50;
+    align-items: stretch;
+    justify-content: space-around;
+    padding: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .bottombar > a,
+  .bottombar .bottombar-more-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 2px;
-    scrollbar-width: none;
+    flex: 1;
+    padding: 6px 0;
+    font-size: 10px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+    transition: color var(--transition-fast);
   }
 
-  .topbar-nav::-webkit-scrollbar {
-    display: none;
+  .bottombar > a.active,
+  .bottombar .bottombar-more-btn.active {
+    color: var(--accent-primary);
   }
 
-  .topbar-nav > a,
-  .topbar-more-btn {
-    flex-shrink: 0;
-    padding: 6px 10px;
+  .bottombar > a span,
+  .bottombar .bottombar-more-btn span {
+    font-size: 10px;
+    line-height: 1;
   }
 
-  .topbar-dropdown {
+  /* More wrapper inside bottombar */
+  .bottombar .topbar-more {
+    display: flex;
+    flex: 1;
+  }
+
+  /* More dropdown as bottom sheet above tab bar */
+  .bottombar .topbar-dropdown {
     position: fixed;
     top: auto;
-    bottom: 0;
+    bottom: 56px;
     left: 0;
     right: 0;
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
@@ -801,8 +840,9 @@ input:disabled, select:disabled {
     padding: 12px;
   }
 
+  /* Content adjustments */
   .main-content {
-    padding: 16px 12px;
+    padding: 16px 12px 72px;
   }
 
   h1 { font-size: 20px; }
@@ -817,10 +857,11 @@ input:disabled, select:disabled {
   table { font-size: 13px; }
   th, td { padding: 8px 10px; }
 
+  /* Calendar: account for 44px top + 56px bottom */
   .calendar-fullbleed {
     margin: -16px -12px;
     padding: 8px 8px;
-    height: calc(100vh - 90px);
+    height: calc(100vh - 44px - 56px);
   }
 
   .cal-header-left {
