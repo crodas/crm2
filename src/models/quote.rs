@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::amount::Amount;
+use crate::models::booking::Booking;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct Quote {
@@ -14,6 +15,7 @@ pub struct Quote {
     pub valid_until: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -26,6 +28,7 @@ pub struct QuoteLine {
     pub service_id: Option<i64>,
     pub line_type: String,
     pub created_at: String,
+    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -37,6 +40,7 @@ pub struct PaymentUtxo {
     pub notes: Option<String>,
     pub paid_at: String,
     pub created_at: String,
+    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,4 +88,5 @@ pub struct QuoteDetail {
     pub payments: Vec<PaymentUtxo>,
     pub total_paid: Amount,
     pub balance: Amount,
+    pub bookings: Vec<Booking>,
 }

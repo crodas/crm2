@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { useTranslation } from '../../i18n'
@@ -39,7 +39,7 @@ export default function QuoteDetail() {
 
   if (!data) return <p>{t('common.loading')}</p>
 
-  const { quote, lines, payments, total_paid, balance } = data
+  const { quote, lines, payments, total_paid, balance, bookings } = data
   const customer = customers?.find((c: any) => c.id === quote.customer_id)
   const statuses = ['draft', 'sent', 'follow_up', 'accepted', 'booked']
 
@@ -64,6 +64,7 @@ export default function QuoteDetail() {
             {balance.toLocaleString()}
           </span></p>
           <p><strong>{t('quotes.created_label')}</strong> {new Date(quote.created_at).toLocaleDateString()}</p>
+          <p><strong>{t('common.versionId')}</strong> <code title={quote.version_id}>{quote.version_id?.slice(0, 8)}</code></p>
 
           <h2 className="mt-2">{t('quotes.status')}</h2>
           <div className="flex gap-1">
@@ -112,10 +113,11 @@ export default function QuoteDetail() {
       <h2 className="mt-2">{t('quotes.lineItems')}</h2>
       <div className="table-wrap">
         <table>
-          <thead><tr><th>{t('common.description')}</th><th>{t('quotes.qty')}</th><th>{t('quotes.unitPrice')}</th><th>{t('common.total')}</th></tr></thead>
+          <thead><tr><th>{t('common.versionId')}</th><th>{t('common.description')}</th><th>{t('quotes.qty')}</th><th>{t('quotes.unitPrice')}</th><th>{t('common.total')}</th></tr></thead>
           <tbody>
             {lines.map((l: any) => (
               <tr key={l.id}>
+                <td><code title={l.version_id}>{l.version_id?.slice(0, 8)}</code></td>
                 <td>{l.description}</td>
                 <td>{l.quantity}</td>
                 <td>{l.unit_price.toLocaleString()}</td>
@@ -130,10 +132,11 @@ export default function QuoteDetail() {
       {payments.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
+            <thead><tr><th>{t('common.versionId')}</th><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
             <tbody>
               {payments.map((p: any) => (
                 <tr key={p.id}>
+                  <td><code title={p.version_id}>{p.version_id?.slice(0, 8)}</code></td>
                   <td>{new Date(p.paid_at).toLocaleDateString()}</td>
                   <td>{p.amount.toLocaleString()}</td>
                   <td>{p.method}</td>
@@ -144,6 +147,30 @@ export default function QuoteDetail() {
           </table>
         </div>
       ) : <p>{t('quotes.noPayments')}</p>}
+
+      <h2 className="mt-2">{t('bookings.linkedBookings')}</h2>
+      {bookings && bookings.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>{t('common.id')}</th><th>{t('common.versionId')}</th><th>{t('common.title')}</th><th>{t('common.description')}</th><th>{t('common.location')}</th><th>{t('bookings.start')}</th><th>{t('common.status')}</th></tr></thead>
+            <tbody>
+              {bookings.map((b: any) => (
+                <tr key={b.id}>
+                  <td><Link to={`/bookings/${b.id}`}>#{b.id}</Link></td>
+                  <td><code title={b.version_id}>{b.version_id?.slice(0, 8)}</code></td>
+                  <td>{b.title}</td>
+                  <td>{b.description || '—'}</td>
+                  <td>{b.location || '—'}</td>
+                  <td>{new Date(b.start_at).toLocaleString()}</td>
+                  <td><span className={`badge badge-${b.status}`}>{b.status}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p>{t('bookings.noLinkedBookings')}</p>}
+
+
     </div>
   )
 }

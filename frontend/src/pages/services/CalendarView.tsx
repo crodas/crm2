@@ -127,7 +127,10 @@ export default function CalendarView() {
         quote_ids: qcQuote ? [qcQuote] : undefined,
       })
     },
-    onSuccess: resetForm,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['calendar'] })
+      resetForm()
+    },
   })
 
   const quickUpdate = useMutation({

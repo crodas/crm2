@@ -1,3 +1,4 @@
+use crm2::version;
 use sqlx::SqlitePool;
 
 /// Helper: init an in-memory database with all migrations applied.
@@ -38,22 +39,36 @@ async fn seed_base(pool: &SqlitePool) {
 
 /// Helper: receive inventory via direct SQL (mirrors the route handler logic).
 async fn receive_stock(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qty: f64, cost_cents: i64) -> i64 {
+    let prev_rcpt = version::latest_version_id(pool, "inventory_receipts").await.unwrap();
+    let rcpt_vid = version::compute_version_id(
+        &version::inventory_receipt_fields(&Some("test".to_string()), &None, &None),
+        &prev_rcpt,
+    );
+
     let receipt_id: i64 = sqlx::query_scalar(
-        "INSERT INTO inventory_receipts (reference) VALUES ('test') RETURNING id",
+        "INSERT INTO inventory_receipts (reference, version_id) VALUES ('test', ?) RETURNING id",
     )
+    .bind(&rcpt_vid)
     .fetch_one(pool)
     .await
     .unwrap();
 
+    let prev_utxo = version::latest_version_id(pool, "inventory_utxos").await.unwrap();
+    let utxo_vid = version::compute_version_id(
+        &version::inventory_utxo_fields(product_id, warehouse_id, qty, cost_cents, Some(receipt_id), None),
+        &prev_utxo,
+    );
+
     sqlx::query(
-        "INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id, version_id)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(product_id)
     .bind(warehouse_id)
     .bind(qty)
     .bind(cost_cents)
     .bind(receipt_id)
+    .bind(&utxo_vid)
     .execute(pool)
     .await
     .unwrap();
@@ -315,11 +330,18 @@ async fn create_accepted_quote(pool: &SqlitePool, customer_id: i64, total_cents:
 
 /// Helper: record a payment against a quote (in cents).
 async fn pay(pool: &SqlitePool, quote_id: i64, amount_cents: i64) {
+    let prev = version::latest_version_id(pool, "payment_utxos").await.unwrap();
+    let vid = version::compute_version_id(
+        &version::payment_utxo_fields(quote_id, amount_cents, &Some("cash".to_string()), &None),
+        &prev,
+    );
+
     sqlx::query(
-        "INSERT INTO payment_utxos (quote_id, amount, method) VALUES (?, ?, 'cash')",
+        "INSERT INTO payment_utxos (quote_id, amount, method, version_id) VALUES (?, ?, 'cash', ?)",
     )
     .bind(quote_id)
     .bind(amount_cents)
+    .bind(&vid)
     .execute(pool)
     .await
     .unwrap();
@@ -566,4 +588,106 @@ async fn foreign_key_prevents_orphan_utxo() {
     .await;
 
     assert!(result.is_err()); // FK constraint: product 999 doesn't exist
+}
+
+// ─── Version chain tests ────────────────────────────────────────
+
+#[tokio::test]
+async fn sale_creates_version_chain_for_all_tables() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    receive_stock(&pool, 1, 1, 100.0, 4500000).await;
+
+    // Sale triggers inserts in: sales, sale_lines, sale_line_utxo_inputs, inventory_utxos (change)
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 30.0, 6300000)])
+        .await
+        .unwrap();
+
+    // All version_ids created by create_sale_tx must be non-empty sha256 hex (64 chars)
+    let sale_vid: String =
+        sqlx::query_scalar("SELECT version_id FROM sales ORDER BY id DESC LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(sale_vid.len(), 64, "sale version_id should be sha256 hex");
+
+    let sl_vid: String =
+        sqlx::query_scalar("SELECT version_id FROM sale_lines ORDER BY id DESC LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(sl_vid.len(), 64);
+
+    let input_vid: String =
+        sqlx::query_scalar("SELECT version_id FROM sale_line_utxo_inputs ORDER BY id DESC LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(input_vid.len(), 64);
+
+    // Change UTXO was created (100 - 30 = 70)
+    let change_vid: String = sqlx::query_scalar(
+        "SELECT version_id FROM inventory_utxos WHERE source_sale_id IS NOT NULL ORDER BY id DESC LIMIT 1",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(change_vid.len(), 64);
+}
+
+#[tokio::test]
+async fn version_chain_links_to_previous() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    // Two receipts -> two inventory_receipts rows with a chain
+    // The backfill from migration computes chain for rows inserted with empty version_id.
+    // But receive_stock uses direct SQL, so they get backfilled version_ids.
+    receive_stock(&pool, 1, 1, 50.0, 1000).await;
+    receive_stock(&pool, 1, 1, 30.0, 2000).await;
+
+    let vids: Vec<String> = sqlx::query_scalar(
+        "SELECT version_id FROM inventory_receipts ORDER BY id ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    // Both must be valid hashes (backfilled by recompute_all_chains)
+    assert_eq!(vids.len(), 2);
+    assert_eq!(vids[0].len(), 64);
+    assert_eq!(vids[1].len(), 64);
+    // They must differ (different content + chained)
+    assert_ne!(vids[0], vids[1]);
+
+    // Verify chain: recompute second hash using first as prev
+    let fields = crm2::version::inventory_receipt_fields(
+        &Some("test".to_string()), &None, &None,
+    );
+    let expected = crm2::version::compute_version_id(&fields, &vids[0]);
+    assert_eq!(vids[1], expected, "second version_id must chain from first");
+}
+
+#[tokio::test]
+async fn payment_utxo_gets_version_id() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let q = create_accepted_quote(&pool, 1, 100_000).await;
+    pay(&pool, q, 30_000).await;
+    pay(&pool, q, 20_000).await;
+
+    // Payments inserted via direct SQL get backfilled version_ids
+    let vids: Vec<String> = sqlx::query_scalar(
+        "SELECT version_id FROM payment_utxos ORDER BY id ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(vids.len(), 2);
+    assert_eq!(vids[0].len(), 64);
+    assert_eq!(vids[1].len(), 64);
+    assert_ne!(vids[0], vids[1]);
 }

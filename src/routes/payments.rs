@@ -8,6 +8,7 @@ use sqlx::SqlitePool;
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
+use crate::version;
 
 #[derive(Serialize)]
 pub struct CustomerBalance {
@@ -32,13 +33,20 @@ pub async fn record_payment(
         return Err(AppError::BadRequest("Amount must be positive".into()));
     }
 
+    let prev_pay = version::latest_version_id(&pool, "payment_utxos").await?;
+    let pay_vid = version::compute_version_id(
+        &version::payment_utxo_fields(quote_id, body.amount.cents(), &body.method, &body.notes),
+        &prev_pay,
+    );
+
     let payment = sqlx::query_as::<_, PaymentUtxo>(
-        "INSERT INTO payment_utxos (quote_id, amount, method, notes) VALUES (?, ?, ?, ?) RETURNING *",
+        "INSERT INTO payment_utxos (quote_id, amount, method, notes, version_id) VALUES (?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(quote_id)
     .bind(body.amount)
     .bind(&body.method)
     .bind(&body.notes)
+    .bind(&pay_vid)
     .fetch_one(&pool)
     .await?;
     Ok(Json(payment))

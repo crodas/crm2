@@ -7,7 +7,9 @@ use sqlx::SqlitePool;
 
 use crate::amount::Amount;
 use crate::error::AppError;
+use crate::models::booking::Booking;
 use crate::models::quote::*;
+use crate::version;
 
 #[derive(Deserialize)]
 pub struct QuoteListParams {
@@ -59,23 +61,36 @@ pub async fn create_quote(
 
     let total: Amount = body.lines.iter().map(|l| l.unit_price.mul_qty(l.quantity)).sum();
 
+    let prev_quote = version::latest_version_id(&mut *tx, "quotes").await?;
+    let quote_vid = version::compute_version_id(
+        &version::quote_fields(body.customer_id, &body.title, &body.description, total.cents(), false, &body.valid_until),
+        &prev_quote,
+    );
+
     let quote = sqlx::query_as::<_, Quote>(
-        "INSERT INTO quotes (customer_id, title, description, total_amount, valid_until)
-         VALUES (?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO quotes (customer_id, title, description, total_amount, valid_until, version_id)
+         VALUES (?, ?, ?, ?, ?, ?) RETURNING *",
     )
     .bind(body.customer_id)
     .bind(&body.title)
     .bind(&body.description)
     .bind(total)
     .bind(&body.valid_until)
+    .bind(&quote_vid)
     .fetch_one(&mut *tx)
     .await?;
 
     for line in &body.lines {
         let line_type = line.line_type.as_deref().unwrap_or("item");
+        let prev_ql = version::latest_version_id(&mut *tx, "quote_lines").await?;
+        let ql_vid = version::compute_version_id(
+            &version::quote_line_fields(quote.id, &line.description, line.quantity, line.unit_price.cents(), line.service_id, line_type),
+            &prev_ql,
+        );
+
         sqlx::query(
-            "INSERT INTO quote_lines (quote_id, description, quantity, unit_price, service_id, line_type)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO quote_lines (quote_id, description, quantity, unit_price, service_id, line_type, version_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(quote.id)
         .bind(&line.description)
@@ -83,6 +98,7 @@ pub async fn create_quote(
         .bind(line.unit_price)
         .bind(line.service_id)
         .bind(line_type)
+        .bind(&ql_vid)
         .execute(&mut *tx)
         .await?;
     }
@@ -112,6 +128,15 @@ pub async fn get_quote(
             .fetch_all(&pool)
             .await?;
 
+    let bookings = sqlx::query_as::<_, Booking>(
+        "SELECT b.* FROM bookings b
+         JOIN booking_quotes bq ON bq.booking_id = b.id
+         WHERE bq.quote_id = ?",
+    )
+    .bind(id)
+    .fetch_all(&pool)
+    .await?;
+
     let total_paid: Amount = payments.iter().map(|p| p.amount).sum();
     let balance = quote.total_amount - total_paid;
 
@@ -121,6 +146,7 @@ pub async fn get_quote(
         payments,
         total_paid,
         balance,
+        bookings,
     }))
 }
 
@@ -186,24 +212,38 @@ pub async fn create_debt(
 ) -> Result<Json<Quote>, AppError> {
     let mut tx = pool.begin().await?;
 
+    let prev_quote = version::latest_version_id(&mut *tx, "quotes").await?;
+    let quote_vid = version::compute_version_id(
+        &version::quote_fields(body.customer_id, &body.title, &body.description, body.amount.cents(), true, &None),
+        &prev_quote,
+    );
+
     let quote = sqlx::query_as::<_, Quote>(
-        "INSERT INTO quotes (customer_id, status, title, description, total_amount, is_debt)
-         VALUES (?, 'accepted', ?, ?, ?, 1) RETURNING *",
+        "INSERT INTO quotes (customer_id, status, title, description, total_amount, is_debt, version_id)
+         VALUES (?, 'accepted', ?, ?, ?, 1, ?) RETURNING *",
     )
     .bind(body.customer_id)
     .bind(&body.title)
     .bind(&body.description)
     .bind(body.amount)
+    .bind(&quote_vid)
     .fetch_one(&mut *tx)
     .await?;
 
+    let prev_ql = version::latest_version_id(&mut *tx, "quote_lines").await?;
+    let ql_vid = version::compute_version_id(
+        &version::quote_line_fields(quote.id, &body.title, 1.0, body.amount.cents(), None, "item"),
+        &prev_ql,
+    );
+
     sqlx::query(
-        "INSERT INTO quote_lines (quote_id, description, quantity, unit_price)
-         VALUES (?, ?, 1, ?)",
+        "INSERT INTO quote_lines (quote_id, description, quantity, unit_price, version_id)
+         VALUES (?, ?, 1, ?, ?)",
     )
     .bind(quote.id)
     .bind(&body.title)
     .bind(body.amount)
+    .bind(&ql_vid)
     .execute(&mut *tx)
     .await?;
 
