@@ -24,6 +24,7 @@
   "common.add": "Agregar",
   "common.create": "Crear",
   "common.cancel": "Cancelar",
+  "common.save": "Guardar",
   "common.remove": "Quitar",
   "common.select": "Seleccionar...",
   "common.name": "Nombre",
@@ -180,6 +181,10 @@
   "calendar.addBooking": "+ Reserva",
   "calendar.newBookingAt": "Nueva Reserva — {{date}} a las {{time}}",
   "calendar.duration": "Duración (horas)",
+  "calendar.quote": "Cotización",
+  "calendar.noQuote": "Sin cotización",
+  "calendar.notesPlaceholder": "Detalles de la visita...",
+  "calendar.editBooking": "Editar Reserva — {{date}} a las {{time}}",
 
   "teams.title": "Equipos",
   "teams.createTeam": "Crear Equipo",

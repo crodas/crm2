@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
@@ -51,8 +51,8 @@ export default function CalendarView() {
   const [dragBookingId, setDragBookingId] = useState<number | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
 
-  // Click-to-create state
-  const [creating, setCreating] = useState<{ date: string; hour: number } | null>(null)
+  // Click-to-create / edit state
+  const [creating, setCreating] = useState<{ date: string; hour: number; editingId?: number } | null>(null)
 
   const { data: teams } = useQuery({ queryKey: ['teams'], queryFn: () => api.get<any[]>('/teams') })
   const { data: customers } = useQuery({ queryKey: ['customers'], queryFn: () => api.get<any[]>('/customers') })
@@ -94,6 +94,23 @@ export default function CalendarView() {
   const [qcTeam, setQcTeam] = useState(0)
   const [qcCustomer, setQcCustomer] = useState(0)
   const [qcDuration, setQcDuration] = useState(1)
+  const [qcQuote, setQcQuote] = useState(0)
+  const [qcNotes, setQcNotes] = useState('')
+
+  // Fetch quotes for selected customer
+  const { data: customerQuotes } = useQuery({
+    queryKey: ['quotes', qcCustomer],
+    queryFn: () => api.get<any[]>(`/quotes?customer_id=${qcCustomer}`),
+    enabled: qcCustomer > 0,
+  })
+
+  const resetForm = () => {
+    setCreating(null)
+    setQcTitle('')
+    setQcNotes('')
+    setQcQuote(0)
+    setQcCustomer(0)
+  }
 
   const quickCreate = useMutation({
     mutationFn: () => {
@@ -106,12 +123,29 @@ export default function CalendarView() {
         title: qcTitle,
         start_at: startAt,
         end_at: endAt,
+        notes: qcNotes || undefined,
+        quote_ids: qcQuote ? [qcQuote] : undefined,
+      })
+    },
+    onSuccess: resetForm,
+  })
+
+  const quickUpdate = useMutation({
+    mutationFn: () => {
+      if (!creating?.editingId) return Promise.reject('No booking selected')
+      const startAt = `${creating.date}T${pad(creating.hour)}:00`
+      const endAt = `${creating.date}T${pad(creating.hour + qcDuration)}:00`
+      return api.put(`/bookings/${creating.editingId}`, {
+        title: qcTitle,
+        team_id: qcTeam,
+        start_at: startAt,
+        end_at: endAt,
+        notes: qcNotes || undefined,
       })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calendar'] })
-      setCreating(null)
-      setQcTitle('')
+      resetForm()
     },
   })
 
@@ -134,6 +168,33 @@ export default function CalendarView() {
   const teamColor = (tid: number) => teams?.find((t: any) => t.id === tid)?.color ?? '#5C7F63'
   const teamName = (tid: number) => teams?.find((t: any) => t.id === tid)?.name ?? ''
   const today = fmt(new Date())
+
+  // Double-tap support for mobile
+  const lastTapRef = useRef(0)
+  const openSlot = (date: string, hour: number) => {
+    setCreating({ date, hour })
+    if (teams?.length) setQcTeam(teamId || teams[0].id)
+  }
+  const openBooking = (b: any) => {
+    const bStart = new Date(b.start_at)
+    const bEnd = new Date(b.end_at)
+    const durationH = (bEnd.getTime() - bStart.getTime()) / 3600000
+    setCreating({ date: b.start_at.slice(0, 10), hour: bStart.getHours(), editingId: b.id })
+    setQcTitle(b.title)
+    setQcTeam(b.team_id)
+    setQcCustomer(b.customer_id)
+    setQcDuration(durationH)
+    setQcNotes(b.notes ?? '')
+    setQcQuote(0)
+  }
+  const handleTouchEnd = (date: string, hour: number) => (e: React.TouchEvent) => {
+    const now = Date.now()
+    if (now - lastTapRef.current < 300) {
+      e.preventDefault()
+      openSlot(date, hour)
+    }
+    lastTapRef.current = now
+  }
 
   // Week view: time grid
   const renderWeekView = () => {
@@ -180,10 +241,8 @@ export default function CalendarView() {
                 {HOURS.map(h => (
                   <div
                     key={h}
-                    onDoubleClick={() => {
-                      setCreating({ date: dayStr, hour: h })
-                      if (teams?.length) setQcTeam(teamId || teams[0].id)
-                    }}
+                    onDoubleClick={() => openSlot(dayStr, h)}
+                    onTouchEnd={handleTouchEnd(dayStr, h)}
                     onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget(`${dayStr}-${h}`) }}
                     onDragLeave={() => setDropTarget(null)}
                     onDrop={e => {
@@ -212,7 +271,7 @@ export default function CalendarView() {
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  pointerEvents: dragBookingId !== null ? 'none' : 'auto',
+                  pointerEvents: 'none',
                 }}>
                   {dayBookings.map((b: any) => {
                     const bStart = new Date(b.start_at)
@@ -230,6 +289,7 @@ export default function CalendarView() {
                           setDragBookingId(b.id)
                           e.dataTransfer.effectAllowed = 'move'
                         }}
+                        onDoubleClick={e => { e.stopPropagation(); openBooking(b) }}
                         style={{
                           position: 'absolute',
                           top,
@@ -241,19 +301,17 @@ export default function CalendarView() {
                           borderRadius: 4,
                           padding: '0.15rem 0.3rem',
                           fontSize: '0.7rem',
-                          cursor: 'grab',
+                          cursor: 'pointer',
                           overflow: 'hidden',
                           opacity: dragBookingId === b.id ? 0.4 : 1,
                           lineHeight: 1.25,
                           pointerEvents: 'auto',
                         }}
                       >
-                        <Link to={`/bookings/${b.id}`} style={{ color: 'white', textDecoration: 'none' }}>
-                          <div style={{ fontWeight: 600 }}>{b.title}</div>
-                          <div style={{ opacity: 0.85, fontSize: '0.6rem' }}>
-                            {b.start_at.slice(11, 16)}–{b.end_at.slice(11, 16)} · {teamName(b.team_id)}
-                          </div>
-                        </Link>
+                        <div style={{ fontWeight: 600 }}>{b.title}</div>
+                        <div style={{ opacity: 0.85, fontSize: '0.6rem' }}>
+                          {b.start_at.slice(11, 16)}–{b.end_at.slice(11, 16)} · {teamName(b.team_id)}
+                        </div>
                       </div>
                     )
                   })}
@@ -295,10 +353,8 @@ export default function CalendarView() {
         return (
           <div
             key={i}
-            onDoubleClick={() => {
-              setCreating({ date: dayStr, hour: 9 })
-              if (teams?.length) setQcTeam(teamId || teams[0].id)
-            }}
+            onDoubleClick={() => openSlot(dayStr, 9)}
+            onTouchEnd={handleTouchEnd(dayStr, 9)}
             onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget(dayStr) }}
             onDragLeave={() => setDropTarget(null)}
             onDrop={e => {
@@ -328,6 +384,7 @@ export default function CalendarView() {
                 draggable
                 onDragStart={e => { e.stopPropagation(); setDragBookingId(b.id); e.dataTransfer.effectAllowed = 'move' }}
                 onClick={e => e.stopPropagation()}
+                onDoubleClick={e => { e.stopPropagation(); openBooking(b) }}
                 style={{
                   background: teamColor(b.team_id),
                   color: 'white',
@@ -335,13 +392,11 @@ export default function CalendarView() {
                   borderRadius: 3,
                   marginBottom: 1,
                   fontSize: '0.65rem',
-                  cursor: 'grab',
+                  cursor: 'pointer',
                   opacity: dragBookingId === b.id ? 0.4 : 1,
                 }}
               >
-                <Link to={`/bookings/${b.id}`} style={{ color: 'white', textDecoration: 'none' }} onClick={e => e.stopPropagation()}>
-                  {b.title}
-                </Link>
+                {b.title}
               </div>
             ))}
           </div>
@@ -386,7 +441,9 @@ export default function CalendarView() {
         >
           <div className="card" style={{ width: 400, maxWidth: '90vw' }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginBottom: '0.75rem' }}>
-              {t('calendar.newBookingAt', { date: creating.date, time: `${pad(creating.hour)}:00` })}
+              {creating.editingId
+                ? t('calendar.editBooking', { date: creating.date, time: `${pad(creating.hour)}:00` })
+                : t('calendar.newBookingAt', { date: creating.date, time: `${pad(creating.hour)}:00` })}
             </h2>
             <div className="form-group">
               <label>{t('common.title')}</label>
@@ -402,29 +459,59 @@ export default function CalendarView() {
               </div>
               <div className="form-group">
                 <label>{t('bookings.customer')}</label>
-                <select value={qcCustomer} onChange={e => setQcCustomer(Number(e.target.value))}>
+                <select value={qcCustomer} onChange={e => { setQcCustomer(Number(e.target.value)); setQcQuote(0) }} disabled={!!creating.editingId}>
                   <option value={0}>{t('common.select')}</option>
                   {customers?.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
             </div>
+            <div className="grid-2">
+              <div className="form-group">
+                <label>{t('calendar.duration')}</label>
+                <select value={qcDuration} onChange={e => setQcDuration(Number(e.target.value))}>
+                  {[0.5, 1, 1.5, 2, 3, 4, 6, 8].map(h => <option key={h} value={h}>{h}h</option>)}
+                </select>
+              </div>
+              {!creating.editingId && (
+                <div className="form-group">
+                  <label>{t('calendar.quote')}</label>
+                  <select value={qcQuote} onChange={e => setQcQuote(Number(e.target.value))} disabled={!qcCustomer}>
+                    <option value={0}>{t('calendar.noQuote')}</option>
+                    {customerQuotes?.map((q: any) => (
+                      <option key={q.id} value={q.id}>
+                        #{q.id} — {q.description} ({q.status})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
             <div className="form-group">
-              <label>{t('calendar.duration')}</label>
-              <select value={qcDuration} onChange={e => setQcDuration(Number(e.target.value))}>
-                {[0.5, 1, 1.5, 2, 3, 4, 6, 8].map(h => <option key={h} value={h}>{h}h</option>)}
-              </select>
+              <label>{t('common.notes')}</label>
+              <textarea value={qcNotes} onChange={e => setQcNotes(e.target.value)} rows={2} placeholder={t('calendar.notesPlaceholder')} />
             </div>
             <div className="flex gap-1 mt-1">
-              <button
-                className="btn btn-primary"
-                onClick={() => quickCreate.mutate()}
-                disabled={!qcTitle || !qcTeam || !qcCustomer || quickCreate.isPending}
-              >
-                {quickCreate.isPending ? t('common.creating') : t('common.create')}
-              </button>
-              <button className="btn" onClick={() => setCreating(null)}>{t('common.cancel')}</button>
+              {creating.editingId ? (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => quickUpdate.mutate()}
+                  disabled={!qcTitle || quickUpdate.isPending}
+                >
+                  {quickUpdate.isPending ? t('common.saving') : t('common.save')}
+                </button>
+              ) : (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => quickCreate.mutate()}
+                  disabled={!qcTitle || !qcTeam || !qcCustomer || quickCreate.isPending}
+                >
+                  {quickCreate.isPending ? t('common.creating') : t('common.create')}
+                </button>
+              )}
+              <button className="btn" onClick={resetForm}>{t('common.cancel')}</button>
             </div>
             {quickCreate.isError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{(quickCreate.error as Error).message}</p>}
+            {quickUpdate.isError && <p style={{ color: 'red', marginTop: '0.5rem' }}>{(quickUpdate.error as Error).message}</p>}
           </div>
         </div>
       )}

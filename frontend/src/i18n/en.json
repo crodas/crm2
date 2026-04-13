@@ -24,6 +24,7 @@
   "common.add": "Add",
   "common.create": "Create",
   "common.cancel": "Cancel",
+  "common.save": "Save",
   "common.remove": "Remove",
   "common.select": "Select...",
   "common.name": "Name",
@@ -180,6 +181,10 @@
   "calendar.addBooking": "+ Booking",
   "calendar.newBookingAt": "New Booking — {{date}} at {{time}}",
   "calendar.duration": "Duration (hours)",
+  "calendar.quote": "Quote",
+  "calendar.noQuote": "No quote",
+  "calendar.notesPlaceholder": "Visit details...",
+  "calendar.editBooking": "Edit Booking — {{date}} at {{time}}",
 
   "teams.title": "Teams",
   "teams.createTeam": "Create Team",
