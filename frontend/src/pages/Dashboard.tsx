@@ -10,6 +10,8 @@ export default function Dashboard() {
   const { data: stock } = useQuery({ queryKey: ['stock'], queryFn: () => api.get<any[]>('/inventory/stock') })
   const { data: quotes } = useQuery({ queryKey: ['quotes'], queryFn: () => api.get<any[]>('/quotes') })
   const { data: bookings } = useQuery({ queryKey: ['bookings'], queryFn: () => api.get<any[]>('/bookings') })
+  const { data: supplierBalance } = useQuery({ queryKey: ['supplier-balance'], queryFn: () => api.get<any>('/supplier-balance') })
+  const { data: receivables } = useQuery({ queryKey: ['receivables'], queryFn: () => api.get<any>('/receivables') })
 
   return (
     <div>
@@ -36,6 +38,18 @@ export default function Dashboard() {
             {quotes?.filter((q: any) => q.status !== 'booked').length ?? '...'}
           </p>
           <Link to="/quotes/new" className="btn btn-primary btn-sm mt-1">{t('dashboard.newQuote')}</Link>
+        </div>
+        <div className="card">
+          <h2>{t('dashboard.toCollect')}</h2>
+          <p className="stat-number" style={{ color: receivables?.outstanding > 0 ? 'var(--status-success)' : undefined }}>
+            {receivables?.outstanding?.toLocaleString() ?? '...'}
+          </p>
+        </div>
+        <div className="card">
+          <h2>{t('dashboard.toPay')}</h2>
+          <p className="stat-number" style={{ color: supplierBalance?.outstanding > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
+            {supplierBalance?.outstanding?.toLocaleString() ?? '...'}
+          </p>
         </div>
       </div>
 

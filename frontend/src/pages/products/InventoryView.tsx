@@ -17,6 +17,10 @@ export default function InventoryView() {
     queryKey: ['warehouses'],
     queryFn: () => api.get<any[]>('/warehouses'),
   })
+  const { data: receipts } = useQuery({
+    queryKey: ['receipts'],
+    queryFn: () => api.get<any[]>('/inventory/receipts'),
+  })
 
   const productName = (id: number) => products?.find((p: any) => p.id === id)?.name ?? `#${id}`
   const warehouseName = (id: number) => warehouses?.find((w: any) => w.id === id)?.name ?? `#${id}`
@@ -47,6 +51,27 @@ export default function InventoryView() {
           </tbody>
         </table>
       </div>
+
+      <h2 className="mt-2">{t('inventory.recentReceipts')}</h2>
+      {receipts && receipts.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>{t('inventory.reference')}</th><th>{t('inventory.supplier')}</th><th>{t('inventory.totalCost')}</th><th>{t('common.date')}</th></tr>
+            </thead>
+            <tbody>
+              {receipts.map((r: any) => (
+                <tr key={r.id}>
+                  <td><Link to={`/inventory/receipts/${r.id}`}>{r.reference || `#${r.id}`}</Link></td>
+                  <td>{r.supplier_name || '—'}</td>
+                  <td>{r.total_cost.toLocaleString()}</td>
+                  <td>{new Date(r.received_at).toLocaleDateString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="text-muted">{t('inventory.noReceipts')}</p>}
     </div>
   )
 }

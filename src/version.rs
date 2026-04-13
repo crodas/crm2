@@ -45,8 +45,23 @@ pub fn inventory_receipt_fields(
     reference: &Option<String>,
     supplier_name: &Option<String>,
     notes: &Option<String>,
+    total_cost: i64,
 ) -> Vec<String> {
-    vec![opt(reference), opt(supplier_name), opt(notes)]
+    vec![opt(reference), opt(supplier_name), opt(notes), total_cost.to_string()]
+}
+
+pub fn supplier_ledger_utxo_fields(
+    receipt_id: i64,
+    amount: i64,
+    method: &Option<String>,
+    notes: &Option<String>,
+) -> Vec<String> {
+    vec![
+        receipt_id.to_string(),
+        amount.to_string(),
+        opt(method),
+        opt(notes),
+    ]
 }
 
 pub fn inventory_utxo_fields(
@@ -204,6 +219,7 @@ pub async fn recompute_append_only_chains(pool: &SqlitePool) -> Result<(), sqlx:
     recompute_sale_lines(pool).await?;
     recompute_sale_line_utxo_inputs(pool).await?;
     recompute_payment_utxos(pool).await?;
+    recompute_supplier_ledger_utxos(pool).await?;
     Ok(())
 }
 
@@ -236,7 +252,9 @@ macro_rules! recompute_chain {
 
 // Minimal row types for recompute (avoid coupling to model structs)
 #[derive(sqlx::FromRow)]
-struct RcptRow { id: i64, reference: Option<String>, supplier_name: Option<String>, notes: Option<String> }
+struct RcptRow { id: i64, reference: Option<String>, supplier_name: Option<String>, notes: Option<String>, total_cost: i64 }
+#[derive(sqlx::FromRow)]
+struct SupplierLedgerRow { id: i64, receipt_id: i64, amount: i64, method: Option<String>, notes: Option<String> }
 #[derive(sqlx::FromRow)]
 struct UtxoRow { id: i64, product_id: i64, warehouse_id: i64, quantity: f64, cost_per_unit: i64, receipt_id: Option<i64>, source_sale_id: Option<i64> }
 #[derive(sqlx::FromRow)]
@@ -257,8 +275,12 @@ struct QuoteLineRow { id: i64, quote_id: i64, description: String, quantity: f64
 struct BookingRow { id: i64, team_id: i64, customer_id: i64, title: String, start_at: String, end_at: String, notes: Option<String>, description: Option<String>, location: Option<String> }
 
 recompute_chain!(recompute_inventory_receipts, "inventory_receipts",
-    "SELECT id, reference, supplier_name, notes FROM inventory_receipts ORDER BY id ASC",
-    RcptRow, |r: &RcptRow| inventory_receipt_fields(&r.reference, &r.supplier_name, &r.notes));
+    "SELECT id, reference, supplier_name, notes, total_cost FROM inventory_receipts ORDER BY id ASC",
+    RcptRow, |r: &RcptRow| inventory_receipt_fields(&r.reference, &r.supplier_name, &r.notes, r.total_cost));
+
+recompute_chain!(recompute_supplier_ledger_utxos, "supplier_ledger_utxos",
+    "SELECT id, receipt_id, amount, method, notes FROM supplier_ledger_utxos ORDER BY id ASC",
+    SupplierLedgerRow, |r: &SupplierLedgerRow| supplier_ledger_utxo_fields(r.receipt_id, r.amount, &r.method, &r.notes));
 
 recompute_chain!(recompute_inventory_utxos, "inventory_utxos",
     "SELECT id, product_id, warehouse_id, quantity, cost_per_unit, receipt_id, source_sale_id FROM inventory_utxos ORDER BY id ASC",

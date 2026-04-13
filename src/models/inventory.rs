@@ -8,6 +8,7 @@ pub struct InventoryReceipt {
     pub reference: Option<String>,
     pub supplier_name: Option<String>,
     pub notes: Option<String>,
+    pub total_cost: Amount,
     pub received_at: String,
     pub created_at: String,
     pub version_id: String,
@@ -50,6 +51,8 @@ pub struct ReceiveInventoryRequest {
     pub reference: Option<String>,
     pub supplier_name: Option<String>,
     pub notes: Option<String>,
+    pub is_credit: Option<bool>,
+    pub paid_cash: Option<bool>,
     pub lines: Vec<ReceiveInventoryLine>,
 }
 
@@ -79,4 +82,29 @@ pub struct LatestPrice {
     pub product_id: i64,
     pub customer_group_id: i64,
     pub price_per_unit: Amount,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct SupplierLedgerUtxo {
+    pub id: i64,
+    pub receipt_id: i64,
+    pub amount: Amount,
+    pub method: Option<String>,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub version_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateSupplierPayment {
+    pub amount: Amount,
+    pub method: Option<String>,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SupplierBalance {
+    pub total_owed: Amount,
+    pub total_paid: Amount,
+    pub outstanding: Amount,
 }

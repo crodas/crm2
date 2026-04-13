@@ -39,15 +39,17 @@ async fn seed_base(pool: &SqlitePool) {
 
 /// Helper: receive inventory via direct SQL (mirrors the route handler logic).
 async fn receive_stock(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qty: f64, cost_cents: i64) -> i64 {
+    let total_cost = (qty * cost_cents as f64).round() as i64;
     let prev_rcpt = version::latest_version_id(pool, "inventory_receipts").await.unwrap();
     let rcpt_vid = version::compute_version_id(
-        &version::inventory_receipt_fields(&Some("test".to_string()), &None, &None),
+        &version::inventory_receipt_fields(&Some("test".to_string()), &None, &None, total_cost),
         &prev_rcpt,
     );
 
     let receipt_id: i64 = sqlx::query_scalar(
-        "INSERT INTO inventory_receipts (reference, version_id) VALUES ('test', ?) RETURNING id",
+        "INSERT INTO inventory_receipts (reference, total_cost, version_id) VALUES ('test', ?, ?) RETURNING id",
     )
+    .bind(total_cost)
     .bind(&rcpt_vid)
     .fetch_one(pool)
     .await
@@ -662,8 +664,9 @@ async fn version_chain_links_to_previous() {
     assert_ne!(vids[0], vids[1]);
 
     // Verify chain: recompute second hash using first as prev
+    // second receipt: qty=30, cost=2000 -> total_cost = 60000
     let fields = crm2::version::inventory_receipt_fields(
-        &Some("test".to_string()), &None, &None,
+        &Some("test".to_string()), &None, &None, 60000,
     );
     let expected = crm2::version::compute_version_id(&fields, &vids[0]);
     assert_eq!(vids[1], expected, "second version_id must chain from first");
@@ -690,4 +693,393 @@ async fn payment_utxo_gets_version_id() {
     assert_eq!(vids[0].len(), 64);
     assert_eq!(vids[1].len(), 64);
     assert_ne!(vids[0], vids[1]);
+}
+
+// ── Receivables Tests ──────────────────────────────────────────────
+
+/// Helper: compute total receivables (same query as the route handler).
+async fn total_receivables(pool: &SqlitePool) -> (i64, i64, i64) {
+    let row = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT
+            COALESCE(SUM(q.total_amount), 0),
+            COALESCE(SUM(COALESCE(p.paid, 0)), 0)
+         FROM quotes q
+         LEFT JOIN (
+            SELECT quote_id, SUM(amount) as paid
+            FROM payment_utxos
+            GROUP BY quote_id
+         ) p ON p.quote_id = q.id
+         WHERE q.status IN ('accepted', 'booked')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    (row.0, row.1, row.0 - row.1)
+}
+
+#[tokio::test]
+async fn receivables_starts_at_zero() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let (owed, paid, outstanding) = total_receivables(&pool).await;
+    assert_eq!(owed, 0);
+    assert_eq!(paid, 0);
+    assert_eq!(outstanding, 0);
+}
+
+#[tokio::test]
+async fn receivables_reflects_accepted_quotes() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    create_accepted_quote(&pool, 1, 50000).await;
+    create_accepted_quote(&pool, 1, 30000).await;
+
+    let (owed, paid, outstanding) = total_receivables(&pool).await;
+    assert_eq!(owed, 80000);
+    assert_eq!(paid, 0);
+    assert_eq!(outstanding, 80000);
+}
+
+#[tokio::test]
+async fn receivables_decreases_with_payment() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let q = create_accepted_quote(&pool, 1, 100000).await;
+
+    pay(&pool, q, 40000).await;
+    let (owed, paid, outstanding) = total_receivables(&pool).await;
+    assert_eq!(owed, 100000);
+    assert_eq!(paid, 40000);
+    assert_eq!(outstanding, 60000);
+
+    pay(&pool, q, 60000).await;
+    let (_, _, outstanding) = total_receivables(&pool).await;
+    assert_eq!(outstanding, 0);
+}
+
+#[tokio::test]
+async fn receivables_aggregates_multiple_customers() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    // Add a second customer
+    sqlx::query("INSERT INTO customers (id, customer_type_id, name) VALUES (2, 1, 'Customer 2')")
+        .execute(&pool).await.unwrap();
+
+    let q1 = create_accepted_quote(&pool, 1, 50000).await;
+    let q2 = create_accepted_quote(&pool, 2, 70000).await;
+
+    let (owed, _, outstanding) = total_receivables(&pool).await;
+    assert_eq!(owed, 120000);
+    assert_eq!(outstanding, 120000);
+
+    pay(&pool, q1, 50000).await;
+    let (_, paid, outstanding) = total_receivables(&pool).await;
+    assert_eq!(paid, 50000);
+    assert_eq!(outstanding, 70000);
+
+    pay(&pool, q2, 70000).await;
+    let (_, _, outstanding) = total_receivables(&pool).await;
+    assert_eq!(outstanding, 0);
+}
+
+#[tokio::test]
+async fn receivables_excludes_draft_quotes() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    // Draft quote should not count
+    sqlx::query(
+        "INSERT INTO quotes (customer_id, status, title, total_amount, is_debt) VALUES (1, 'draft', 'Draft', 99999, 0)",
+    ).execute(&pool).await.unwrap();
+
+    create_accepted_quote(&pool, 1, 20000).await;
+
+    let (owed, _, outstanding) = total_receivables(&pool).await;
+    assert_eq!(owed, 20000, "draft quote should be excluded");
+    assert_eq!(outstanding, 20000);
+}
+
+#[tokio::test]
+async fn receivables_updates_after_each_payment() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let q = create_accepted_quote(&pool, 1, 100000).await;
+
+    // Track outstanding after each payment
+    let payments = vec![10000, 25000, 15000, 50000];
+    let mut total_paid_so_far = 0_i64;
+
+    for amount in payments {
+        pay(&pool, q, amount).await;
+        total_paid_so_far += amount;
+        let (_, paid, outstanding) = total_receivables(&pool).await;
+        assert_eq!(paid, total_paid_so_far, "total_paid should accumulate");
+        assert_eq!(outstanding, 100000 - total_paid_so_far, "outstanding should decrease with each payment");
+    }
+}
+
+// ── Supplier Ledger Tests ──────────────────────────────────────────
+
+/// Helper: create a receipt with a debt entry (credit purchase).
+async fn receive_on_credit(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qty: f64, cost_cents: i64) -> i64 {
+    let receipt_id = receive_stock(pool, product_id, warehouse_id, qty, cost_cents).await;
+    let total_cost = (qty * cost_cents as f64).round() as i64;
+
+    // Create debt entry (negative)
+    let prev = version::latest_version_id(pool, "supplier_ledger_utxos").await.unwrap();
+    let vid = version::compute_version_id(
+        &version::supplier_ledger_utxo_fields(receipt_id, -total_cost, &None, &Some("Inventory received".to_string())),
+        &prev,
+    );
+    sqlx::query(
+        "INSERT INTO supplier_ledger_utxos (receipt_id, amount, notes, version_id) VALUES (?, ?, 'Inventory received', ?)",
+    )
+    .bind(receipt_id)
+    .bind(-total_cost)
+    .bind(&vid)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    receipt_id
+}
+
+/// Helper: record a supplier payment (positive entry).
+async fn supplier_pay(pool: &SqlitePool, receipt_id: i64, amount_cents: i64) {
+    let prev = version::latest_version_id(pool, "supplier_ledger_utxos").await.unwrap();
+    let method = Some("cash".to_string());
+    let vid = version::compute_version_id(
+        &version::supplier_ledger_utxo_fields(receipt_id, amount_cents, &method, &None),
+        &prev,
+    );
+    sqlx::query(
+        "INSERT INTO supplier_ledger_utxos (receipt_id, amount, method, version_id) VALUES (?, ?, 'cash', ?)",
+    )
+    .bind(receipt_id)
+    .bind(amount_cents)
+    .bind(&vid)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+/// Helper: get supplier balance from the ledger.
+async fn supplier_balance(pool: &SqlitePool) -> (i64, i64, i64) {
+    let row = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT
+            COALESCE(SUM(CASE WHEN amount < 0 THEN ABS(amount) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0)
+         FROM supplier_ledger_utxos",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let (total_owed, total_paid) = row;
+    (total_owed, total_paid, total_owed - total_paid)
+}
+
+/// Helper: get supplier balance for a specific receipt.
+async fn receipt_balance(pool: &SqlitePool, receipt_id: i64) -> i64 {
+    sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(amount), 0) FROM supplier_ledger_utxos WHERE receipt_id = ?",
+    )
+    .bind(receipt_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn credit_receipt_creates_debt() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 10.0, 5000).await;
+
+    // total_cost = 10 * 5000 = 50000 cents
+    let balance = receipt_balance(&pool, rid).await;
+    assert_eq!(balance, -50000, "credit receipt should create negative balance");
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 50000);
+    assert_eq!(paid, 0);
+    assert_eq!(outstanding, 50000);
+}
+
+#[tokio::test]
+async fn payment_reduces_supplier_debt() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 10.0, 5000).await;
+    // Debt = 50000
+
+    supplier_pay(&pool, rid, 20000).await;
+
+    let balance = receipt_balance(&pool, rid).await;
+    assert_eq!(balance, -30000, "payment should reduce debt");
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 50000);
+    assert_eq!(paid, 20000);
+    assert_eq!(outstanding, 30000);
+}
+
+#[tokio::test]
+async fn multiple_payments_accumulate_for_supplier() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 10.0, 5000).await;
+
+    supplier_pay(&pool, rid, 10000).await;
+    supplier_pay(&pool, rid, 15000).await;
+    supplier_pay(&pool, rid, 25000).await;
+
+    let balance = receipt_balance(&pool, rid).await;
+    assert_eq!(balance, 0, "debt should be fully paid off");
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 50000);
+    assert_eq!(paid, 50000);
+    assert_eq!(outstanding, 0);
+}
+
+#[tokio::test]
+async fn paid_cash_creates_zero_balance() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_stock(&pool, 1, 1, 10.0, 5000).await;
+    let total_cost = 50000_i64;
+
+    // Debt entry
+    let prev1 = version::latest_version_id(&pool, "supplier_ledger_utxos").await.unwrap();
+    let vid1 = version::compute_version_id(
+        &version::supplier_ledger_utxo_fields(rid, -total_cost, &None, &None),
+        &prev1,
+    );
+    sqlx::query("INSERT INTO supplier_ledger_utxos (receipt_id, amount, version_id) VALUES (?, ?, ?)")
+        .bind(rid).bind(-total_cost).bind(&vid1).execute(&pool).await.unwrap();
+
+    // Immediate cash payment
+    let prev2 = version::latest_version_id(&pool, "supplier_ledger_utxos").await.unwrap();
+    let method = Some("cash".to_string());
+    let vid2 = version::compute_version_id(
+        &version::supplier_ledger_utxo_fields(rid, total_cost, &method, &None),
+        &prev2,
+    );
+    sqlx::query("INSERT INTO supplier_ledger_utxos (receipt_id, amount, method, version_id) VALUES (?, ?, 'cash', ?)")
+        .bind(rid).bind(total_cost).bind(&vid2).execute(&pool).await.unwrap();
+
+    let balance = receipt_balance(&pool, rid).await;
+    assert_eq!(balance, 0, "paid cash should net to zero");
+}
+
+#[tokio::test]
+async fn no_overpayment_beyond_debt() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 5.0, 2000).await;
+    // Debt = 10000
+
+    supplier_pay(&pool, rid, 10000).await;
+    // Fully paid
+
+    // Overpayment - balance goes positive (credit to the business)
+    supplier_pay(&pool, rid, 5000).await;
+
+    let balance = receipt_balance(&pool, rid).await;
+    assert_eq!(balance, 5000, "overpayment should result in positive balance (credit)");
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 10000);
+    assert_eq!(paid, 15000);
+    // outstanding is negative (supplier owes us)
+    assert_eq!(outstanding, -5000);
+}
+
+#[tokio::test]
+async fn multiple_receipts_aggregate_supplier_debt() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let r1 = receive_on_credit(&pool, 1, 1, 10.0, 5000).await;  // debt 50000
+    let r2 = receive_on_credit(&pool, 1, 1, 20.0, 3000).await;  // debt 60000
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 110000);
+    assert_eq!(paid, 0);
+    assert_eq!(outstanding, 110000);
+
+    supplier_pay(&pool, r1, 50000).await;  // pay off r1 completely
+
+    let (owed, paid, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(owed, 110000);
+    assert_eq!(paid, 50000);
+    assert_eq!(outstanding, 60000);
+
+    supplier_pay(&pool, r2, 30000).await;
+
+    let (_, _, outstanding) = supplier_balance(&pool).await;
+    assert_eq!(outstanding, 30000);
+}
+
+#[tokio::test]
+async fn supplier_ledger_utxos_get_version_ids() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 5.0, 1000).await;
+    supplier_pay(&pool, rid, 3000).await;
+
+    let vids: Vec<String> = sqlx::query_scalar(
+        "SELECT version_id FROM supplier_ledger_utxos ORDER BY id ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(vids.len(), 2);
+    assert_eq!(vids[0].len(), 64, "version_id should be a 64-char hex hash");
+    assert_eq!(vids[1].len(), 64);
+    assert_ne!(vids[0], vids[1], "version_ids should differ (chained)");
+}
+
+#[tokio::test]
+async fn supplier_ledger_is_append_only() {
+    let pool = test_pool().await;
+    seed_base(&pool).await;
+
+    let rid = receive_on_credit(&pool, 1, 1, 5.0, 1000).await;
+    supplier_pay(&pool, rid, 2000).await;
+    supplier_pay(&pool, rid, 1000).await;
+
+    // Verify all 3 entries exist (1 debt + 2 payments)
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM supplier_ledger_utxos WHERE receipt_id = ?",
+    )
+    .bind(rid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(count, 3, "ledger should have 3 entries");
+
+    // Verify the amounts
+    let amounts: Vec<i64> = sqlx::query_scalar(
+        "SELECT amount FROM supplier_ledger_utxos WHERE receipt_id = ? ORDER BY id ASC",
+    )
+    .bind(rid)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(amounts, vec![-5000, 2000, 1000]);
 }

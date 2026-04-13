@@ -11,7 +11,6 @@ interface LinePrice {
 
 interface Line {
   product_id: number
-  warehouse_id: number
   quantity: number
   cost_per_unit: number
   prices: LinePrice[]
@@ -28,7 +27,14 @@ export default function InventoryReceive() {
 
   const [reference, setReference] = useState('')
   const [supplier, setSupplier] = useState('')
+  const [warehouseId, setWarehouseId] = useState<number>(0)
+  const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('cash')
   const [lines, setLines] = useState<Line[]>([])
+
+  // Set default warehouse once loaded
+  if (warehouses && warehouses.length > 0 && warehouseId === 0) {
+    setWarehouseId(warehouses[0].id)
+  }
 
   const addLine = () => {
     const prices = (groups || []).map((g: any) => ({
@@ -37,7 +43,6 @@ export default function InventoryReceive() {
     }))
     setLines([...lines, {
       product_id: products?.[0]?.id ?? 0,
-      warehouse_id: warehouses?.[0]?.id ?? 0,
       quantity: 1,
       cost_per_unit: 0,
       prices,
@@ -71,7 +76,9 @@ export default function InventoryReceive() {
     mutationFn: () => api.post('/inventory/receive', {
       reference: reference || null,
       supplier_name: supplier || null,
-      lines,
+      is_credit: paymentType === 'credit',
+      paid_cash: paymentType === 'cash',
+      lines: lines.map(l => ({ ...l, warehouse_id: warehouseId })),
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] })
@@ -94,6 +101,27 @@ export default function InventoryReceive() {
           </div>
         </div>
 
+        <div className="form-group mb-2">
+          <label>{t('sales.warehouse')}</label>
+          <select value={warehouseId} onChange={e => setWarehouseId(Number(e.target.value))}>
+            {warehouses?.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
+
+        <div className="form-group mb-2">
+          <label>{t('inventory.paymentType')}</label>
+          <div className="flex gap-1">
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal' }}>
+              <input type="radio" name="paymentType" checked={paymentType === 'cash'} onChange={() => setPaymentType('cash')} />
+              {t('inventory.paidCash')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.25rem', fontWeight: 'normal' }}>
+              <input type="radio" name="paymentType" checked={paymentType === 'credit'} onChange={() => setPaymentType('credit')} />
+              {t('inventory.creditPurchase')}
+            </label>
+          </div>
+        </div>
+
         <h2>{t('inventory.lineItems')}</h2>
         {lines.map((line, idx) => (
           <div key={idx} className="card" style={{ background: 'var(--bg-app)' }}>
@@ -101,19 +129,11 @@ export default function InventoryReceive() {
               <strong>{t('inventory.item', { n: idx + 1 })}</strong>
               <button className="btn btn-danger btn-sm" onClick={() => removeLine(idx)}>{t('common.remove')}</button>
             </div>
-            <div className="grid-2 mb-1">
-              <div className="form-group">
-                <label>{t('sales.product')}</label>
-                <select value={line.product_id} onChange={e => updateLine(idx, 'product_id', Number(e.target.value))}>
-                  {products?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>{t('sales.warehouse')}</label>
-                <select value={line.warehouse_id} onChange={e => updateLine(idx, 'warehouse_id', Number(e.target.value))}>
-                  {warehouses?.map((w: any) => <option key={w.id} value={w.id}>{w.name}</option>)}
-                </select>
-              </div>
+            <div className="form-group mb-1">
+              <label>{t('sales.product')}</label>
+              <select value={line.product_id} onChange={e => updateLine(idx, 'product_id', Number(e.target.value))}>
+                {products?.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
             </div>
             <div className="grid-2 mb-1">
               <div className="form-group">
