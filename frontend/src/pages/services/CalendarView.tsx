@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
@@ -172,6 +172,13 @@ export default function CalendarView() {
   const teamName = (tid: number) => teams?.find((t: any) => t.id === tid)?.name ?? ''
   const today = fmt(new Date())
 
+  // Real-time "now" indicator
+  const [now, setNow] = useState(new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Double-tap support for mobile
   const lastTapRef = useRef(0)
   const openSlot = (date: string, hour: number) => {
@@ -267,7 +274,7 @@ export default function CalendarView() {
                   />
                 ))}
 
-                {/* Booking blocks */}
+                {/* Booking blocks + now indicator */}
                 <div style={{
                   position: 'absolute',
                   top: 0,
@@ -276,6 +283,34 @@ export default function CalendarView() {
                   bottom: 0,
                   pointerEvents: 'none',
                 }}>
+                  {/* Now line */}
+                  {isToday && (() => {
+                    const nowHour = now.getHours() + now.getMinutes() / 60
+                    if (nowHour < HOURS[0] || nowHour > HOURS[HOURS.length - 1] + 1) return null
+                    const top = (nowHour - HOURS[0]) * HOUR_HEIGHT
+                    return (
+                      <div style={{
+                        position: 'absolute',
+                        top,
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        background: 'var(--accent-primary)',
+                        zIndex: 10,
+                      }}>
+                        <div style={{
+                          position: 'absolute',
+                          left: -4,
+                          top: -4,
+                          width: 10,
+                          height: 10,
+                          borderRadius: '50%',
+                          background: 'var(--accent-primary)',
+                        }} />
+                      </div>
+                    )
+                  })()}
+
                   {dayBookings.map((b: any) => {
                     const bStart = new Date(b.start_at)
                     const bEnd = new Date(b.end_at)
