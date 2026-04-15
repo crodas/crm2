@@ -22,7 +22,9 @@ struct PriceRow {
     price_per_unit: Amount,
 }
 
-async fn fetch_latest_prices(pool: &SqlitePool) -> Result<HashMap<i64, HashMap<String, Amount>>, sqlx::Error> {
+async fn fetch_latest_prices(
+    pool: &SqlitePool,
+) -> Result<HashMap<i64, HashMap<String, Amount>>, sqlx::Error> {
     let rows = sqlx::query_as::<_, PriceRow>(
         "SELECT p.product_id, cg.name as group_name, p.price_per_unit
          FROM inventory_receipt_prices p
@@ -47,7 +49,10 @@ async fn fetch_latest_prices(pool: &SqlitePool) -> Result<HashMap<i64, HashMap<S
     Ok(map)
 }
 
-fn enrich(product: Product, prices_map: &HashMap<i64, HashMap<String, Amount>>) -> ProductWithPrices {
+fn enrich(
+    product: Product,
+    prices_map: &HashMap<i64, HashMap<String, Amount>>,
+) -> ProductWithPrices {
     let prices = prices_map.get(&product.id).cloned().unwrap_or_default();
     ProductWithPrices { product, prices }
 }
@@ -57,12 +62,10 @@ pub async fn list_products(
     Query(params): Query<ProductQuery>,
 ) -> Result<Json<Vec<ProductWithPrices>>, AppError> {
     let products = if let Some(pt) = &params.product_type {
-        sqlx::query_as::<_, Product>(
-            "SELECT * FROM products WHERE product_type = ? ORDER BY name",
-        )
-        .bind(pt)
-        .fetch_all(&pool)
-        .await?
+        sqlx::query_as::<_, Product>("SELECT * FROM products WHERE product_type = ? ORDER BY name")
+            .bind(pt)
+            .fetch_all(&pool)
+            .await?
     } else {
         sqlx::query_as::<_, Product>("SELECT * FROM products ORDER BY product_type, name")
             .fetch_all(&pool)
@@ -70,7 +73,10 @@ pub async fn list_products(
     };
 
     let prices_map = fetch_latest_prices(&pool).await?;
-    let result: Vec<ProductWithPrices> = products.into_iter().map(|p| enrich(p, &prices_map)).collect();
+    let result: Vec<ProductWithPrices> = products
+        .into_iter()
+        .map(|p| enrich(p, &prices_map))
+        .collect();
     Ok(Json(result))
 }
 
@@ -98,7 +104,10 @@ pub async fn create_product(
     .bind(body.suggested_price.unwrap_or(Amount(0)))
     .fetch_one(&pool)
     .await?;
-    Ok(Json(ProductWithPrices { product, prices: HashMap::new() }))
+    Ok(Json(ProductWithPrices {
+        product,
+        prices: HashMap::new(),
+    }))
 }
 
 pub async fn get_product(

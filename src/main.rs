@@ -63,7 +63,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Initialize database
-    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:crm2.db?mode=rwc".into());
+    let database_url =
+        std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:crm2.db?mode=rwc".into());
     let pool = db::init_pool(&database_url).await?;
 
     // Seed dev data (only in debug mode)
@@ -74,56 +75,150 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // API routes
     let api = Router::new()
         // Config
-        .route("/config", get(routes::config::get_config).put(routes::config::update_config))
+        .route(
+            "/config",
+            get(routes::config::get_config).put(routes::config::update_config),
+        )
         // Customer types
-        .route("/customer-types", get(routes::customers::list_customer_types).post(routes::customers::create_customer_type))
-        .route("/customer-types/{id}", put(routes::customers::update_customer_type))
-        .route("/customer-types/reorder", put(routes::customers::reorder_customer_types))
+        .route(
+            "/customer-types",
+            get(routes::customers::list_customer_types)
+                .post(routes::customers::create_customer_type),
+        )
+        .route(
+            "/customer-types/{id}",
+            put(routes::customers::update_customer_type),
+        )
+        .route(
+            "/customer-types/reorder",
+            put(routes::customers::reorder_customer_types),
+        )
         // Customer groups
-        .route("/customer-groups", get(routes::customer_groups::list_groups).post(routes::customer_groups::create_group))
-        .route("/customer-groups/{id}", put(routes::customer_groups::update_group))
+        .route(
+            "/customer-groups",
+            get(routes::customer_groups::list_groups).post(routes::customer_groups::create_group),
+        )
+        .route(
+            "/customer-groups/{id}",
+            put(routes::customer_groups::update_group),
+        )
         // Customers
-        .route("/customers", get(routes::customers::list_customers).post(routes::customers::create_customer))
-        .route("/customers/{id}", get(routes::customers::get_customer).put(routes::customers::update_customer))
-        .route("/customers/{id}/timeline", get(routes::customers::customer_timeline))
-        .route("/customers/{id}/balance", get(routes::payments::customer_balance))
+        .route(
+            "/customers",
+            get(routes::customers::list_customers).post(routes::customers::create_customer),
+        )
+        .route(
+            "/customers/{id}",
+            get(routes::customers::get_customer).put(routes::customers::update_customer),
+        )
+        .route(
+            "/customers/{id}/timeline",
+            get(routes::customers::customer_timeline),
+        )
+        .route(
+            "/customers/{id}/balance",
+            get(routes::payments::customer_balance),
+        )
         .route("/receivables", get(routes::payments::total_receivables))
         // Products
-        .route("/products", get(routes::products::list_products).post(routes::products::create_product))
-        .route("/products/{id}", get(routes::products::get_product).put(routes::products::update_product))
+        .route(
+            "/products",
+            get(routes::products::list_products).post(routes::products::create_product),
+        )
+        .route(
+            "/products/{id}",
+            get(routes::products::get_product).put(routes::products::update_product),
+        )
         // Warehouses
-        .route("/warehouses", get(routes::warehouses::list_warehouses).post(routes::warehouses::create_warehouse))
-        .route("/warehouses/{id}", put(routes::warehouses::update_warehouse))
-        .route("/warehouses/reorder", put(routes::warehouses::reorder_warehouses))
+        .route(
+            "/warehouses",
+            get(routes::warehouses::list_warehouses).post(routes::warehouses::create_warehouse),
+        )
+        .route(
+            "/warehouses/{id}",
+            put(routes::warehouses::update_warehouse),
+        )
+        .route(
+            "/warehouses/reorder",
+            put(routes::warehouses::reorder_warehouses),
+        )
         // Inventory
-        .route("/inventory/receive", post(routes::inventory::receive_inventory))
+        .route(
+            "/inventory/receive",
+            post(routes::inventory::receive_inventory),
+        )
         .route("/inventory/stock", get(routes::inventory::get_stock))
         .route("/inventory/receipts", get(routes::inventory::list_receipts))
-        .route("/inventory/receipts/{id}", get(routes::inventory::get_receipt))
-        .route("/inventory/receipts/{id}/payments", post(routes::inventory::record_supplier_payment))
-        .route("/supplier-balance", get(routes::inventory::supplier_balance))
+        .route(
+            "/inventory/receipts/{id}",
+            get(routes::inventory::get_receipt),
+        )
+        .route(
+            "/inventory/receipts/{id}/payments",
+            post(routes::inventory::record_supplier_payment),
+        )
+        .route(
+            "/supplier-balance",
+            get(routes::inventory::supplier_balance),
+        )
         .route("/inventory/utxos", get(routes::inventory::list_utxos))
         .route("/inventory/prices", get(routes::inventory::latest_prices))
-        .route("/inventory/history/{product_id}", get(routes::inventory::product_history))
+        .route(
+            "/inventory/history/{product_id}",
+            get(routes::inventory::product_history),
+        )
         // Sales
-        .route("/sales", get(routes::sales::list_sales).post(routes::sales::create_sale))
+        .route(
+            "/sales",
+            get(routes::sales::list_sales).post(routes::sales::create_sale),
+        )
         .route("/sales/{id}", get(routes::sales::get_sale))
         // Teams
-        .route("/teams", get(routes::teams::list_teams).post(routes::teams::create_team))
+        .route(
+            "/teams",
+            get(routes::teams::list_teams).post(routes::teams::create_team),
+        )
         .route("/teams/{id}", put(routes::teams::update_team))
-        .route("/teams/{id}/members", get(routes::teams::list_members).post(routes::teams::add_member))
+        .route(
+            "/teams/{id}/members",
+            get(routes::teams::list_members).post(routes::teams::add_member),
+        )
         // Quotes
-        .route("/quotes", get(routes::quotes::list_quotes).post(routes::quotes::create_quote))
-        .route("/quotes/{id}", get(routes::quotes::get_quote).put(routes::quotes::update_quote))
-        .route("/quotes/{id}/status", patch(routes::quotes::update_quote_status))
-        .route("/quotes/{id}/payments", post(routes::payments::record_payment))
+        .route(
+            "/quotes",
+            get(routes::quotes::list_quotes).post(routes::quotes::create_quote),
+        )
+        .route(
+            "/quotes/{id}",
+            get(routes::quotes::get_quote).put(routes::quotes::update_quote),
+        )
+        .route(
+            "/quotes/{id}/status",
+            patch(routes::quotes::update_quote_status),
+        )
+        .route(
+            "/quotes/{id}/payments",
+            post(routes::payments::record_payment),
+        )
         // Debts
         .route("/debts", post(routes::quotes::create_debt))
         // Bookings
-        .route("/bookings", get(routes::bookings::list_bookings).post(routes::bookings::create_booking))
-        .route("/bookings/{id}", get(routes::bookings::get_booking).put(routes::bookings::update_booking))
-        .route("/bookings/{id}/quotes/{quote_id}", post(routes::bookings::link_quote))
-        .route("/bookings/{id}/quotes/{quote_id}/unlink", post(routes::bookings::unlink_quote))
+        .route(
+            "/bookings",
+            get(routes::bookings::list_bookings).post(routes::bookings::create_booking),
+        )
+        .route(
+            "/bookings/{id}",
+            get(routes::bookings::get_booking).put(routes::bookings::update_booking),
+        )
+        .route(
+            "/bookings/{id}/quotes/{quote_id}",
+            post(routes::bookings::link_quote),
+        )
+        .route(
+            "/bookings/{id}/quotes/{quote_id}/unlink",
+            post(routes::bookings::unlink_quote),
+        )
         // Calendar
         .route("/calendar", get(routes::calendar::get_calendar));
 

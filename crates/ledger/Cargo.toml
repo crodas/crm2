@@ -1,0 +1,13 @@
+[package]
+name = "ledger"
+version = "0.1.0"
+edition = "2021"
+description = "High-level UTXO ledger with automatic coin selection"
+
+[dependencies]
+ledger-core = { path = "../ledger-core" }
+async-trait = "0.1"
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

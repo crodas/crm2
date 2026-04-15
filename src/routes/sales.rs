@@ -88,13 +88,11 @@ pub async fn create_sale_tx(
             let used = remaining.min(utxo.quantity);
             remaining -= used;
 
-            sqlx::query(
-                "UPDATE inventory_utxos SET spent = 1, spent_by_sale_id = ? WHERE id = ?",
-            )
-            .bind(sale.id)
-            .bind(utxo.id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE inventory_utxos SET spent = 1, spent_by_sale_id = ? WHERE id = ?")
+                .bind(sale.id)
+                .bind(utxo.id)
+                .execute(&mut *tx)
+                .await?;
 
             let prev_input = version::latest_version_id(&mut *tx, "sale_line_utxo_inputs").await?;
             let input_vid = version::compute_version_id(
@@ -118,8 +116,12 @@ pub async fn create_sale_tx(
                 let prev_utxo = version::latest_version_id(&mut *tx, "inventory_utxos").await?;
                 let change_vid = version::compute_version_id(
                     &version::inventory_utxo_fields(
-                        product_id, warehouse_id, change,
-                        utxo.cost_per_unit.cents(), None, Some(sale.id),
+                        product_id,
+                        warehouse_id,
+                        change,
+                        utxo.cost_per_unit.cents(),
+                        None,
+                        Some(sale.id),
                     ),
                     &prev_utxo,
                 );
@@ -161,16 +163,28 @@ pub async fn create_sale(
     let lines: Vec<(i64, i64, f64, i64)> = body
         .lines
         .iter()
-        .map(|l| (l.product_id, l.warehouse_id, l.quantity, l.price_per_unit.cents()))
+        .map(|l| {
+            (
+                l.product_id,
+                l.warehouse_id,
+                l.quantity,
+                l.price_per_unit.cents(),
+            )
+        })
         .collect();
 
-    let sale = create_sale_tx(&pool, body.customer_id, body.customer_group_id, body.notes.as_deref(), &lines).await?;
+    let sale = create_sale_tx(
+        &pool,
+        body.customer_id,
+        body.customer_group_id,
+        body.notes.as_deref(),
+        &lines,
+    )
+    .await?;
     Ok(Json(sale))
 }
 
-pub async fn list_sales(
-    State(pool): State<SqlitePool>,
-) -> Result<Json<Vec<Sale>>, AppError> {
+pub async fn list_sales(State(pool): State<SqlitePool>) -> Result<Json<Vec<Sale>>, AppError> {
     let sales = sqlx::query_as::<_, Sale>("SELECT * FROM sales ORDER BY sold_at DESC")
         .fetch_all(&pool)
         .await?;

@@ -21,8 +21,10 @@ pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
          ('PVC Pipe 4\"', 'PVC-4', 'meter', 'product', 0),
          ('Electrical Cable 2.5mm', 'ELC-25', 'meter', 'product', 0),
          ('Paint White 20L', 'PNT-W20', 'bucket', 'product', 0),
-         ('Roof Tile Clay', 'RFT-CL', 'unit', 'product', 0)"
-    ).execute(pool).await?;
+         ('Roof Tile Clay', 'RFT-CL', 'unit', 'product', 0)",
+    )
+    .execute(pool)
+    .await?;
 
     // Services (suggested_price in cents)
     sqlx::query(
@@ -31,21 +33,24 @@ pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
          ('Plumbing Repair', ?, 'service', 'service', 25000000),
          ('Painting (per room)', ?, 'service', 'service', 15000000),
          ('Roof Repair', ?, 'service', 'service', 45000000),
-         ('General Maintenance', ?, 'service', 'service', 20000000)"
+         ('General Maintenance', ?, 'service', 'service', 20000000)",
     )
     .bind(format!("SVC-{}", uuid::Uuid::new_v4()))
     .bind(format!("SVC-{}", uuid::Uuid::new_v4()))
     .bind(format!("SVC-{}", uuid::Uuid::new_v4()))
     .bind(format!("SVC-{}", uuid::Uuid::new_v4()))
     .bind(format!("SVC-{}", uuid::Uuid::new_v4()))
-    .execute(pool).await?;
+    .execute(pool)
+    .await?;
 
     // Warehouses
     sqlx::query(
         "INSERT INTO warehouses (name, address, sort_order) VALUES
          ('Main Warehouse', 'Av. Mariscal Lopez 1234', 1),
-         ('Secondary Depot', 'Ruta 2 km 15', 2)"
-    ).execute(pool).await?;
+         ('Secondary Depot', 'Ruta 2 km 15', 2)",
+    )
+    .execute(pool)
+    .await?;
 
     // Customers — retail
     sqlx::query(
@@ -53,8 +58,10 @@ pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
          (1, 'Juan Perez', '0981-123456', 'juan@email.com', 'San Lorenzo, Asuncion'),
          (1, 'Maria Garcia', '0982-234567', 'maria@email.com', 'Lambare, Asuncion'),
          (1, 'Carlos Lopez', '0983-345678', 'carlos@email.com', 'Luque'),
-         (1, 'Ana Martinez', '0984-456789', 'ana@email.com', 'Fernando de la Mora')"
-    ).execute(pool).await?;
+         (1, 'Ana Martinez', '0984-456789', 'ana@email.com', 'Fernando de la Mora')",
+    )
+    .execute(pool)
+    .await?;
 
     // Customers — resellers
     sqlx::query(

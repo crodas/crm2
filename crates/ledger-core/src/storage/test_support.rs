@@ -1,0 +1,618 @@
+//! Generic conformance tests for the [`Storage`] trait.
+//!
+//! Each public `async fn` tests one contract of the storage layer.
+//! The [`storage_tests!`] macro wires them into concrete `#[tokio::test]`
+//! functions for a given implementation.
+//!
+//! Enable with the `test-support` feature:
+//!
+//! ```toml
+//! [dev-dependencies]
+//! ledger-core = { path = "../ledger-core", features = ["test-support"] }
+//! ```
+//!
+//! Then invoke:
+//!
+//! ```ignore
+//! #[cfg(test)]
+//! mod my_storage_tests {
+//!     use ledger_core::storage::test_support::storage_tests;
+//!     storage_tests!(async { MyStorage::connect(":memory:").await });
+//! }
+//! ```
+
+use std::collections::HashMap;
+
+use crate::{
+    AccountPath, Asset, AssetKind, EntryRef, SpendingToken, Storage, TokenStatus, Transaction,
+    TransactionBuilder,
+};
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+fn test_assets() -> HashMap<String, Asset> {
+    let mut m = HashMap::new();
+    m.insert(
+        "brush".to_string(),
+        Asset::new("brush", 0, AssetKind::Unsigned),
+    );
+    m.insert("usd".to_string(), Asset::new("usd", 2, AssetKind::Signed));
+    m
+}
+
+/// Build an issuance transaction (credits only, no debits) and the
+/// spending tokens the storage layer should persist.
+fn make_issuance(
+    key: &str,
+    account: &str,
+    asset_name: &str,
+    qty_str: &str,
+    qty_raw: i128,
+) -> (Transaction, Vec<SpendingToken>) {
+    let assets = test_assets();
+    let tx = TransactionBuilder::new(key)
+        .credit(account, asset_name, qty_str)
+        .build(&assets)
+        .expect("build issuance fixture");
+
+    let tokens = vec![SpendingToken {
+        entry_ref: EntryRef {
+            tx_id: tx.tx_id.clone(),
+            entry_index: 0,
+        },
+        owner: AccountPath::new(account).expect("valid fixture account"),
+        asset_name: asset_name.to_string(),
+        qty: qty_raw,
+        status: TokenStatus::Unspent,
+    }];
+
+    (tx, tokens)
+}
+
+/// Build a transfer that spends one token and creates a new one.
+fn make_transfer(
+    key: &str,
+    spent_ref: &EntryRef,
+    from: &str,
+    to: &str,
+    asset_name: &str,
+    qty_str: &str,
+    qty_raw: i128,
+) -> (Transaction, Vec<SpendingToken>, Vec<EntryRef>) {
+    let assets = test_assets();
+    let tx = TransactionBuilder::new(key)
+        .debit(&spent_ref.tx_id, spent_ref.entry_index, from, asset_name, qty_str)
+        .credit(to, asset_name, qty_str)
+        .build(&assets)
+        .expect("build transfer fixture");
+
+    let new_tokens = vec![SpendingToken {
+        entry_ref: EntryRef {
+            tx_id: tx.tx_id.clone(),
+            entry_index: 0,
+        },
+        owner: AccountPath::new(to).expect("valid fixture account"),
+        asset_name: asset_name.to_string(),
+        qty: qty_raw,
+        status: TokenStatus::Unspent,
+    }];
+
+    let spent = vec![spent_ref.clone()];
+    (tx, new_tokens, spent)
+}
+
+// ── Asset tests ──────────────────────────────────────────────────────
+
+pub async fn load_assets_empty(s: &dyn Storage) {
+    let assets = s.load_assets().await.expect("load_assets on empty storage");
+    assert!(assets.is_empty());
+}
+
+pub async fn save_and_load_asset(s: &dyn Storage) {
+    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    s.save_asset(&brush).await.expect("save brush");
+
+    let loaded = s.load_assets().await.expect("load_assets");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded["brush"], brush);
+}
+
+pub async fn save_asset_overwrites(s: &dyn Storage) {
+    let v1 = Asset::new("thing", 0, AssetKind::Unsigned);
+    s.save_asset(&v1).await.expect("save v1");
+
+    let v2 = Asset::new("thing", 2, AssetKind::Signed);
+    s.save_asset(&v2).await.expect("save v2");
+
+    let loaded = s.load_assets().await.expect("load_assets");
+    assert_eq!(loaded.len(), 1);
+    assert_eq!(loaded["thing"], v2);
+}
+
+pub async fn save_multiple_assets(s: &dyn Storage) {
+    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    let usd = Asset::new("usd", 2, AssetKind::Signed);
+    s.save_asset(&brush).await.expect("save brush");
+    s.save_asset(&usd).await.expect("save usd");
+
+    let loaded = s.load_assets().await.expect("load_assets");
+    assert_eq!(loaded.len(), 2);
+    assert_eq!(loaded["brush"], brush);
+    assert_eq!(loaded["usd"], usd);
+}
+
+// ── Idempotency key tests ────────────────────────────────────────────
+
+pub async fn has_key_empty(s: &dyn Storage) {
+    assert!(!s.has_idempotency_key("anything").await.expect("has_key"));
+}
+
+pub async fn key_recorded_after_commit(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+    assert!(s.has_idempotency_key("issue-001").await.expect("has_key"));
+}
+
+pub async fn key_absent_for_uncommitted(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+    assert!(!s.has_idempotency_key("other-key").await.expect("has_key"));
+}
+
+// ── Token tests ──────────────────────────────────────────────────────
+
+pub async fn get_token_nonexistent(s: &dyn Storage) {
+    let eref = EntryRef {
+        tx_id: "nonexistent".to_string(),
+        entry_index: 0,
+    };
+    assert!(s.get_token(&eref).await.expect("get_token").is_none());
+}
+
+pub async fn get_token_after_commit(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens[0].entry_ref.clone();
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let token = s
+        .get_token(&eref)
+        .await
+        .expect("get_token")
+        .expect("token should exist");
+    assert_eq!(token.qty, 5);
+    assert_eq!(token.asset_name, "brush");
+    assert_eq!(token.status, TokenStatus::Unspent);
+}
+
+pub async fn token_marked_spent(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent)
+        .await
+        .expect("commit transfer");
+
+    let token = s
+        .get_token(&eref)
+        .await
+        .expect("get_token")
+        .expect("token should exist");
+    assert!(matches!(token.status, TokenStatus::Spent(_)));
+}
+
+// ── Unspent by account tests ─────────────────────────────────────────
+
+pub async fn unspent_account_empty(s: &dyn Storage) {
+    let acc = AccountPath::new("@nobody").expect("valid path");
+    let result = s
+        .unspent_by_account(&acc, "brush")
+        .await
+        .expect("unspent_by_account");
+    assert!(result.is_empty());
+}
+
+pub async fn unspent_account_returns_matching(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let acc = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .unspent_by_account(&acc, "brush")
+        .await
+        .expect("unspent_by_account");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].qty, 5);
+}
+
+pub async fn unspent_account_excludes_spent(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent)
+        .await
+        .expect("commit transfer");
+
+    let acc = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .unspent_by_account(&acc, "brush")
+        .await
+        .expect("unspent_by_account");
+    assert!(result.is_empty(), "spent tokens should be excluded");
+}
+
+pub async fn unspent_account_excludes_other_assets(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let acc = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .unspent_by_account(&acc, "usd")
+        .await
+        .expect("unspent_by_account");
+    assert!(result.is_empty(), "different asset should be excluded");
+}
+
+pub async fn unspent_account_excludes_children(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let parent = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_account(&parent, "brush")
+        .await
+        .expect("unspent_by_account");
+    assert!(
+        result.is_empty(),
+        "child account tokens should not appear in exact account query"
+    );
+}
+
+// ── Unspent by prefix tests ─────────────────────────────────────────
+
+pub async fn unspent_prefix_empty(s: &dyn Storage) {
+    let prefix = AccountPath::new("@nobody").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "brush")
+        .await
+        .expect("unspent_by_prefix");
+    assert!(result.is_empty());
+}
+
+pub async fn unspent_prefix_includes_descendants(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "brush")
+        .await
+        .expect("unspent_by_prefix");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].qty, 5);
+}
+
+pub async fn unspent_prefix_includes_exact(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store1", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "brush")
+        .await
+        .expect("unspent_by_prefix");
+    assert_eq!(result.len(), 1);
+}
+
+pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+
+    let (tx2, tokens2, spent) =
+        make_transfer("xfer-001", &eref, "@store1/inventory", "@b", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent)
+        .await
+        .expect("commit transfer");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "brush")
+        .await
+        .expect("unspent_by_prefix");
+    assert!(result.is_empty(), "spent tokens should be excluded from prefix query");
+}
+
+pub async fn unspent_prefix_excludes_other_assets(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store1", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "usd")
+        .await
+        .expect("unspent_by_prefix");
+    assert!(result.is_empty(), "different asset should be excluded");
+}
+
+pub async fn unspent_prefix_excludes_non_descendants(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store2", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_by_prefix(&prefix, "brush")
+        .await
+        .expect("unspent_by_prefix");
+    assert!(result.is_empty(), "non-descendant accounts should be excluded");
+}
+
+// ── Transaction tests ────────────────────────────────────────────────
+
+pub async fn load_transactions_empty(s: &dyn Storage) {
+    let txs = s.load_transactions().await.expect("load_transactions");
+    assert!(txs.is_empty());
+}
+
+pub async fn tx_count_empty(s: &dyn Storage) {
+    assert_eq!(s.tx_count().await.expect("tx_count"), 0);
+}
+
+pub async fn commit_and_load_transaction(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let expected_id = tx.tx_id.clone();
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let txs = s.load_transactions().await.expect("load_transactions");
+    assert_eq!(txs.len(), 1);
+    assert_eq!(txs[0].tx_id, expected_id);
+    assert_eq!(s.tx_count().await.expect("tx_count"), 1);
+}
+
+pub async fn transactions_preserve_order(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let (tx2, tokens2) = make_issuance("issue-002", "@b", "brush", "3", 3);
+    let id1 = tx1.tx_id.clone();
+    let id2 = tx2.tx_id.clone();
+
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit tx1");
+    s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit tx2");
+
+    let txs = s.load_transactions().await.expect("load_transactions");
+    assert_eq!(txs.len(), 2);
+    assert_eq!(txs[0].tx_id, id1, "first committed should be first loaded");
+    assert_eq!(txs[1].tx_id, id2, "second committed should be second loaded");
+}
+
+// ── Combined / atomicity tests ───────────────────────────────────────
+
+pub async fn commit_creates_tokens_and_key(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens[0].entry_ref.clone();
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let token = s
+        .get_token(&eref)
+        .await
+        .expect("get_token")
+        .expect("token should exist");
+    assert_eq!(token.qty, 5);
+
+    assert!(s.has_idempotency_key("issue-001").await.expect("has_key"));
+    assert_eq!(s.tx_count().await.expect("tx_count"), 1);
+}
+
+pub async fn commit_spends_and_creates(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref_a = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref_a, "@a", "@b", "brush", "5", 5);
+    let eref_b = tokens2[0].entry_ref.clone();
+    s.commit_tx(&tx2, &tokens2, &spent)
+        .await
+        .expect("commit transfer");
+
+    let a = s
+        .get_token(&eref_a)
+        .await
+        .expect("get_token A")
+        .expect("A should exist");
+    assert!(matches!(a.status, TokenStatus::Spent(_)));
+
+    let b = s
+        .get_token(&eref_b)
+        .await
+        .expect("get_token B")
+        .expect("B should exist");
+    assert_eq!(b.status, TokenStatus::Unspent);
+
+    let acc_a = AccountPath::new("@a").expect("valid path");
+    let acc_b = AccountPath::new("@b").expect("valid path");
+    assert!(
+        s.unspent_by_account(&acc_a, "brush")
+            .await
+            .expect("unspent @a")
+            .is_empty()
+    );
+    assert_eq!(
+        s.unspent_by_account(&acc_b, "brush")
+            .await
+            .expect("unspent @b")
+            .len(),
+        1
+    );
+
+    assert_eq!(s.tx_count().await.expect("tx_count"), 2);
+}
+
+// ── Test macro ───────────────────────────────────────────────────────
+
+/// Generate a full conformance test suite for a [`Storage`] implementation.
+///
+/// The constructor is an async block that returns an `impl Storage`.
+/// This allows async setup (e.g., database pool initialization).
+///
+/// ```ignore
+/// #[cfg(test)]
+/// mod my_tests {
+///     use ledger_core::storage::test_support::storage_tests;
+///     storage_tests!(async { MyStorage::connect(":memory:").await });
+/// }
+/// ```
+#[macro_export]
+macro_rules! storage_tests {
+    ($constructor:expr) => {
+        // Assets
+        #[tokio::test]
+        async fn load_assets_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::load_assets_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn save_and_load_asset() {
+            let s = $constructor.await;
+            $crate::storage::test_support::save_and_load_asset(&s).await;
+        }
+        #[tokio::test]
+        async fn save_asset_overwrites() {
+            let s = $constructor.await;
+            $crate::storage::test_support::save_asset_overwrites(&s).await;
+        }
+        #[tokio::test]
+        async fn save_multiple_assets() {
+            let s = $constructor.await;
+            $crate::storage::test_support::save_multiple_assets(&s).await;
+        }
+
+        // Idempotency
+        #[tokio::test]
+        async fn has_key_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::has_key_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn key_recorded_after_commit() {
+            let s = $constructor.await;
+            $crate::storage::test_support::key_recorded_after_commit(&s).await;
+        }
+        #[tokio::test]
+        async fn key_absent_for_uncommitted() {
+            let s = $constructor.await;
+            $crate::storage::test_support::key_absent_for_uncommitted(&s).await;
+        }
+
+        // Tokens
+        #[tokio::test]
+        async fn get_token_nonexistent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::get_token_nonexistent(&s).await;
+        }
+        #[tokio::test]
+        async fn get_token_after_commit() {
+            let s = $constructor.await;
+            $crate::storage::test_support::get_token_after_commit(&s).await;
+        }
+        #[tokio::test]
+        async fn token_marked_spent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::token_marked_spent(&s).await;
+        }
+
+        // Unspent by account
+        #[tokio::test]
+        async fn unspent_account_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_account_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_account_returns_matching() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_account_returns_matching(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_account_excludes_spent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_account_excludes_spent(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_account_excludes_other_assets() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_account_excludes_other_assets(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_account_excludes_children() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_account_excludes_children(&s).await;
+        }
+
+        // Unspent by prefix
+        #[tokio::test]
+        async fn unspent_prefix_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_prefix_includes_descendants() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_includes_descendants(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_prefix_includes_exact() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_includes_exact(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_prefix_excludes_spent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_excludes_spent(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_prefix_excludes_other_assets() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_excludes_other_assets(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_prefix_excludes_non_descendants() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_prefix_excludes_non_descendants(&s).await;
+        }
+
+        // Transactions
+        #[tokio::test]
+        async fn load_transactions_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::load_transactions_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn tx_count_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::tx_count_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn commit_and_load_transaction() {
+            let s = $constructor.await;
+            $crate::storage::test_support::commit_and_load_transaction(&s).await;
+        }
+        #[tokio::test]
+        async fn transactions_preserve_order() {
+            let s = $constructor.await;
+            $crate::storage::test_support::transactions_preserve_order(&s).await;
+        }
+
+        // Combined
+        #[tokio::test]
+        async fn commit_creates_tokens_and_key() {
+            let s = $constructor.await;
+            $crate::storage::test_support::commit_creates_tokens_and_key(&s).await;
+        }
+        #[tokio::test]
+        async fn commit_spends_and_creates() {
+            let s = $constructor.await;
+            $crate::storage::test_support::commit_spends_and_creates(&s).await;
+        }
+    };
+}
