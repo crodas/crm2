@@ -9,13 +9,10 @@ use crate::models::booking::*;
 use crate::models::quote::Quote;
 use crate::version;
 
-pub async fn list_bookings(
-    State(pool): State<SqlitePool>,
-) -> Result<Json<Vec<Booking>>, AppError> {
-    let bookings =
-        sqlx::query_as::<_, Booking>("SELECT * FROM bookings ORDER BY start_at DESC")
-            .fetch_all(&pool)
-            .await?;
+pub async fn list_bookings(State(pool): State<SqlitePool>) -> Result<Json<Vec<Booking>>, AppError> {
+    let bookings = sqlx::query_as::<_, Booking>("SELECT * FROM bookings ORDER BY start_at DESC")
+        .fetch_all(&pool)
+        .await?;
     Ok(Json(bookings))
 }
 
@@ -28,9 +25,14 @@ pub async fn create_booking(
     let prev_booking = version::latest_version_id(&mut *tx, "bookings").await?;
     let booking_vid = version::compute_version_id(
         &version::booking_fields(
-            body.team_id, body.customer_id, &body.title,
-            &body.start_at, &body.end_at, &body.notes,
-            &body.description, &body.location,
+            body.team_id,
+            body.customer_id,
+            &body.title,
+            &body.start_at,
+            &body.end_at,
+            &body.notes,
+            &body.description,
+            &body.location,
         ),
         &prev_booking,
     );

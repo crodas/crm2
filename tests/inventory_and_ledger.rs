@@ -27,10 +27,12 @@ async fn seed_base(pool: &SqlitePool) {
     .execute(pool)
     .await
     .unwrap();
-    sqlx::query("INSERT INTO products (id, sku, name, unit) VALUES (1, 'CEM-001', 'Cement', 'bag')")
-        .execute(pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO products (id, sku, name, unit) VALUES (1, 'CEM-001', 'Cement', 'bag')",
+    )
+    .execute(pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO warehouses (id, name) VALUES (1, 'Main')")
         .execute(pool)
         .await
@@ -38,9 +40,17 @@ async fn seed_base(pool: &SqlitePool) {
 }
 
 /// Helper: receive inventory via direct SQL (mirrors the route handler logic).
-async fn receive_stock(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qty: f64, cost_cents: i64) -> i64 {
+async fn receive_stock(
+    pool: &SqlitePool,
+    product_id: i64,
+    warehouse_id: i64,
+    qty: f64,
+    cost_cents: i64,
+) -> i64 {
     let total_cost = (qty * cost_cents as f64).round() as i64;
-    let prev_rcpt = version::latest_version_id(pool, "inventory_receipts").await.unwrap();
+    let prev_rcpt = version::latest_version_id(pool, "inventory_receipts")
+        .await
+        .unwrap();
     let rcpt_vid = version::compute_version_id(
         &version::inventory_receipt_fields(&Some("test".to_string()), &None, &None, total_cost),
         &prev_rcpt,
@@ -55,9 +65,18 @@ async fn receive_stock(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qt
     .await
     .unwrap();
 
-    let prev_utxo = version::latest_version_id(pool, "inventory_utxos").await.unwrap();
+    let prev_utxo = version::latest_version_id(pool, "inventory_utxos")
+        .await
+        .unwrap();
     let utxo_vid = version::compute_version_id(
-        &version::inventory_utxo_fields(product_id, warehouse_id, qty, cost_cents, Some(receipt_id), None),
+        &version::inventory_utxo_fields(
+            product_id,
+            warehouse_id,
+            qty,
+            cost_cents,
+            Some(receipt_id),
+            None,
+        ),
         &prev_utxo,
     );
 
@@ -136,7 +155,9 @@ async fn sale_fully_consumes_single_utxo() {
 
     receive_stock(&pool, 1, 1, 10.0, 4500000).await;
 
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 6300000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 6300000)])
+        .await
+        .unwrap();
 
     // All stock consumed — zero unspent
     assert_eq!(unspent_stock(&pool, 1, 1).await, 0.0);
@@ -150,7 +171,9 @@ async fn sale_partial_consumption_creates_change_utxo() {
 
     receive_stock(&pool, 1, 1, 100.0, 4500000).await;
 
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 30.0, 6300000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 30.0, 6300000)])
+        .await
+        .unwrap();
 
     // 100 - 30 = 70 remaining in a change UTXO
     assert_eq!(unspent_stock(&pool, 1, 1).await, 70.0);
@@ -177,7 +200,9 @@ async fn sale_fifo_consumes_oldest_utxo_first() {
     receive_stock(&pool, 1, 1, 20.0, 5000000).await; // newer, pricier
 
     // Sell 25: should consume all of first lot (20) + 5 from second
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 6000000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 6000000)])
+        .await
+        .unwrap();
 
     assert_eq!(unspent_stock(&pool, 1, 1).await, 15.0);
 
@@ -201,7 +226,9 @@ async fn sale_spanning_three_utxos() {
     receive_stock(&pool, 1, 1, 10.0, 3000).await;
 
     // Sell 25: consumes first two fully + 5 from third
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 5000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 5000)])
+        .await
+        .unwrap();
 
     assert_eq!(unspent_stock(&pool, 1, 1).await, 5.0);
     assert_eq!(unspent_utxo_count(&pool, 1, 1).await, 1);
@@ -214,7 +241,8 @@ async fn sale_insufficient_stock_is_rejected() {
 
     receive_stock(&pool, 1, 1, 5.0, 4500000).await;
 
-    let result = crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 6300000)]).await;
+    let result =
+        crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 6300000)]).await;
     assert!(result.is_err());
 
     // Stock must be untouched — transaction rolled back
@@ -227,7 +255,8 @@ async fn sale_zero_stock_is_rejected() {
     let pool = test_pool().await;
     seed_base(&pool).await;
 
-    let result = crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 1.0, 6300000)]).await;
+    let result =
+        crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 1.0, 6300000)]).await;
     assert!(result.is_err());
 }
 
@@ -238,23 +267,22 @@ async fn sale_records_utxo_audit_trail() {
 
     receive_stock(&pool, 1, 1, 50.0, 1000).await;
 
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 30.0, 2000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 30.0, 2000)])
+        .await
+        .unwrap();
 
     // sale_line_utxo_inputs must record the consumption
-    let inputs: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM sale_line_utxo_inputs",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let inputs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sale_line_utxo_inputs")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(inputs, 1);
 
-    let qty_used: f64 = sqlx::query_scalar(
-        "SELECT quantity_used FROM sale_line_utxo_inputs LIMIT 1",
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let qty_used: f64 =
+        sqlx::query_scalar("SELECT quantity_used FROM sale_line_utxo_inputs LIMIT 1")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(qty_used, 30.0);
 }
 
@@ -264,18 +292,25 @@ async fn sale_total_equals_sum_of_lines() {
     seed_base(&pool).await;
 
     // Two products
-    sqlx::query("INSERT INTO products (id, sku, name, unit) VALUES (2, 'BRK-001', 'Brick', 'unit')")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "INSERT INTO products (id, sku, name, unit) VALUES (2, 'BRK-001', 'Brick', 'unit')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     receive_stock(&pool, 1, 1, 100.0, 1000).await;
     receive_stock(&pool, 2, 1, 200.0, 500).await;
 
     // Sell: 10 cement @ 20.00 + 50 bricks @ 8.00
     let sale = crm2::routes::sales::create_sale_tx(
-        &pool, 1, 1, None,
+        &pool,
+        1,
+        1,
+        None,
         &[(1, 1, 10.0, 2000), (2, 1, 50.0, 800)],
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
 
     // total = 10*20.00 + 50*8.00 = 200+400 = 600.00 = 60000 cents
     assert_eq!(sale.total_amount.cents(), 60000);
@@ -288,7 +323,9 @@ async fn spent_utxo_not_double_spent() {
 
     receive_stock(&pool, 1, 1, 10.0, 1000).await;
 
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 2000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 10.0, 2000)])
+        .await
+        .unwrap();
 
     // Second sale with no stock left must fail
     let result = crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 1.0, 2000)]).await;
@@ -303,15 +340,21 @@ async fn change_utxo_is_spendable() {
     receive_stock(&pool, 1, 1, 100.0, 1000).await;
 
     // First sale: partial, creates change
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 60.0, 2000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 60.0, 2000)])
+        .await
+        .unwrap();
     assert_eq!(unspent_stock(&pool, 1, 1).await, 40.0);
 
     // Second sale: uses the change UTXO
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 2000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 25.0, 2000)])
+        .await
+        .unwrap();
     assert_eq!(unspent_stock(&pool, 1, 1).await, 15.0);
 
     // Third sale: uses the change of the change
-    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 15.0, 2000)]).await.unwrap();
+    crm2::routes::sales::create_sale_tx(&pool, 1, 1, None, &[(1, 1, 15.0, 2000)])
+        .await
+        .unwrap();
     assert_eq!(unspent_stock(&pool, 1, 1).await, 0.0);
 }
 
@@ -332,7 +375,9 @@ async fn create_accepted_quote(pool: &SqlitePool, customer_id: i64, total_cents:
 
 /// Helper: record a payment against a quote (in cents).
 async fn pay(pool: &SqlitePool, quote_id: i64, amount_cents: i64) {
-    let prev = version::latest_version_id(pool, "payment_utxos").await.unwrap();
+    let prev = version::latest_version_id(pool, "payment_utxos")
+        .await
+        .unwrap();
     let vid = version::compute_version_id(
         &version::payment_utxo_fields(quote_id, amount_cents, &Some("cash".to_string()), &None),
         &prev,
@@ -470,13 +515,12 @@ async fn payment_ledger_is_append_only() {
     assert_eq!(count, 2);
 
     // Each entry is individually preserved
-    let amounts: Vec<i64> = sqlx::query_scalar(
-        "SELECT amount FROM payment_utxos WHERE quote_id = ? ORDER BY id",
-    )
-    .bind(q)
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let amounts: Vec<i64> =
+        sqlx::query_scalar("SELECT amount FROM payment_utxos WHERE quote_id = ? ORDER BY id")
+            .bind(q)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
     assert_eq!(amounts, vec![10_000, 20_000]);
 }
 
@@ -538,12 +582,11 @@ async fn payment_amount_must_be_positive() {
 
     let q = create_accepted_quote(&pool, 1, 100_000).await;
 
-    let result = sqlx::query(
-        "INSERT INTO payment_utxos (quote_id, amount, method) VALUES (?, 0, 'cash')",
-    )
-    .bind(q)
-    .execute(&pool)
-    .await;
+    let result =
+        sqlx::query("INSERT INTO payment_utxos (quote_id, amount, method) VALUES (?, 0, 'cash')")
+            .bind(q)
+            .execute(&pool)
+            .await;
 
     assert!(result.is_err()); // CHECK (amount > 0)
 }
@@ -649,12 +692,11 @@ async fn version_chain_links_to_previous() {
     receive_stock(&pool, 1, 1, 50.0, 1000).await;
     receive_stock(&pool, 1, 1, 30.0, 2000).await;
 
-    let vids: Vec<String> = sqlx::query_scalar(
-        "SELECT version_id FROM inventory_receipts ORDER BY id ASC",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let vids: Vec<String> =
+        sqlx::query_scalar("SELECT version_id FROM inventory_receipts ORDER BY id ASC")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
     // Both must be valid hashes (backfilled by recompute_all_chains)
     assert_eq!(vids.len(), 2);
@@ -665,9 +707,8 @@ async fn version_chain_links_to_previous() {
 
     // Verify chain: recompute second hash using first as prev
     // second receipt: qty=30, cost=2000 -> total_cost = 60000
-    let fields = crm2::version::inventory_receipt_fields(
-        &Some("test".to_string()), &None, &None, 60000,
-    );
+    let fields =
+        crm2::version::inventory_receipt_fields(&Some("test".to_string()), &None, &None, 60000);
     let expected = crm2::version::compute_version_id(&fields, &vids[0]);
     assert_eq!(vids[1], expected, "second version_id must chain from first");
 }
@@ -682,12 +723,11 @@ async fn payment_utxo_gets_version_id() {
     pay(&pool, q, 20_000).await;
 
     // Payments inserted via direct SQL get backfilled version_ids
-    let vids: Vec<String> = sqlx::query_scalar(
-        "SELECT version_id FROM payment_utxos ORDER BY id ASC",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let vids: Vec<String> =
+        sqlx::query_scalar("SELECT version_id FROM payment_utxos ORDER BY id ASC")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
     assert_eq!(vids.len(), 2);
     assert_eq!(vids[0].len(), 64);
@@ -767,7 +807,9 @@ async fn receivables_aggregates_multiple_customers() {
 
     // Add a second customer
     sqlx::query("INSERT INTO customers (id, customer_type_id, name) VALUES (2, 1, 'Customer 2')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
     let q1 = create_accepted_quote(&pool, 1, 50000).await;
     let q2 = create_accepted_quote(&pool, 2, 70000).await;
@@ -819,21 +861,38 @@ async fn receivables_updates_after_each_payment() {
         total_paid_so_far += amount;
         let (_, paid, outstanding) = total_receivables(&pool).await;
         assert_eq!(paid, total_paid_so_far, "total_paid should accumulate");
-        assert_eq!(outstanding, 100000 - total_paid_so_far, "outstanding should decrease with each payment");
+        assert_eq!(
+            outstanding,
+            100000 - total_paid_so_far,
+            "outstanding should decrease with each payment"
+        );
     }
 }
 
 // ── Supplier Ledger Tests ──────────────────────────────────────────
 
 /// Helper: create a receipt with a debt entry (credit purchase).
-async fn receive_on_credit(pool: &SqlitePool, product_id: i64, warehouse_id: i64, qty: f64, cost_cents: i64) -> i64 {
+async fn receive_on_credit(
+    pool: &SqlitePool,
+    product_id: i64,
+    warehouse_id: i64,
+    qty: f64,
+    cost_cents: i64,
+) -> i64 {
     let receipt_id = receive_stock(pool, product_id, warehouse_id, qty, cost_cents).await;
     let total_cost = (qty * cost_cents as f64).round() as i64;
 
     // Create debt entry (negative)
-    let prev = version::latest_version_id(pool, "supplier_ledger_utxos").await.unwrap();
+    let prev = version::latest_version_id(pool, "supplier_ledger_utxos")
+        .await
+        .unwrap();
     let vid = version::compute_version_id(
-        &version::supplier_ledger_utxo_fields(receipt_id, -total_cost, &None, &Some("Inventory received".to_string())),
+        &version::supplier_ledger_utxo_fields(
+            receipt_id,
+            -total_cost,
+            &None,
+            &Some("Inventory received".to_string()),
+        ),
         &prev,
     );
     sqlx::query(
@@ -851,7 +910,9 @@ async fn receive_on_credit(pool: &SqlitePool, product_id: i64, warehouse_id: i64
 
 /// Helper: record a supplier payment (positive entry).
 async fn supplier_pay(pool: &SqlitePool, receipt_id: i64, amount_cents: i64) {
-    let prev = version::latest_version_id(pool, "supplier_ledger_utxos").await.unwrap();
+    let prev = version::latest_version_id(pool, "supplier_ledger_utxos")
+        .await
+        .unwrap();
     let method = Some("cash".to_string());
     let vid = version::compute_version_id(
         &version::supplier_ledger_utxo_fields(receipt_id, amount_cents, &method, &None),
@@ -903,7 +964,10 @@ async fn credit_receipt_creates_debt() {
 
     // total_cost = 10 * 5000 = 50000 cents
     let balance = receipt_balance(&pool, rid).await;
-    assert_eq!(balance, -50000, "credit receipt should create negative balance");
+    assert_eq!(
+        balance, -50000,
+        "credit receipt should create negative balance"
+    );
 
     let (owed, paid, outstanding) = supplier_balance(&pool).await;
     assert_eq!(owed, 50000);
@@ -959,16 +1023,27 @@ async fn paid_cash_creates_zero_balance() {
     let total_cost = 50000_i64;
 
     // Debt entry
-    let prev1 = version::latest_version_id(&pool, "supplier_ledger_utxos").await.unwrap();
+    let prev1 = version::latest_version_id(&pool, "supplier_ledger_utxos")
+        .await
+        .unwrap();
     let vid1 = version::compute_version_id(
         &version::supplier_ledger_utxo_fields(rid, -total_cost, &None, &None),
         &prev1,
     );
-    sqlx::query("INSERT INTO supplier_ledger_utxos (receipt_id, amount, version_id) VALUES (?, ?, ?)")
-        .bind(rid).bind(-total_cost).bind(&vid1).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO supplier_ledger_utxos (receipt_id, amount, version_id) VALUES (?, ?, ?)",
+    )
+    .bind(rid)
+    .bind(-total_cost)
+    .bind(&vid1)
+    .execute(&pool)
+    .await
+    .unwrap();
 
     // Immediate cash payment
-    let prev2 = version::latest_version_id(&pool, "supplier_ledger_utxos").await.unwrap();
+    let prev2 = version::latest_version_id(&pool, "supplier_ledger_utxos")
+        .await
+        .unwrap();
     let method = Some("cash".to_string());
     let vid2 = version::compute_version_id(
         &version::supplier_ledger_utxo_fields(rid, total_cost, &method, &None),
@@ -996,7 +1071,10 @@ async fn no_overpayment_beyond_debt() {
     supplier_pay(&pool, rid, 5000).await;
 
     let balance = receipt_balance(&pool, rid).await;
-    assert_eq!(balance, 5000, "overpayment should result in positive balance (credit)");
+    assert_eq!(
+        balance, 5000,
+        "overpayment should result in positive balance (credit)"
+    );
 
     let (owed, paid, outstanding) = supplier_balance(&pool).await;
     assert_eq!(owed, 10000);
@@ -1010,15 +1088,15 @@ async fn multiple_receipts_aggregate_supplier_debt() {
     let pool = test_pool().await;
     seed_base(&pool).await;
 
-    let r1 = receive_on_credit(&pool, 1, 1, 10.0, 5000).await;  // debt 50000
-    let r2 = receive_on_credit(&pool, 1, 1, 20.0, 3000).await;  // debt 60000
+    let r1 = receive_on_credit(&pool, 1, 1, 10.0, 5000).await; // debt 50000
+    let r2 = receive_on_credit(&pool, 1, 1, 20.0, 3000).await; // debt 60000
 
     let (owed, paid, outstanding) = supplier_balance(&pool).await;
     assert_eq!(owed, 110000);
     assert_eq!(paid, 0);
     assert_eq!(outstanding, 110000);
 
-    supplier_pay(&pool, r1, 50000).await;  // pay off r1 completely
+    supplier_pay(&pool, r1, 50000).await; // pay off r1 completely
 
     let (owed, paid, outstanding) = supplier_balance(&pool).await;
     assert_eq!(owed, 110000);
@@ -1039,12 +1117,11 @@ async fn supplier_ledger_utxos_get_version_ids() {
     let rid = receive_on_credit(&pool, 1, 1, 5.0, 1000).await;
     supplier_pay(&pool, rid, 3000).await;
 
-    let vids: Vec<String> = sqlx::query_scalar(
-        "SELECT version_id FROM supplier_ledger_utxos ORDER BY id ASC",
-    )
-    .fetch_all(&pool)
-    .await
-    .unwrap();
+    let vids: Vec<String> =
+        sqlx::query_scalar("SELECT version_id FROM supplier_ledger_utxos ORDER BY id ASC")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
     assert_eq!(vids.len(), 2);
     assert_eq!(vids[0].len(), 64, "version_id should be a 64-char hex hash");
@@ -1062,13 +1139,12 @@ async fn supplier_ledger_is_append_only() {
     supplier_pay(&pool, rid, 1000).await;
 
     // Verify all 3 entries exist (1 debt + 2 payments)
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM supplier_ledger_utxos WHERE receipt_id = ?",
-    )
-    .bind(rid)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM supplier_ledger_utxos WHERE receipt_id = ?")
+            .bind(rid)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
 
     assert_eq!(count, 3, "ledger should have 3 entries");
 

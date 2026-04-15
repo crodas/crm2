@@ -29,13 +29,20 @@ pub async fn receive_inventory(
     let mut tx = pool.begin().await?;
 
     // Calculate total_cost from lines
-    let total_cost: i64 = body.lines.iter().map(|l| {
-        (l.quantity * l.cost_per_unit.cents() as f64).round() as i64
-    }).sum();
+    let total_cost: i64 = body
+        .lines
+        .iter()
+        .map(|l| (l.quantity * l.cost_per_unit.cents() as f64).round() as i64)
+        .sum();
 
     let prev_receipt = version::latest_version_id(&mut *tx, "inventory_receipts").await?;
     let receipt_vid = version::compute_version_id(
-        &version::inventory_receipt_fields(&body.reference, &body.supplier_name, &body.notes, total_cost),
+        &version::inventory_receipt_fields(
+            &body.reference,
+            &body.supplier_name,
+            &body.notes,
+            total_cost,
+        ),
         &prev_receipt,
     );
 
@@ -60,8 +67,12 @@ pub async fn receive_inventory(
         let prev_utxo = version::latest_version_id(&mut *tx, "inventory_utxos").await?;
         let utxo_vid = version::compute_version_id(
             &version::inventory_utxo_fields(
-                line.product_id, line.warehouse_id, line.quantity,
-                line.cost_per_unit.cents(), Some(receipt.id), None,
+                line.product_id,
+                line.warehouse_id,
+                line.quantity,
+                line.cost_per_unit.cents(),
+                Some(receipt.id),
+                None,
             ),
             &prev_utxo,
         );
@@ -81,10 +92,13 @@ pub async fn receive_inventory(
 
         // Store prices for each customer group
         for price in &line.prices {
-            let prev_price = version::latest_version_id(&mut *tx, "inventory_receipt_prices").await?;
+            let prev_price =
+                version::latest_version_id(&mut *tx, "inventory_receipt_prices").await?;
             let price_vid = version::compute_version_id(
                 &version::receipt_price_fields(
-                    receipt.id, line.product_id, price.customer_group_id,
+                    receipt.id,
+                    line.product_id,
+                    price.customer_group_id,
                     price.price_per_unit.cents(),
                 ),
                 &prev_price,
@@ -130,11 +144,17 @@ pub async fn receive_inventory(
 
         if paid_cash {
             // Immediate payment entry (positive)
-            let prev_ledger2 = version::latest_version_id(&mut *tx, "supplier_ledger_utxos").await?;
+            let prev_ledger2 =
+                version::latest_version_id(&mut *tx, "supplier_ledger_utxos").await?;
             let cash_method: Option<String> = Some("cash".into());
             let pay_notes: Option<String> = Some("Paid in cash".into());
             let pay_vid = version::compute_version_id(
-                &version::supplier_ledger_utxo_fields(receipt.id, total_cost, &cash_method, &pay_notes),
+                &version::supplier_ledger_utxo_fields(
+                    receipt.id,
+                    total_cost,
+                    &cash_method,
+                    &pay_notes,
+                ),
                 &prev_ledger2,
             );
             sqlx::query(
@@ -206,20 +226,18 @@ pub async fn get_receipt(
     State(pool): State<SqlitePool>,
     Path(id): Path<i64>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let receipt = sqlx::query_as::<_, InventoryReceipt>(
-        "SELECT * FROM inventory_receipts WHERE id = ?",
-    )
-    .bind(id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Receipt not found".into()))?;
+    let receipt =
+        sqlx::query_as::<_, InventoryReceipt>("SELECT * FROM inventory_receipts WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Receipt not found".into()))?;
 
-    let utxos = sqlx::query_as::<_, InventoryUtxo>(
-        "SELECT * FROM inventory_utxos WHERE receipt_id = ?",
-    )
-    .bind(id)
-    .fetch_all(&pool)
-    .await?;
+    let utxos =
+        sqlx::query_as::<_, InventoryUtxo>("SELECT * FROM inventory_utxos WHERE receipt_id = ?")
+            .bind(id)
+            .fetch_all(&pool)
+            .await?;
 
     let prices = sqlx::query_as::<_, ReceiptPrice>(
         "SELECT * FROM inventory_receipt_prices WHERE receipt_id = ?",
@@ -235,7 +253,11 @@ pub async fn get_receipt(
     .fetch_all(&pool)
     .await?;
 
-    let total_paid: i64 = ledger.iter().filter(|e| e.amount.cents() > 0).map(|e| e.amount.cents()).sum();
+    let total_paid: i64 = ledger
+        .iter()
+        .filter(|e| e.amount.cents() > 0)
+        .map(|e| e.amount.cents())
+        .sum();
     let balance: i64 = ledger.iter().map(|e| e.amount.cents()).sum();
 
     Ok(Json(serde_json::json!({
@@ -342,13 +364,12 @@ pub async fn record_supplier_payment(
     Path(receipt_id): Path<i64>,
     Json(body): Json<CreateSupplierPayment>,
 ) -> Result<Json<SupplierLedgerUtxo>, AppError> {
-    let _receipt = sqlx::query_as::<_, InventoryReceipt>(
-        "SELECT * FROM inventory_receipts WHERE id = ?",
-    )
-    .bind(receipt_id)
-    .fetch_optional(&pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("Receipt not found".into()))?;
+    let _receipt =
+        sqlx::query_as::<_, InventoryReceipt>("SELECT * FROM inventory_receipts WHERE id = ?")
+            .bind(receipt_id)
+            .fetch_optional(&pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Receipt not found".into()))?;
 
     if body.amount.cents() <= 0 {
         return Err(AppError::BadRequest("Amount must be positive".into()));
@@ -356,7 +377,12 @@ pub async fn record_supplier_payment(
 
     let prev = version::latest_version_id(&pool, "supplier_ledger_utxos").await?;
     let vid = version::compute_version_id(
-        &version::supplier_ledger_utxo_fields(receipt_id, body.amount.cents(), &body.method, &body.notes),
+        &version::supplier_ledger_utxo_fields(
+            receipt_id,
+            body.amount.cents(),
+            &body.method,
+            &body.notes,
+        ),
         &prev,
     );
 

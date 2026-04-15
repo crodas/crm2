@@ -26,9 +26,7 @@ pub async fn latest_version_id(
 ) -> Result<String, sqlx::Error> {
     // Table names are hardcoded constants from our own code, not user input.
     let sql = format!("SELECT version_id FROM {table} ORDER BY id DESC LIMIT 1");
-    let result: Option<String> = sqlx::query_scalar(&sql)
-        .fetch_optional(pool)
-        .await?;
+    let result: Option<String> = sqlx::query_scalar(&sql).fetch_optional(pool).await?;
     Ok(result.unwrap_or_default())
 }
 
@@ -47,7 +45,12 @@ pub fn inventory_receipt_fields(
     notes: &Option<String>,
     total_cost: i64,
 ) -> Vec<String> {
-    vec![opt(reference), opt(supplier_name), opt(notes), total_cost.to_string()]
+    vec![
+        opt(reference),
+        opt(supplier_name),
+        opt(notes),
+        total_cost.to_string(),
+    ]
 }
 
 pub fn supplier_ledger_utxo_fields(
@@ -235,14 +238,17 @@ pub async fn recompute_all_chains(pool: &SqlitePool) -> Result<(), sqlx::Error> 
 macro_rules! recompute_chain {
     ($fn_name:ident, $table:expr, $query:expr, $row_type:ty, $field_fn:expr) => {
         async fn $fn_name(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-            let rows: Vec<$row_type> =
-                sqlx::query_as($query).fetch_all(pool).await?;
+            let rows: Vec<$row_type> = sqlx::query_as($query).fetch_all(pool).await?;
             let mut prev = String::new();
             for row in &rows {
                 let fields = $field_fn(row);
                 let vid = compute_version_id(&fields, &prev);
                 let sql = format!("UPDATE {} SET version_id = ? WHERE id = ?", $table);
-                sqlx::query(&sql).bind(&vid).bind(row.id).execute(pool).await?;
+                sqlx::query(&sql)
+                    .bind(&vid)
+                    .bind(row.id)
+                    .execute(pool)
+                    .await?;
                 prev = vid;
             }
             Ok(())
@@ -252,35 +258,119 @@ macro_rules! recompute_chain {
 
 // Minimal row types for recompute (avoid coupling to model structs)
 #[derive(sqlx::FromRow)]
-struct RcptRow { id: i64, reference: Option<String>, supplier_name: Option<String>, notes: Option<String>, total_cost: i64 }
+struct RcptRow {
+    id: i64,
+    reference: Option<String>,
+    supplier_name: Option<String>,
+    notes: Option<String>,
+    total_cost: i64,
+}
 #[derive(sqlx::FromRow)]
-struct SupplierLedgerRow { id: i64, receipt_id: i64, amount: i64, method: Option<String>, notes: Option<String> }
+struct SupplierLedgerRow {
+    id: i64,
+    receipt_id: i64,
+    amount: i64,
+    method: Option<String>,
+    notes: Option<String>,
+}
 #[derive(sqlx::FromRow)]
-struct UtxoRow { id: i64, product_id: i64, warehouse_id: i64, quantity: f64, cost_per_unit: i64, receipt_id: Option<i64>, source_sale_id: Option<i64> }
+struct UtxoRow {
+    id: i64,
+    product_id: i64,
+    warehouse_id: i64,
+    quantity: f64,
+    cost_per_unit: i64,
+    receipt_id: Option<i64>,
+    source_sale_id: Option<i64>,
+}
 #[derive(sqlx::FromRow)]
-struct RcptPriceRow { id: i64, receipt_id: i64, product_id: i64, customer_group_id: i64, price_per_unit: i64 }
+struct RcptPriceRow {
+    id: i64,
+    receipt_id: i64,
+    product_id: i64,
+    customer_group_id: i64,
+    price_per_unit: i64,
+}
 #[derive(sqlx::FromRow)]
-struct SaleRow { id: i64, customer_id: i64, customer_group_id: i64, notes: Option<String>, total_amount: i64 }
+struct SaleRow {
+    id: i64,
+    customer_id: i64,
+    customer_group_id: i64,
+    notes: Option<String>,
+    total_amount: i64,
+}
 #[derive(sqlx::FromRow)]
-struct SaleLineRow { id: i64, sale_id: i64, product_id: i64, quantity: f64, price_per_unit: i64 }
+struct SaleLineRow {
+    id: i64,
+    sale_id: i64,
+    product_id: i64,
+    quantity: f64,
+    price_per_unit: i64,
+}
 #[derive(sqlx::FromRow)]
-struct SaleLineUtxoRow { id: i64, sale_line_id: i64, utxo_id: i64, quantity_used: f64 }
+struct SaleLineUtxoRow {
+    id: i64,
+    sale_line_id: i64,
+    utxo_id: i64,
+    quantity_used: f64,
+}
 #[derive(sqlx::FromRow)]
-struct PayRow { id: i64, quote_id: i64, amount: i64, method: Option<String>, notes: Option<String> }
+struct PayRow {
+    id: i64,
+    quote_id: i64,
+    amount: i64,
+    method: Option<String>,
+    notes: Option<String>,
+}
 #[derive(sqlx::FromRow)]
-struct QuoteRow { id: i64, customer_id: i64, title: String, description: Option<String>, total_amount: i64, is_debt: bool, valid_until: Option<String> }
+struct QuoteRow {
+    id: i64,
+    customer_id: i64,
+    title: String,
+    description: Option<String>,
+    total_amount: i64,
+    is_debt: bool,
+    valid_until: Option<String>,
+}
 #[derive(sqlx::FromRow)]
-struct QuoteLineRow { id: i64, quote_id: i64, description: String, quantity: f64, unit_price: i64, service_id: Option<i64>, line_type: String }
+struct QuoteLineRow {
+    id: i64,
+    quote_id: i64,
+    description: String,
+    quantity: f64,
+    unit_price: i64,
+    service_id: Option<i64>,
+    line_type: String,
+}
 #[derive(sqlx::FromRow)]
-struct BookingRow { id: i64, team_id: i64, customer_id: i64, title: String, start_at: String, end_at: String, notes: Option<String>, description: Option<String>, location: Option<String> }
+struct BookingRow {
+    id: i64,
+    team_id: i64,
+    customer_id: i64,
+    title: String,
+    start_at: String,
+    end_at: String,
+    notes: Option<String>,
+    description: Option<String>,
+    location: Option<String>,
+}
 
 recompute_chain!(recompute_inventory_receipts, "inventory_receipts",
     "SELECT id, reference, supplier_name, notes, total_cost FROM inventory_receipts ORDER BY id ASC",
     RcptRow, |r: &RcptRow| inventory_receipt_fields(&r.reference, &r.supplier_name, &r.notes, r.total_cost));
 
-recompute_chain!(recompute_supplier_ledger_utxos, "supplier_ledger_utxos",
+recompute_chain!(
+    recompute_supplier_ledger_utxos,
+    "supplier_ledger_utxos",
     "SELECT id, receipt_id, amount, method, notes FROM supplier_ledger_utxos ORDER BY id ASC",
-    SupplierLedgerRow, |r: &SupplierLedgerRow| supplier_ledger_utxo_fields(r.receipt_id, r.amount, &r.method, &r.notes));
+    SupplierLedgerRow,
+    |r: &SupplierLedgerRow| supplier_ledger_utxo_fields(
+        r.receipt_id,
+        r.amount,
+        &r.method,
+        &r.notes
+    )
+);
 
 recompute_chain!(recompute_inventory_utxos, "inventory_utxos",
     "SELECT id, product_id, warehouse_id, quantity, cost_per_unit, receipt_id, source_sale_id FROM inventory_utxos ORDER BY id ASC",
@@ -290,21 +380,37 @@ recompute_chain!(recompute_receipt_prices, "inventory_receipt_prices",
     "SELECT id, receipt_id, product_id, customer_group_id, price_per_unit FROM inventory_receipt_prices ORDER BY id ASC",
     RcptPriceRow, |r: &RcptPriceRow| receipt_price_fields(r.receipt_id, r.product_id, r.customer_group_id, r.price_per_unit));
 
-recompute_chain!(recompute_sales, "sales",
+recompute_chain!(
+    recompute_sales,
+    "sales",
     "SELECT id, customer_id, customer_group_id, notes, total_amount FROM sales ORDER BY id ASC",
-    SaleRow, |r: &SaleRow| sale_fields(r.customer_id, r.customer_group_id, &r.notes, r.total_amount));
+    SaleRow,
+    |r: &SaleRow| sale_fields(r.customer_id, r.customer_group_id, &r.notes, r.total_amount)
+);
 
-recompute_chain!(recompute_sale_lines, "sale_lines",
+recompute_chain!(
+    recompute_sale_lines,
+    "sale_lines",
     "SELECT id, sale_id, product_id, quantity, price_per_unit FROM sale_lines ORDER BY id ASC",
-    SaleLineRow, |r: &SaleLineRow| sale_line_fields(r.sale_id, r.product_id, r.quantity, r.price_per_unit));
+    SaleLineRow,
+    |r: &SaleLineRow| sale_line_fields(r.sale_id, r.product_id, r.quantity, r.price_per_unit)
+);
 
-recompute_chain!(recompute_sale_line_utxo_inputs, "sale_line_utxo_inputs",
+recompute_chain!(
+    recompute_sale_line_utxo_inputs,
+    "sale_line_utxo_inputs",
     "SELECT id, sale_line_id, utxo_id, quantity_used FROM sale_line_utxo_inputs ORDER BY id ASC",
-    SaleLineUtxoRow, |r: &SaleLineUtxoRow| sale_line_utxo_input_fields(r.sale_line_id, r.utxo_id, r.quantity_used));
+    SaleLineUtxoRow,
+    |r: &SaleLineUtxoRow| sale_line_utxo_input_fields(r.sale_line_id, r.utxo_id, r.quantity_used)
+);
 
-recompute_chain!(recompute_payment_utxos, "payment_utxos",
+recompute_chain!(
+    recompute_payment_utxos,
+    "payment_utxos",
     "SELECT id, quote_id, amount, method, notes FROM payment_utxos ORDER BY id ASC",
-    PayRow, |r: &PayRow| payment_utxo_fields(r.quote_id, r.amount, &r.method, &r.notes));
+    PayRow,
+    |r: &PayRow| payment_utxo_fields(r.quote_id, r.amount, &r.method, &r.notes)
+);
 
 recompute_chain!(recompute_quotes, "quotes",
     "SELECT id, customer_id, title, description, total_amount, is_debt, valid_until FROM quotes ORDER BY id ASC",

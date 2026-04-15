@@ -17,11 +17,10 @@ pub struct ListParams {
 pub async fn list_customer_types(
     State(pool): State<SqlitePool>,
 ) -> Result<Json<Vec<CustomerType>>, AppError> {
-    let types = sqlx::query_as::<_, CustomerType>(
-        "SELECT * FROM customer_types ORDER BY sort_order, name",
-    )
-    .fetch_all(&pool)
-    .await?;
+    let types =
+        sqlx::query_as::<_, CustomerType>("SELECT * FROM customer_types ORDER BY sort_order, name")
+            .fetch_all(&pool)
+            .await?;
     Ok(Json(types))
 }
 

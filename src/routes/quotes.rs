@@ -39,12 +39,10 @@ pub async fn list_quotes(
             .await?
         }
     } else if let Some(status) = &params.status {
-        sqlx::query_as::<_, Quote>(
-            "SELECT * FROM quotes WHERE status = ? ORDER BY created_at DESC",
-        )
-        .bind(status)
-        .fetch_all(&pool)
-        .await?
+        sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE status = ? ORDER BY created_at DESC")
+            .bind(status)
+            .fetch_all(&pool)
+            .await?
     } else {
         sqlx::query_as::<_, Quote>("SELECT * FROM quotes ORDER BY created_at DESC")
             .fetch_all(&pool)
@@ -59,11 +57,22 @@ pub async fn create_quote(
 ) -> Result<Json<Quote>, AppError> {
     let mut tx = pool.begin().await?;
 
-    let total: Amount = body.lines.iter().map(|l| l.unit_price.mul_qty(l.quantity)).sum();
+    let total: Amount = body
+        .lines
+        .iter()
+        .map(|l| l.unit_price.mul_qty(l.quantity))
+        .sum();
 
     let prev_quote = version::latest_version_id(&mut *tx, "quotes").await?;
     let quote_vid = version::compute_version_id(
-        &version::quote_fields(body.customer_id, &body.title, &body.description, total.cents(), false, &body.valid_until),
+        &version::quote_fields(
+            body.customer_id,
+            &body.title,
+            &body.description,
+            total.cents(),
+            false,
+            &body.valid_until,
+        ),
         &prev_quote,
     );
 
@@ -84,7 +93,14 @@ pub async fn create_quote(
         let line_type = line.line_type.as_deref().unwrap_or("item");
         let prev_ql = version::latest_version_id(&mut *tx, "quote_lines").await?;
         let ql_vid = version::compute_version_id(
-            &version::quote_line_fields(quote.id, &line.description, line.quantity, line.unit_price.cents(), line.service_id, line_type),
+            &version::quote_line_fields(
+                quote.id,
+                &line.description,
+                line.quantity,
+                line.unit_price.cents(),
+                line.service_id,
+                line_type,
+            ),
             &prev_ql,
         );
 
@@ -214,7 +230,14 @@ pub async fn create_debt(
 
     let prev_quote = version::latest_version_id(&mut *tx, "quotes").await?;
     let quote_vid = version::compute_version_id(
-        &version::quote_fields(body.customer_id, &body.title, &body.description, body.amount.cents(), true, &None),
+        &version::quote_fields(
+            body.customer_id,
+            &body.title,
+            &body.description,
+            body.amount.cents(),
+            true,
+            &None,
+        ),
         &prev_quote,
     );
 
@@ -232,7 +255,14 @@ pub async fn create_debt(
 
     let prev_ql = version::latest_version_id(&mut *tx, "quote_lines").await?;
     let ql_vid = version::compute_version_id(
-        &version::quote_line_fields(quote.id, &body.title, 1.0, body.amount.cents(), None, "item"),
+        &version::quote_line_fields(
+            quote.id,
+            &body.title,
+            1.0,
+            body.amount.cents(),
+            None,
+            "item",
+        ),
         &prev_ql,
     );
 

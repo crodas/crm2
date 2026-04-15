@@ -5,10 +5,9 @@ use sqlx::SqlitePool;
 use crate::error::AppError;
 
 pub async fn get_config(State(pool): State<SqlitePool>) -> Result<Json<Value>, AppError> {
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT key, value FROM config")
-            .fetch_all(&pool)
-            .await?;
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM config")
+        .fetch_all(&pool)
+        .await?;
 
     let mut map = Map::new();
     for (key, value) in rows {

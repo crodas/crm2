@@ -21,10 +21,9 @@ pub async fn create_warehouse(
     State(pool): State<SqlitePool>,
     Json(body): Json<CreateWarehouse>,
 ) -> Result<Json<Warehouse>, AppError> {
-    let max_order: Option<i64> =
-        sqlx::query_scalar("SELECT MAX(sort_order) FROM warehouses")
-            .fetch_one(&pool)
-            .await?;
+    let max_order: Option<i64> = sqlx::query_scalar("SELECT MAX(sort_order) FROM warehouses")
+        .fetch_one(&pool)
+        .await?;
     let next_order = max_order.unwrap_or(0) + 1;
 
     let warehouse = sqlx::query_as::<_, Warehouse>(

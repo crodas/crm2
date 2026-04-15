@@ -68,12 +68,16 @@ impl Amount {
 
 impl std::ops::Add for Amount {
     type Output = Amount;
-    fn add(self, rhs: Self) -> Self { Amount(self.0 + rhs.0) }
+    fn add(self, rhs: Self) -> Self {
+        Amount(self.0 + rhs.0)
+    }
 }
 
 impl std::ops::Sub for Amount {
     type Output = Amount;
-    fn sub(self, rhs: Self) -> Self { Amount(self.0 - rhs.0) }
+    fn sub(self, rhs: Self) -> Self {
+        Amount(self.0 - rhs.0)
+    }
 }
 
 impl std::iter::Sum for Amount {
