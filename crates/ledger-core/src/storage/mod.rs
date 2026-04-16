@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use crate::account::AccountPath;
 use crate::asset::Asset;
 use crate::error::LedgerError;
-use crate::token::{EntryRef, SpendingToken, TokenStatus};
+use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
 use crate::transaction::Transaction;
 
 /// Async storage backend for the ledger.
@@ -59,6 +59,19 @@ pub trait Storage: Send + Sync {
         prefix: &AccountPath,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
+
+    /// Return all unspent tokens under `prefix`, across all assets.
+    async fn unspent_all_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<SpendingToken>, LedgerError>;
+
+    /// Return aggregated balances grouped by (account, asset) for all
+    /// unspent tokens under `prefix`.
+    async fn balances_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<BalanceEntry>, LedgerError>;
 
     // ── Transactions ───────────────────────────────────────────────
 
@@ -192,6 +205,49 @@ impl Storage for MemoryStorage {
             })
             .cloned()
             .collect())
+    }
+
+    async fn unspent_all_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<SpendingToken>, LedgerError> {
+        let state = self.state.read().map_err(lock_err)?;
+        Ok(state
+            .tokens
+            .values()
+            .filter(|t| t.status == TokenStatus::Unspent && prefix.is_prefix_of(&t.owner))
+            .cloned()
+            .collect())
+    }
+
+    async fn balances_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+        let state = self.state.read().map_err(lock_err)?;
+        let mut map: HashMap<(String, String), i128> = HashMap::new();
+        for t in state.tokens.values() {
+            if t.status == TokenStatus::Unspent && prefix.is_prefix_of(&t.owner) {
+                let key = (t.owner.as_str().to_string(), t.asset_name.clone());
+                *map.entry(key).or_default() += t.qty;
+            }
+        }
+        let mut entries: Vec<BalanceEntry> = map
+            .into_iter()
+            .filter(|(_, balance)| *balance != 0)
+            .map(|((account, asset_name), balance)| BalanceEntry {
+                account: AccountPath::new(account).expect("stored account is valid"),
+                asset_name,
+                balance,
+            })
+            .collect();
+        entries.sort_by(|a, b| {
+            a.account
+                .as_str()
+                .cmp(b.account.as_str())
+                .then(a.asset_name.cmp(&b.asset_name))
+        });
+        Ok(entries)
     }
 
     async fn commit_tx(

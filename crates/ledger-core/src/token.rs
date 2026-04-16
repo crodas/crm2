@@ -53,3 +53,17 @@ pub struct SpendingToken {
     /// Whether this token has been consumed.
     pub status: TokenStatus,
 }
+
+/// An aggregated balance for one (account, asset) pair.
+///
+/// Returned by [`Storage::balances_by_prefix`] to provide grouped balances
+/// across multiple accounts and assets under a prefix.
+#[derive(Debug, Clone)]
+pub struct BalanceEntry {
+    /// The account that owns the tokens.
+    pub account: AccountPath,
+    /// The asset name.
+    pub asset_name: String,
+    /// The net balance (sum of unspent token quantities).
+    pub balance: i128,
+}
