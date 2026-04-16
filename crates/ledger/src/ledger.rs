@@ -32,7 +32,7 @@ impl Ledger {
         TransactionBuilder::new(
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
-            self.inner.assets().clone(),
+            (*self.inner.assets()).clone(),
         )
     }
 
@@ -42,22 +42,22 @@ impl Ledger {
     }
 
     /// Register an asset definition.
-    pub async fn register_asset(&mut self, asset: Asset) -> Result<(), LedgerError> {
+    pub async fn register_asset(&self, asset: Asset) -> Result<(), LedgerError> {
         self.inner.register_asset(asset).await
     }
 
-    /// Return the cached asset definitions.
-    pub fn assets(&self) -> &HashMap<String, Asset> {
+    /// Return a snapshot of the cached asset definitions.
+    pub fn assets(&self) -> Arc<HashMap<String, Asset>> {
         self.inner.assets()
     }
 
     /// Look up a registered asset by name.
-    pub fn asset(&self, name: &str) -> Option<&Asset> {
+    pub fn asset(&self, name: &str) -> Option<Asset> {
         self.inner.asset(name)
     }
 
     /// Commit a validated transaction to the ledger.
-    pub async fn commit(&mut self, tx: Transaction) -> Result<String, LedgerError> {
+    pub async fn commit(&self, tx: Transaction) -> Result<String, LedgerError> {
         self.inner.commit(tx).await
     }
 

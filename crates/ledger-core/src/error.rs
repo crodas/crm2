@@ -78,6 +78,14 @@ pub enum LedgerError {
     #[error("invalid account path: {0}")]
     InvalidAccount(String),
 
+    /// An asset was re-registered with a different definition.
+    #[error("asset conflict for '{name}': existing {existing}, incoming {incoming}")]
+    AssetConflict {
+        name: String,
+        existing: String,
+        incoming: String,
+    },
+
     /// Storage backend error.
     #[error("storage error: {0}")]
     Storage(String),
