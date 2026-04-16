@@ -197,7 +197,7 @@ mod tests {
 
     async fn setup_ledger() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
-        let mut ledger = Ledger::new(storage);
+        let ledger = Ledger::new(storage);
         ledger
             .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
             .await
@@ -210,7 +210,7 @@ mod tests {
     }
 
     /// Helper: issue tokens via the high-level builder.
-    async fn issue(ledger: &mut Ledger, key: &str, account: &str, asset: &str, qty: &str) {
+    async fn issue(ledger: &Ledger, key: &str, account: &str, asset: &str, qty: &str) {
         let tx = ledger
             .transaction(key)
             .credit(account, asset, qty)
@@ -222,9 +222,9 @@ mod tests {
 
     #[tokio::test]
     async fn auto_coin_selection_single_token() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
-        issue(&mut ledger, "issue-001", "@store1/inventory", "brush", "10").await;
+        issue(&ledger, "issue-001", "@store1/inventory", "brush", "10").await;
 
         let tx = ledger
             .transaction("sale-001")
@@ -255,12 +255,12 @@ mod tests {
 
     #[tokio::test]
     async fn auto_coin_selection_multiple_tokens() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         // Issue 3 separate tokens: 2 + 3 + 4 = 9 brushes.
         for (i, qty) in [(1, "2"), (2, "3"), (3, "4")] {
             issue(
-                &mut ledger,
+                &ledger,
                 &format!("issue-{i}"),
                 "@store1/inventory",
                 "brush",
@@ -299,9 +299,9 @@ mod tests {
 
     #[tokio::test]
     async fn exact_match_no_change() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
-        issue(&mut ledger, "issue-001", "@store1/inventory", "brush", "5").await;
+        issue(&ledger, "issue-001", "@store1/inventory", "brush", "5").await;
 
         // Debit exactly 5 — no change generated.
         let tx = ledger
@@ -329,9 +329,9 @@ mod tests {
 
     #[tokio::test]
     async fn insufficient_balance_rejected() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
-        issue(&mut ledger, "issue-001", "@store1/inventory", "brush", "3").await;
+        issue(&ledger, "issue-001", "@store1/inventory", "brush", "3").await;
 
         let result = ledger
             .transaction("sale-001")
@@ -345,7 +345,7 @@ mod tests {
 
     #[tokio::test]
     async fn issuance_no_debits() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let tx = ledger
             .transaction("issue-001")
@@ -369,17 +369,17 @@ mod tests {
 
     #[tokio::test]
     async fn multi_asset_debits() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         issue(
-            &mut ledger,
+            &ledger,
             "issue-brush",
             "@store1/inventory",
             "brush",
             "10",
         )
         .await;
-        issue(&mut ledger, "issue-usd", "@store1/cash", "usd", "100.00").await;
+        issue(&ledger, "issue-usd", "@store1/cash", "usd", "100.00").await;
 
         let tx = ledger
             .transaction("sale-001")
@@ -428,9 +428,9 @@ mod tests {
 
     #[tokio::test]
     async fn credit_sale_via_high_level() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
-        issue(&mut ledger, "issue-001", "@store1/inventory", "brush", "5").await;
+        issue(&ledger, "issue-001", "@store1/inventory", "brush", "5").await;
 
         let tx = ledger
             .transaction("sale-001")

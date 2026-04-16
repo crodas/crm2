@@ -25,7 +25,11 @@ pub trait Storage: Send + Sync {
     // ── Assets ─────────────────────────────────────────────────────
 
     /// Persist an asset definition.
-    async fn save_asset(&self, asset: &Asset) -> Result<(), LedgerError>;
+    ///
+    /// If an asset with the same name already exists and is identical, this
+    /// is a no-op. If the existing asset differs (e.g. different precision
+    /// or kind), implementations must return [`LedgerError::AssetConflict`].
+    async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError>;
 
     /// Load all registered assets, keyed by name.
     async fn load_assets(&self) -> Result<HashMap<String, Asset>, LedgerError>;
@@ -123,8 +127,18 @@ fn lock_err(e: impl std::fmt::Display) -> LedgerError {
 
 #[async_trait]
 impl Storage for MemoryStorage {
-    async fn save_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
+    async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
+        if let Some(existing) = state.assets.get(asset.name()) {
+            if existing == asset {
+                return Ok(());
+            }
+            return Err(LedgerError::AssetConflict {
+                name: asset.name().to_string(),
+                existing: format!("{existing:?}"),
+                incoming: format!("{asset:?}"),
+            });
+        }
         state.assets.insert(asset.name().to_string(), asset.clone());
         Ok(())
     }

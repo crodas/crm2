@@ -61,17 +61,37 @@ fn str_to_kind(s: &str) -> AssetKind {
 
 #[async_trait]
 impl Storage for SqliteStorage {
-    async fn save_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
-        sqlx::query(
-            "INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, ?)
-             ON CONFLICT(name) DO UPDATE SET precision = excluded.precision, kind = excluded.kind",
-        )
-        .bind(asset.name())
-        .bind(asset.precision() as i32)
-        .bind(kind_to_str(asset.kind()))
-        .execute(&self.pool)
-        .await
-        .map_err(db_err)?;
+    async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
+        let existing = sqlx::query("SELECT precision, kind FROM ledger_assets WHERE name = ?")
+            .bind(asset.name())
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db_err)?;
+
+        if let Some(row) = existing {
+            let precision: i32 = row.get("precision");
+            let kind: String = row.get("kind");
+            if precision == asset.precision() as i32 && kind == kind_to_str(asset.kind()) {
+                return Ok(());
+            }
+            return Err(LedgerError::AssetConflict {
+                name: asset.name().to_string(),
+                existing: format!("precision={precision}, kind={kind}"),
+                incoming: format!(
+                    "precision={}, kind={}",
+                    asset.precision(),
+                    kind_to_str(asset.kind())
+                ),
+            });
+        }
+
+        sqlx::query("INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, ?)")
+            .bind(asset.name())
+            .bind(asset.precision() as i32)
+            .bind(kind_to_str(asset.kind()))
+            .execute(&self.pool)
+            .await
+            .map_err(db_err)?;
         Ok(())
     }
 

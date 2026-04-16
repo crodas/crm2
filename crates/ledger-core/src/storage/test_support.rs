@@ -24,8 +24,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    AccountPath, Asset, AssetKind, EntryRef, SpendingToken, Storage, TokenStatus, Transaction,
-    TransactionBuilder,
+    AccountPath, Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
+    Transaction, TransactionBuilder,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -110,30 +110,44 @@ pub async fn load_assets_empty(s: &dyn Storage) {
 
 pub async fn save_and_load_asset(s: &dyn Storage) {
     let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-    s.save_asset(&brush).await.expect("save brush");
+    s.register_asset(&brush).await.expect("save brush");
 
     let loaded = s.load_assets().await.expect("load_assets");
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded["brush"], brush);
 }
 
-pub async fn save_asset_overwrites(s: &dyn Storage) {
-    let v1 = Asset::new("thing", 0, AssetKind::Unsigned);
-    s.save_asset(&v1).await.expect("save v1");
-
-    let v2 = Asset::new("thing", 2, AssetKind::Signed);
-    s.save_asset(&v2).await.expect("save v2");
+pub async fn register_asset_duplicate_is_noop(s: &dyn Storage) {
+    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    s.register_asset(&brush).await.expect("save brush");
+    s.register_asset(&brush).await.expect("duplicate save should be a no-op");
 
     let loaded = s.load_assets().await.expect("load_assets");
     assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded["thing"], v2);
+    assert_eq!(loaded["brush"], brush);
+}
+
+pub async fn register_asset_conflict_rejected(s: &dyn Storage) {
+    let v1 = Asset::new("thing", 0, AssetKind::Unsigned);
+    s.register_asset(&v1).await.expect("save v1");
+
+    let v2 = Asset::new("thing", 2, AssetKind::Signed);
+    let err = s.register_asset(&v2).await.expect_err("conflicting save should fail");
+    assert!(
+        matches!(err, LedgerError::AssetConflict { .. }),
+        "expected AssetConflict, got {err:?}"
+    );
+
+    // Original asset unchanged.
+    let loaded = s.load_assets().await.expect("load_assets");
+    assert_eq!(loaded["thing"], v1);
 }
 
 pub async fn save_multiple_assets(s: &dyn Storage) {
     let brush = Asset::new("brush", 0, AssetKind::Unsigned);
     let usd = Asset::new("usd", 2, AssetKind::Signed);
-    s.save_asset(&brush).await.expect("save brush");
-    s.save_asset(&usd).await.expect("save usd");
+    s.register_asset(&brush).await.expect("save brush");
+    s.register_asset(&usd).await.expect("save usd");
 
     let loaded = s.load_assets().await.expect("load_assets");
     assert_eq!(loaded.len(), 2);
@@ -478,9 +492,14 @@ macro_rules! storage_tests {
             $crate::storage::test_support::save_and_load_asset(&s).await;
         }
         #[tokio::test]
-        async fn save_asset_overwrites() {
+        async fn register_asset_duplicate_is_noop() {
             let s = $constructor.await;
-            $crate::storage::test_support::save_asset_overwrites(&s).await;
+            $crate::storage::test_support::register_asset_duplicate_is_noop(&s).await;
+        }
+        #[tokio::test]
+        async fn register_asset_conflict_rejected() {
+            let s = $constructor.await;
+            $crate::storage::test_support::register_asset_conflict_rejected(&s).await;
         }
         #[tokio::test]
         async fn save_multiple_assets() {

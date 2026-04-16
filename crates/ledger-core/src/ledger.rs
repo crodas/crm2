@@ -10,6 +10,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
+
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::storage::Storage;
@@ -19,8 +21,8 @@ use crate::AccountPath;
 
 /// The append-only UTXO ledger engine.
 ///
-/// Uses an [`Arc<dyn Storage>`] backend for persistence. All mutating
-/// operations are async.
+/// Uses an [`Arc<dyn Storage>`] backend for persistence.
+/// Asset definitions are cached via [`ArcSwap`] for lock-free reads.
 ///
 /// # Example: issue inventory and transfer
 ///
@@ -30,13 +32,13 @@ use crate::AccountPath;
 /// use ledger_core::*;
 ///
 /// let storage = Arc::new(MemoryStorage::new());
-/// let mut ledger = Ledger::new(storage);
+/// let ledger = Ledger::new(storage);
 /// ledger.register_asset(Asset::new("brush", 0, AssetKind::Unsigned)).await.unwrap();
 ///
 /// // Issue 7 brushes from @world into store inventory.
 /// let issue = TransactionBuilder::new("issue-001")
 ///     .credit("@store1/inventory", "brush", "7")
-///     .build(ledger.assets())
+///     .build(&ledger.assets())
 ///     .unwrap();
 /// let tx_id = ledger.commit(issue).await.unwrap();
 ///
@@ -45,7 +47,7 @@ use crate::AccountPath;
 ///     .debit(&tx_id, 0, "@store1/inventory", "brush", "7")
 ///     .credit("@customer1", "brush", "5")
 ///     .credit("@store1/inventory", "brush", "2")
-///     .build(ledger.assets())
+///     .build(&ledger.assets())
 ///     .unwrap();
 /// ledger.commit(transfer).await.unwrap();
 ///
@@ -59,8 +61,8 @@ use crate::AccountPath;
 /// ```
 pub struct Ledger {
     storage: Arc<dyn Storage>,
-    /// Cached asset definitions (kept in sync with storage).
-    assets: HashMap<String, Asset>,
+    /// Cached asset definitions, swapped atomically on registration.
+    assets: ArcSwap<HashMap<String, Asset>>,
 }
 
 impl Ledger {
@@ -68,27 +70,29 @@ impl Ledger {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self {
             storage,
-            assets: HashMap::new(),
+            assets: ArcSwap::from_pointee(HashMap::new()),
         }
     }
 
     /// Register an asset definition.
     ///
-    /// Saves to storage and updates the local cache.
-    pub async fn register_asset(&mut self, asset: Asset) -> Result<(), LedgerError> {
-        self.storage.save_asset(&asset).await?;
-        self.assets.insert(asset.name().to_string(), asset);
+    /// Saves to storage and updates the local cache atomically.
+    pub async fn register_asset(&self, asset: Asset) -> Result<(), LedgerError> {
+        self.storage.register_asset(&asset).await?;
+        let mut map = (**self.assets.load()).clone();
+        map.insert(asset.name().to_string(), asset);
+        self.assets.store(Arc::new(map));
         Ok(())
     }
 
-    /// Return the cached asset definitions.
-    pub fn assets(&self) -> &HashMap<String, Asset> {
-        &self.assets
+    /// Return a snapshot of the cached asset definitions.
+    pub fn assets(&self) -> Arc<HashMap<String, Asset>> {
+        self.assets.load_full()
     }
 
     /// Look up a registered asset by name.
-    pub fn asset(&self, name: &str) -> Option<&Asset> {
-        self.assets.get(name)
+    pub fn asset(&self, name: &str) -> Option<Asset> {
+        self.assets.load().get(name).cloned()
     }
 
     /// Return a reference to the underlying storage backend.
@@ -103,7 +107,7 @@ impl Ledger {
     /// state: idempotency, token existence, single-spend, and field matching.
     ///
     /// Returns the transaction ID on success.
-    pub async fn commit(&mut self, tx: Transaction) -> Result<String, LedgerError> {
+    pub async fn commit(&self, tx: Transaction) -> Result<String, LedgerError> {
         // Idempotency key uniqueness.
         if self
             .storage
@@ -123,6 +127,8 @@ impl Ledger {
                 stored: tx.tx_id.clone(),
             });
         }
+
+        let assets = self.assets.load();
 
         // Validate debits against ledger state.
         let mut spent_refs: Vec<EntryRef> = Vec::new();
@@ -159,8 +165,7 @@ impl Ledger {
                 });
             }
 
-            let asset = self
-                .assets
+            let asset = assets
                 .get(&debit.asset_name)
                 .ok_or_else(|| LedgerError::UnknownAsset(debit.asset_name.clone()))?;
             let declared_qty = asset
@@ -182,8 +187,7 @@ impl Ledger {
         let mut new_tokens: Vec<SpendingToken> = Vec::new();
 
         for (idx, credit) in tx.credits.iter().enumerate() {
-            let asset = self
-                .assets
+            let asset = assets
                 .get(&credit.asset_name)
                 .ok_or_else(|| LedgerError::UnknownAsset(credit.asset_name.clone()))?;
             let qty = asset
@@ -271,7 +275,7 @@ mod tests {
 
     async fn setup_ledger() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
-        let mut ledger = Ledger::new(storage);
+        let ledger = Ledger::new(storage);
         ledger
             .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
             .await
@@ -285,10 +289,10 @@ mod tests {
 
     #[tokio::test]
     async fn issue_inventory() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
         let tx = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build issuance");
         ledger.commit(tx).await.expect("commit issuance");
 
@@ -304,11 +308,11 @@ mod tests {
 
     #[tokio::test]
     async fn transfer_with_change() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "7")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
@@ -316,7 +320,7 @@ mod tests {
             .debit(&issue_id, 0, "@store1/inventory", "brush", "7")
             .credit("@customer1/sale_1", "brush", "5")
             .credit("@store1/inventory", "brush", "2")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
 
@@ -340,11 +344,11 @@ mod tests {
 
     #[tokio::test]
     async fn credit_sale_with_debt() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
@@ -353,7 +357,7 @@ mod tests {
             .credit("@customer1/sale_1", "brush", "5")
             .credit("@customer1/sale_1", "usd", "-10.00")
             .credit("@store1/receivables/sale_1", "usd", "10.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(sale).await.expect("commit sale");
 
@@ -387,11 +391,11 @@ mod tests {
 
     #[tokio::test]
     async fn full_credit_sale_lifecycle() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let t1 = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
@@ -400,13 +404,13 @@ mod tests {
             .credit("@customer1/sale_1", "brush", "5")
             .credit("@customer1/sale_1", "usd", "-10.00")
             .credit("@store1/receivables/sale_1", "usd", "10.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let t3 = TransactionBuilder::new("cash-in-001")
             .credit("@customer1/cash", "usd", "10.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
@@ -418,7 +422,7 @@ mod tests {
             .credit("@customer1/cash", "usd", "4.00")
             .credit("@customer1/sale_1", "usd", "-4.00")
             .credit("@store1/receivables/sale_1", "usd", "4.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
 
@@ -463,7 +467,7 @@ mod tests {
             .debit(&t4_id, 2, "@customer1/sale_1", "usd", "-4.00")
             .debit(&t4_id, 3, "@store1/receivables/sale_1", "usd", "4.00")
             .credit("@store1/cash", "usd", "4.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(t5).await.expect("commit t5");
 
@@ -506,17 +510,17 @@ mod tests {
 
     #[tokio::test]
     async fn prefix_query() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let t1 = TransactionBuilder::new("k1")
             .credit("@store1/cash", "usd", "6.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("k2")
             .credit("@store1/receivables/s1", "usd", "4.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(t2).await.expect("commit t2");
 
@@ -532,25 +536,25 @@ mod tests {
 
     #[tokio::test]
     async fn double_spend_rejected() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let spend1 = TransactionBuilder::new("spend-1")
             .debit(&issue_id, 0, "@store1/inventory", "brush", "5")
             .credit("@customer1", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(spend1).await.expect("commit spend1");
 
         let spend2 = TransactionBuilder::new("spend-2")
             .debit(&issue_id, 0, "@store1/inventory", "brush", "5")
             .credit("@customer2", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         assert!(matches!(
             ledger.commit(spend2).await,
@@ -565,7 +569,7 @@ mod tests {
         let result = TransactionBuilder::new("bad-001")
             .debit("fake-tx", 0, "@store1/inventory", "brush", "5")
             .credit("@customer1", "brush", "10")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
@@ -578,7 +582,7 @@ mod tests {
 
         let result = TransactionBuilder::new("bad-001")
             .credit("@customer1", "usd", "-10.00")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
     }
 
@@ -588,23 +592,23 @@ mod tests {
 
         let result = TransactionBuilder::new("bad-001")
             .credit("@store1/inventory", "brush", "-5")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(result, Err(LedgerError::NegativeUnsigned { .. })));
     }
 
     #[tokio::test]
     async fn duplicate_idempotency_key_rejected() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let tx1 = TransactionBuilder::new("same-key")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(tx1).await.expect("commit tx1");
 
         let tx2 = TransactionBuilder::new("same-key")
             .credit("@store1/inventory", "brush", "3")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         assert!(matches!(
             ledger.commit(tx2).await,
@@ -618,7 +622,7 @@ mod tests {
 
         let result = TransactionBuilder::new("bad-001")
             .credit("@world", "brush", "5")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(result, Err(LedgerError::WorldAsOwner)));
     }
 
@@ -626,12 +630,12 @@ mod tests {
 
     #[tokio::test]
     async fn issuance_creates_tokens_from_nothing() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let tx = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "10")
             .credit("@store1/cash", "usd", "50.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
@@ -655,11 +659,11 @@ mod tests {
 
     #[tokio::test]
     async fn transfer_conserves_unsigned_asset() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("@a", "brush", "10")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
@@ -668,7 +672,7 @@ mod tests {
             .credit("@b", "brush", "3")
             .credit("@c", "brush", "5")
             .credit("@a", "brush", "2")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(split).await.expect("commit split");
 
@@ -696,7 +700,7 @@ mod tests {
         let result = TransactionBuilder::new("bad-001")
             .debit("fake-tx", 0, "@a", "brush", "10")
             .credit("@b", "brush", "7")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
@@ -710,7 +714,7 @@ mod tests {
         let result = TransactionBuilder::new("bad-001")
             .debit("fake-tx", 0, "@a", "brush", "5")
             .credit("@b", "brush", "8")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
@@ -719,11 +723,11 @@ mod tests {
 
     #[tokio::test]
     async fn signed_asset_conservation_across_transfer() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("@a", "usd", "100.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
@@ -731,7 +735,7 @@ mod tests {
             .debit(&issue_id, 0, "@a", "usd", "100.00")
             .credit("@b", "usd", "40.00")
             .credit("@a", "usd", "60.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
 
@@ -744,12 +748,12 @@ mod tests {
 
     #[tokio::test]
     async fn debt_pair_nets_to_zero() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let tx = TransactionBuilder::new("debt-001")
             .credit("@debtor", "usd", "-50.00")
             .credit("@creditor", "usd", "50.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
@@ -782,18 +786,18 @@ mod tests {
 
     #[tokio::test]
     async fn settling_debt_zeroes_both_sides() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let t1 = TransactionBuilder::new("debt-001")
             .credit("@debtor", "usd", "-50.00")
             .credit("@creditor", "usd", "50.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("cash-in")
             .credit("@debtor", "usd", "50.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
@@ -802,7 +806,7 @@ mod tests {
             .debit(&t2_id, 0, "@debtor", "usd", "50.00")
             .debit(&t1_id, 1, "@creditor", "usd", "50.00")
             .credit("@creditor/cash", "usd", "50.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(t3).await.expect("commit t3");
 
@@ -826,17 +830,17 @@ mod tests {
 
     #[tokio::test]
     async fn multi_asset_transfer_conserves_each_independently() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
 
         let t1 = TransactionBuilder::new("issue-001")
             .credit("@a", "brush", "10")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("issue-002")
             .credit("@a", "usd", "20.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
@@ -845,7 +849,7 @@ mod tests {
             .debit(&t2_id, 0, "@a", "usd", "20.00")
             .credit("@b", "brush", "10")
             .credit("@b", "usd", "20.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(xfer).await.expect("commit xfer");
 
@@ -875,7 +879,7 @@ mod tests {
             .debit("fake2", 0, "@a", "usd", "20.00")
             .credit("@b", "brush", "10")
             .credit("@b", "usd", "15.00")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         let err = result.expect_err("should fail with conservation error");
         match err {
             LedgerError::ConservationViolated {
@@ -899,7 +903,7 @@ mod tests {
             .debit("fake", 0, "@a", "brush", "5")
             .credit("@b", "brush", "5")
             .credit("@b", "usd", "10.00")
-            .build(ledger.assets());
+            .build(&ledger.assets());
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
@@ -908,13 +912,13 @@ mod tests {
 
     #[tokio::test]
     async fn credit_sale_partial_and_full_settlement() {
-        let mut ledger = setup_ledger().await;
+        let ledger = setup_ledger().await;
         let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
         let store = AccountPath::new("@store1").expect("valid path: @store1");
 
         let t1 = TransactionBuilder::new("issue-001")
             .credit("@store1/inventory", "brush", "5")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
@@ -924,7 +928,7 @@ mod tests {
             .credit("@store1/inventory", "brush", "3")
             .credit("@customer1", "usd", "-10.00")
             .credit("@store1/receivables", "usd", "10.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
@@ -945,7 +949,7 @@ mod tests {
 
         let t3 = TransactionBuilder::new("cash-in-001")
             .credit("@customer1/cash", "usd", "5.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
@@ -956,7 +960,7 @@ mod tests {
             .credit("@store1/cash", "usd", "5.00")
             .credit("@customer1", "usd", "-5.00")
             .credit("@store1/receivables", "usd", "5.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
 
@@ -977,7 +981,7 @@ mod tests {
 
         let t5 = TransactionBuilder::new("cash-in-002")
             .credit("@customer1/cash", "usd", "5.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         let t5_id = ledger.commit(t5).await.expect("commit t5");
 
@@ -986,7 +990,7 @@ mod tests {
             .debit(&t4_id, 1, "@customer1", "usd", "-5.00")
             .debit(&t4_id, 2, "@store1/receivables", "usd", "5.00")
             .credit("@store1/cash", "usd", "5.00")
-            .build(ledger.assets())
+            .build(&ledger.assets())
             .expect("build tx");
         ledger.commit(t6).await.expect("commit t6");
 
