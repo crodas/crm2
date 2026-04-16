@@ -1,0 +1,15 @@
+[package]
+name = "ledger-sqlite"
+version = "0.1.0"
+edition = "2021"
+description = "SQLite storage backend for ledger-core"
+
+[dependencies]
+ledger-core = { path = "../ledger-core" }
+async-trait = "0.1"
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+serde_json = "1"
+
+[dev-dependencies]
+ledger-core = { path = "../ledger-core", features = ["test-support"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
