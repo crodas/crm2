@@ -9,8 +9,8 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    AccountPath, Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
-    Transaction,
+    AccountPath, Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage,
+    TokenStatus, Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -37,6 +37,15 @@ impl SqliteStorage {
 
         sqlx::query(MIGRATION).execute(&pool).await?;
 
+        Ok(Self { pool })
+    }
+
+    /// Create storage from an existing connection pool and run migrations.
+    ///
+    /// Use this when sharing a pool with the rest of the application so the
+    /// ledger tables live in the same database.
+    pub async fn from_pool(pool: SqlitePool) -> Result<Self, sqlx::Error> {
+        sqlx::query(MIGRATION).execute(&pool).await?;
         Ok(Self { pool })
     }
 }
@@ -199,6 +208,64 @@ impl Storage for SqliteStorage {
         rows_to_tokens(rows)
     }
 
+    async fn unspent_all_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<SpendingToken>, LedgerError> {
+        let prefix_str = prefix.as_str();
+        let like_pattern = format!("{prefix_str}/%");
+
+        let rows = sqlx::query(
+            "SELECT tx_id, entry_index, owner, asset_name, qty
+             FROM ledger_tokens
+             WHERE (owner = ? OR owner LIKE ?)
+               AND spent_by_tx IS NULL",
+        )
+        .bind(prefix_str)
+        .bind(&like_pattern)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+
+        rows_to_tokens(rows)
+    }
+
+    async fn balances_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+        let prefix_str = prefix.as_str();
+        let like_pattern = format!("{prefix_str}/%");
+
+        let rows = sqlx::query(
+            "SELECT owner, asset_name, SUM(qty) as balance
+             FROM ledger_tokens
+             WHERE (owner = ? OR owner LIKE ?)
+               AND spent_by_tx IS NULL
+             GROUP BY owner, asset_name
+             HAVING SUM(qty) != 0
+             ORDER BY owner, asset_name",
+        )
+        .bind(prefix_str)
+        .bind(&like_pattern)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
+
+        rows.into_iter()
+            .map(|row| {
+                let owner: String = row.get("owner");
+                let balance: i64 = row.get("balance");
+                Ok(BalanceEntry {
+                    account: AccountPath::new(owner)
+                        .map_err(|e| LedgerError::InvalidAccount(e.to_string()))?,
+                    asset_name: row.get("asset_name"),
+                    balance: balance as i128,
+                })
+            })
+            .collect()
+    }
+
     async fn commit_tx(
         &self,
         tx: &Transaction,
@@ -304,4 +371,29 @@ mod tests {
     use ledger_core::storage_tests;
 
     storage_tests!(async { SqliteStorage::connect("sqlite::memory:").await.expect("connect") });
+
+    #[tokio::test]
+    async fn from_pool_works() {
+        use sqlx::sqlite::SqlitePoolOptions;
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("pool");
+
+        let storage = SqliteStorage::from_pool(pool).await.expect("from_pool");
+
+        // Verify it works by running a basic operation
+        use ledger_core::{Asset, AssetKind, Storage};
+        let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+        storage
+            .register_asset(&brush)
+            .await
+            .expect("register_asset");
+
+        let assets = storage.load_assets().await.expect("load_assets");
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets["brush"], brush);
+    }
 }

@@ -24,8 +24,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    AccountPath, Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
-    Transaction, TransactionBuilder,
+    AccountPath, Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage,
+    TokenStatus, Transaction, TransactionBuilder,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -463,6 +463,209 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
     assert_eq!(s.tx_count().await.expect("tx_count"), 2);
 }
 
+// ── Unspent all by prefix tests ────────────────────────────────────
+
+pub async fn unspent_all_prefix_empty(s: &dyn Storage) {
+    let prefix = AccountPath::new("@nobody").expect("valid path");
+    let result = s
+        .unspent_all_by_prefix(&prefix)
+        .await
+        .expect("unspent_all_by_prefix");
+    assert!(result.is_empty());
+}
+
+pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit brush");
+
+    let assets = test_assets();
+    let tx2 = TransactionBuilder::new("issue-002")
+        .credit("@store1/cash", "usd", "10.00")
+        .build(&assets)
+        .expect("build usd issuance");
+    let tokens2 = vec![SpendingToken {
+        entry_ref: EntryRef {
+            tx_id: tx2.tx_id.clone(),
+            entry_index: 0,
+        },
+        owner: AccountPath::new("@store1/cash").expect("valid"),
+        asset_name: "usd".to_string(),
+        qty: 1000,
+        status: TokenStatus::Unspent,
+    }];
+    s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit usd");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_all_by_prefix(&prefix)
+        .await
+        .expect("unspent_all_by_prefix");
+    assert_eq!(result.len(), 2);
+
+    let brush_count = result.iter().filter(|t| t.asset_name == "brush").count();
+    let usd_count = result.iter().filter(|t| t.asset_name == "usd").count();
+    assert_eq!(brush_count, 1);
+    assert_eq!(usd_count, 1);
+}
+
+pub async fn unspent_all_prefix_excludes_spent(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
+
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
+
+    let prefix = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .unspent_all_by_prefix(&prefix)
+        .await
+        .expect("unspent_all_by_prefix");
+    assert!(result.is_empty());
+}
+
+pub async fn unspent_all_prefix_excludes_non_descendants(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store2", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .unspent_all_by_prefix(&prefix)
+        .await
+        .expect("unspent_all_by_prefix");
+    assert!(result.is_empty());
+}
+
+// ── Balances by prefix tests ──────────────────────────────────────
+
+pub async fn balances_prefix_empty(s: &dyn Storage) {
+    let prefix = AccountPath::new("@nobody").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+    assert!(result.is_empty());
+}
+
+pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
+    // Two products in two warehouses
+    let (tx1, tokens1) = make_issuance("issue-001", "@store/w1/product/1", "brush", "5", 5);
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
+
+    let (tx2, tokens2) = make_issuance("issue-002", "@store/w2/product/1", "brush", "3", 3);
+    s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit");
+
+    let assets = test_assets();
+    let tx3 = TransactionBuilder::new("issue-003")
+        .credit("@store/w1/product/1", "usd", "10.00")
+        .build(&assets)
+        .expect("build");
+    let tokens3 = vec![SpendingToken {
+        entry_ref: EntryRef {
+            tx_id: tx3.tx_id.clone(),
+            entry_index: 0,
+        },
+        owner: AccountPath::new("@store/w1/product/1").expect("valid"),
+        asset_name: "usd".to_string(),
+        qty: 1000,
+        status: TokenStatus::Unspent,
+    }];
+    s.commit_tx(&tx3, &tokens3, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+
+    // Should have 3 entries: (w1/p1, brush), (w2/p1, brush), (w1/p1, usd)
+    assert_eq!(result.len(), 3);
+
+    let w1_brush = result
+        .iter()
+        .find(|e| e.account.as_str() == "@store/w1/product/1" && e.asset_name == "brush")
+        .expect("w1 brush entry");
+    assert_eq!(w1_brush.balance, 5);
+
+    let w2_brush = result
+        .iter()
+        .find(|e| e.account.as_str() == "@store/w2/product/1" && e.asset_name == "brush")
+        .expect("w2 brush entry");
+    assert_eq!(w2_brush.balance, 3);
+
+    let w1_usd = result
+        .iter()
+        .find(|e| e.account.as_str() == "@store/w1/product/1" && e.asset_name == "usd")
+        .expect("w1 usd entry");
+    assert_eq!(w1_usd.balance, 1000);
+}
+
+pub async fn balances_prefix_sums_multiple_tokens(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a/sub", "brush", "5", 5);
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
+
+    let (tx2, tokens2) = make_issuance("issue-002", "@a/sub", "brush", "3", 3);
+    s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].balance, 8);
+}
+
+pub async fn balances_prefix_excludes_spent(s: &dyn Storage) {
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
+
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
+
+    let prefix = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+    assert!(result.is_empty(), "spent tokens should not contribute to balance");
+}
+
+pub async fn balances_prefix_excludes_non_descendants(s: &dyn Storage) {
+    let (tx, tokens) = make_issuance("issue-001", "@store2", "brush", "5", 5);
+    s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
+
+    let prefix = AccountPath::new("@store1").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+    assert!(result.is_empty());
+}
+
+pub async fn balances_prefix_omits_zero_balances(s: &dyn Storage) {
+    // Create and fully spend a token — net balance is 0
+    let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
+    let eref = tokens1[0].entry_ref.clone();
+    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
+
+    // Transfer all to @a/sub (still under prefix @a)
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@a/sub", "brush", "5", 5);
+    s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
+
+    let prefix = AccountPath::new("@a").expect("valid path");
+    let result = s
+        .balances_by_prefix(&prefix)
+        .await
+        .expect("balances_by_prefix");
+
+    // @a has 0 balance (spent), @a/sub has 5 — only @a/sub should appear
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].account.as_str(), "@a/sub");
+    assert_eq!(result[0].balance, 5);
+}
+
 // ── Test macro ───────────────────────────────────────────────────────
 
 /// Generate a full conformance test suite for a [`Storage`] implementation.
@@ -620,6 +823,60 @@ macro_rules! storage_tests {
         async fn transactions_preserve_order() {
             let s = $constructor.await;
             $crate::storage::test_support::transactions_preserve_order(&s).await;
+        }
+
+        // Unspent all by prefix
+        #[tokio::test]
+        async fn unspent_all_prefix_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_all_prefix_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_all_prefix_returns_multiple_assets() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_all_prefix_returns_multiple_assets(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_all_prefix_excludes_spent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_all_prefix_excludes_spent(&s).await;
+        }
+        #[tokio::test]
+        async fn unspent_all_prefix_excludes_non_descendants() {
+            let s = $constructor.await;
+            $crate::storage::test_support::unspent_all_prefix_excludes_non_descendants(&s).await;
+        }
+
+        // Balances by prefix
+        #[tokio::test]
+        async fn balances_prefix_empty() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_empty(&s).await;
+        }
+        #[tokio::test]
+        async fn balances_prefix_groups_by_account_and_asset() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_groups_by_account_and_asset(&s).await;
+        }
+        #[tokio::test]
+        async fn balances_prefix_sums_multiple_tokens() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_sums_multiple_tokens(&s).await;
+        }
+        #[tokio::test]
+        async fn balances_prefix_excludes_spent() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_excludes_spent(&s).await;
+        }
+        #[tokio::test]
+        async fn balances_prefix_excludes_non_descendants() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_excludes_non_descendants(&s).await;
+        }
+        #[tokio::test]
+        async fn balances_prefix_omits_zero_balances() {
+            let s = $constructor.await;
+            $crate::storage::test_support::balances_prefix_omits_zero_balances(&s).await;
         }
 
         // Combined

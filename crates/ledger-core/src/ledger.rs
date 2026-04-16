@@ -15,7 +15,7 @@ use arc_swap::ArcSwap;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::storage::Storage;
-use crate::token::{EntryRef, SpendingToken, TokenStatus};
+use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
 use crate::transaction::{compute_tx_id, Transaction};
 use crate::AccountPath;
 
@@ -253,6 +253,23 @@ impl Ledger {
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         self.storage.unspent_by_prefix(prefix, asset_name).await
+    }
+
+    /// Return all unspent tokens under a prefix, across all assets.
+    pub async fn unspent_all_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<SpendingToken>, LedgerError> {
+        self.storage.unspent_all_by_prefix(prefix).await
+    }
+
+    /// Return aggregated balances grouped by (account, asset) for all
+    /// unspent tokens under a prefix.
+    pub async fn balances_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+        self.storage.balances_by_prefix(prefix).await
     }
 
     /// Return all committed transactions in append order.

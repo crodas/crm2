@@ -20,5 +20,5 @@ pub use asset::{Asset, AssetKind};
 pub use error::LedgerError;
 pub use ledger::Ledger;
 pub use storage::{MemoryStorage, Storage};
-pub use token::{EntryRef, SpendingToken, TokenStatus};
+pub use token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
 pub use transaction::{Credit, DebitRef, Transaction, TransactionBuilder};

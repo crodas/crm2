@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    AccountPath, Asset, LedgerError, SpendingToken, Storage, Transaction,
+    AccountPath, Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
@@ -95,6 +95,23 @@ impl Ledger {
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         self.inner.unspent_tokens_prefix(prefix, asset_name).await
+    }
+
+    /// Return all unspent tokens under a prefix, across all assets.
+    pub async fn unspent_all_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<SpendingToken>, LedgerError> {
+        self.inner.unspent_all_by_prefix(prefix).await
+    }
+
+    /// Return aggregated balances grouped by (account, asset) for all
+    /// unspent tokens under a prefix.
+    pub async fn balances_by_prefix(
+        &self,
+        prefix: &AccountPath,
+    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+        self.inner.balances_by_prefix(prefix).await
     }
 
     /// Return all committed transactions in append order.
