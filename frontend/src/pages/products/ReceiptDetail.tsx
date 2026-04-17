@@ -36,10 +36,10 @@ export default function ReceiptDetail() {
 
   if (!data) return <p>{t('common.loading')}</p>
 
-  const { receipt, utxos, ledger, total_paid, balance } = data
+  const { receipt, lines, ledger, total_paid, balance } = data
   const productName = (pid: number) => products?.find((p: any) => p.id === pid)?.name ?? `#${pid}`
   const warehouseName = (wid: number) => warehouses?.find((w: any) => w.id === wid)?.name ?? `#${wid}`
-  const hasDebt = balance < 0
+  const hasDebt = balance > 0
 
   return (
     <div>
@@ -57,11 +57,10 @@ export default function ReceiptDetail() {
           <p><strong>{t('inventory.supplier_label')}</strong> {receipt.supplier_name || '—'}</p>
           <p><strong>{t('inventory.totalCost')}</strong> {receipt.total_cost.toLocaleString()}</p>
           <p><strong>{t('inventory.paid_label')}</strong> {total_paid.toLocaleString()}</p>
-          <p><strong>{t('inventory.balance_label')}</strong> <span style={{ color: balance < 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
+          <p><strong>{t('inventory.debt')}</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
             {balance.toLocaleString()}
           </span></p>
           <p><strong>{t('inventory.received_label')}</strong> {new Date(receipt.received_at).toLocaleDateString()}</p>
-          <p><strong>{t('common.versionId')}</strong> <code title={receipt.version_id}>{receipt.version_id?.slice(0, 8)}</code></p>
         </div>
 
         {hasDebt && (
@@ -100,13 +99,13 @@ export default function ReceiptDetail() {
         <table>
           <thead><tr><th>{t('sales.product')}</th><th>{t('sales.warehouse')}</th><th>{t('common.quantity')}</th><th>{t('inventory.costPerUnit')}</th><th>{t('common.total')}</th></tr></thead>
           <tbody>
-            {utxos.map((u: any) => (
-              <tr key={u.id}>
-                <td>{productName(u.product_id)}</td>
-                <td>{warehouseName(u.warehouse_id)}</td>
-                <td>{u.quantity}</td>
-                <td>{u.cost_per_unit.toLocaleString()}</td>
-                <td>{(u.quantity * u.cost_per_unit).toLocaleString()}</td>
+            {lines.map((l: any) => (
+              <tr key={l.id}>
+                <td>{productName(l.product_id)}</td>
+                <td>{warehouseName(l.warehouse_id)}</td>
+                <td>{l.quantity}</td>
+                <td>{l.cost_per_unit.toLocaleString()}</td>
+                <td>{(l.quantity * l.cost_per_unit).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>
@@ -117,11 +116,10 @@ export default function ReceiptDetail() {
       {ledger && ledger.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>{t('common.versionId')}</th><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
+            <thead><tr><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
             <tbody>
               {ledger.map((e: any) => (
                 <tr key={e.id}>
-                  <td><code title={e.version_id}>{e.version_id?.slice(0, 8)}</code></td>
                   <td>{new Date(e.created_at).toLocaleDateString()}</td>
                   <td style={{ color: e.amount < 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
                     {e.amount.toLocaleString()}

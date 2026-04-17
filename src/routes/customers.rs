@@ -3,9 +3,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::error::AppError;
+use crate::state::AppState;
 use crate::models::customer::*;
 
 #[derive(Deserialize)]
@@ -15,20 +16,20 @@ pub struct ListParams {
 }
 
 pub async fn list_customer_types(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<CustomerType>>, AppError> {
     let types =
         sqlx::query_as::<_, CustomerType>("SELECT * FROM customer_types ORDER BY sort_order, name")
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?;
     Ok(Json(types))
 }
 
 pub async fn reorder_customer_types(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(ids): Json<Vec<i64>>,
 ) -> Result<Json<Vec<CustomerType>>, AppError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = state.pool.begin().await?;
     for (i, id) in ids.iter().enumerate() {
         sqlx::query("UPDATE customer_types SET sort_order = ? WHERE id = ?")
             .bind(i as i64)
@@ -37,11 +38,11 @@ pub async fn reorder_customer_types(
             .await?;
     }
     tx.commit().await?;
-    list_customer_types(State(pool)).await
+    list_customer_types(State(state.clone())).await
 }
 
 pub async fn update_customer_type(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<CustomerType>, AppError> {
@@ -53,14 +54,14 @@ pub async fn update_customer_type(
     )
     .bind(name)
     .bind(id)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Customer type not found".into()))?;
     Ok(Json(ct))
 }
 
 pub async fn create_customer_type(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<CustomerType>, AppError> {
     let name = body["name"]
@@ -70,13 +71,13 @@ pub async fn create_customer_type(
         "INSERT INTO customer_types (name) VALUES (?) RETURNING *",
     )
     .bind(name)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(ct))
 }
 
 pub async fn list_customers(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ListParams>,
 ) -> Result<Json<Vec<Customer>>, AppError> {
     let customers = if let Some(search) = &params.search {
@@ -89,7 +90,7 @@ pub async fn list_customers(
             .bind(&pattern)
             .bind(&pattern)
             .bind(&pattern)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
         } else {
             sqlx::query_as::<_, Customer>(
@@ -98,7 +99,7 @@ pub async fn list_customers(
             .bind(&pattern)
             .bind(&pattern)
             .bind(&pattern)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
         }
     } else if let Some(type_id) = params.customer_type_id {
@@ -106,30 +107,30 @@ pub async fn list_customers(
             "SELECT * FROM customers WHERE customer_type_id = ? ORDER BY name",
         )
         .bind(type_id)
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?
     } else {
         sqlx::query_as::<_, Customer>("SELECT * FROM customers ORDER BY name")
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
     };
     Ok(Json(customers))
 }
 
 pub async fn get_customer(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<Customer>, AppError> {
     let customer = sqlx::query_as::<_, Customer>("SELECT * FROM customers WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Customer not found".into()))?;
     Ok(Json(customer))
 }
 
 pub async fn create_customer(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<CreateCustomer>,
 ) -> Result<Json<Customer>, AppError> {
     let customer = sqlx::query_as::<_, Customer>(
@@ -142,20 +143,20 @@ pub async fn create_customer(
     .bind(&body.phone)
     .bind(&body.address)
     .bind(&body.notes)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(customer))
 }
 
 pub async fn update_customer(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<UpdateCustomer>,
 ) -> Result<Json<Customer>, AppError> {
     // Fetch existing
     let existing = sqlx::query_as::<_, Customer>("SELECT * FROM customers WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Customer not found".into()))?;
 
@@ -172,13 +173,13 @@ pub async fn update_customer(
     .bind(body.address.as_deref().or(existing.address.as_deref()))
     .bind(body.notes.as_deref().or(existing.notes.as_deref()))
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(customer))
 }
 
 pub async fn customer_timeline(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<Vec<TimelineEvent>>, AppError> {
     let events = sqlx::query_as::<_, TimelineEvent>(
@@ -198,7 +199,7 @@ pub async fn customer_timeline(
          ORDER BY date DESC",
     )
     .bind(id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await?;
     Ok(Json(events))
 }

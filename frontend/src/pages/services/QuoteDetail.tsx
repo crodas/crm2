@@ -132,11 +132,10 @@ export default function QuoteDetail() {
       {payments.length > 0 ? (
         <div className="table-wrap">
           <table>
-            <thead><tr><th>{t('common.versionId')}</th><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
+            <thead><tr><th>{t('common.date')}</th><th>{t('common.amount')}</th><th>{t('common.method')}</th><th>{t('common.notes')}</th></tr></thead>
             <tbody>
               {payments.map((p: any) => (
                 <tr key={p.id}>
-                  <td><code title={p.version_id}>{p.version_id?.slice(0, 8)}</code></td>
                   <td>{new Date(p.paid_at).toLocaleDateString()}</td>
                   <td>{p.amount.toLocaleString()}</td>
                   <td>{p.method}</td>

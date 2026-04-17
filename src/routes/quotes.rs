@@ -3,9 +3,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::amount::Amount;
+use crate::state::AppState;
 use crate::error::AppError;
 use crate::models::booking::Booking;
 use crate::models::quote::*;
@@ -18,7 +19,7 @@ pub struct QuoteListParams {
 }
 
 pub async fn list_quotes(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<QuoteListParams>,
 ) -> Result<Json<Vec<Quote>>, AppError> {
     let quotes = if let Some(cid) = params.customer_id {
@@ -28,34 +29,34 @@ pub async fn list_quotes(
             )
             .bind(cid)
             .bind(status)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
         } else {
             sqlx::query_as::<_, Quote>(
                 "SELECT * FROM quotes WHERE customer_id = ? ORDER BY created_at DESC",
             )
             .bind(cid)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
         }
     } else if let Some(status) = &params.status {
         sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE status = ? ORDER BY created_at DESC")
             .bind(status)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
     } else {
         sqlx::query_as::<_, Quote>("SELECT * FROM quotes ORDER BY created_at DESC")
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
     };
     Ok(Json(quotes))
 }
 
 pub async fn create_quote(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<CreateQuote>,
 ) -> Result<Json<Quote>, AppError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = state.pool.begin().await?;
 
     let total: Amount = body
         .lines
@@ -124,24 +125,24 @@ pub async fn create_quote(
 }
 
 pub async fn get_quote(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<QuoteDetail>, AppError> {
     let quote = sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Quote not found".into()))?;
 
     let lines = sqlx::query_as::<_, QuoteLine>("SELECT * FROM quote_lines WHERE quote_id = ?")
         .bind(id)
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?;
 
     let payments =
         sqlx::query_as::<_, PaymentUtxo>("SELECT * FROM payment_utxos WHERE quote_id = ?")
             .bind(id)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?;
 
     let bookings = sqlx::query_as::<_, Booking>(
@@ -150,7 +151,7 @@ pub async fn get_quote(
          WHERE bq.quote_id = ?",
     )
     .bind(id)
-    .fetch_all(&pool)
+    .fetch_all(&state.pool)
     .await?;
 
     let total_paid: Amount = payments.iter().map(|p| p.amount).sum();
@@ -167,13 +168,13 @@ pub async fn get_quote(
 }
 
 pub async fn update_quote(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Quote>, AppError> {
     let existing = sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Quote not found".into()))?;
 
@@ -193,13 +194,13 @@ pub async fn update_quote(
             .or(existing.valid_until.as_deref()),
     )
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(quote))
 }
 
 pub async fn update_quote_status(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<UpdateQuoteStatus>,
 ) -> Result<Json<Quote>, AppError> {
@@ -216,17 +217,17 @@ pub async fn update_quote_status(
     )
     .bind(&body.status)
     .bind(id)
-    .fetch_optional(&pool)
+    .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound("Quote not found".into()))?;
     Ok(Json(quote))
 }
 
 pub async fn create_debt(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<CreateDebt>,
 ) -> Result<Json<Quote>, AppError> {
-    let mut tx = pool.begin().await?;
+    let mut tx = state.pool.begin().await?;
 
     let prev_quote = version::latest_version_id(&mut *tx, "quotes").await?;
     let quote_vid = version::compute_version_id(

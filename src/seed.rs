@@ -1,6 +1,8 @@
-use sqlx::SqlitePool;
+use crate::state::AppState;
 
-pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = &state.pool;
+
     // Check if already seeded
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products")
         .fetch_one(pool)
@@ -43,6 +45,18 @@ pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
+    // Register product assets in ledger
+    for id in 1..=8 {
+        state
+            .ledger
+            .register_asset(ledger::Asset::new(
+                format!("product:{id}"),
+                3,
+                ledger::AssetKind::Unsigned,
+            ))
+            .await?;
+    }
+
     // Warehouses
     sqlx::query(
         "INSERT INTO warehouses (name, address, sort_order) VALUES
@@ -71,70 +85,149 @@ pub async fn seed_dev_data(pool: &SqlitePool) -> Result<(), sqlx::Error> {
          (2, 'Materiales del Este', '061-555333', 'info@mateste.com', 'Ciudad del Este', 'Cross-border sales')"
     ).execute(pool).await?;
 
-    // Inventory receipts with prices (all in cents)
+    // Inventory receipts with lines and ledger entries
     // Receipt 1: Cement and Steel
-    sqlx::query("INSERT INTO inventory_receipts (id, reference, supplier_name) VALUES (1, 'INV-2026-001', 'Cementos Paraguayos SA')")
-        .execute(pool).await?;
-
-    // Cement: 200 bags at cost 4500000 cents (45000.00), warehouse 1
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (1, 1, 200, 4500000, 1)")
-        .execute(pool).await?;
-    // Steel: 500 units at cost 1200000 cents (12000.00), warehouse 1
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (2, 1, 500, 1200000, 1)")
-        .execute(pool).await?;
-
-    // Prices for receipt 1 — retail (group 1) and reseller (group 2)
-    sqlx::query("INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit) VALUES
-        (1, 1, 1, 6300000), (1, 1, 2, 5400000),
-        (1, 2, 1, 1680000), (1, 2, 2, 1440000)")
-        .execute(pool).await?;
+    seed_receipt(
+        state,
+        1,
+        "INV-2026-001",
+        "Cementos Paraguayos SA",
+        &[
+            // (product_id, warehouse_id, quantity, cost_per_unit_cents)
+            (1, 1, 200.0, 4500000),
+            (2, 1, 500.0, 1200000),
+        ],
+        &[
+            // (product_id, customer_group_id, price_per_unit_cents)
+            (1, 1, 6300000),
+            (1, 2, 5400000),
+            (2, 1, 1680000),
+            (2, 2, 1440000),
+        ],
+    )
+    .await?;
 
     // Receipt 2: Sand, Bricks, PVC
-    sqlx::query("INSERT INTO inventory_receipts (id, reference, supplier_name) VALUES (2, 'INV-2026-002', 'Aridos del Paraguay')")
-        .execute(pool).await?;
-
-    // Sand: 50 tons at cost 15000000 (150000.00), warehouse 1
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (3, 1, 50, 15000000, 2)")
-        .execute(pool).await?;
-    // Bricks: 10000 at cost 80000 (800.00), warehouse 2
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (4, 2, 10000, 80000, 2)")
-        .execute(pool).await?;
-    // PVC: 1000 meters at cost 350000 (3500.00), warehouse 1
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (5, 1, 1000, 350000, 2)")
-        .execute(pool).await?;
-
-    // Prices for receipt 2
-    sqlx::query("INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit) VALUES
-        (2, 3, 1, 21000000), (2, 3, 2, 18000000),
-        (2, 4, 1, 112000),   (2, 4, 2, 96000),
-        (2, 5, 1, 490000),   (2, 5, 2, 420000)")
-        .execute(pool).await?;
+    seed_receipt(
+        state,
+        2,
+        "INV-2026-002",
+        "Aridos del Paraguay",
+        &[
+            (3, 1, 50.0, 15000000),
+            (4, 2, 10000.0, 80000),
+            (5, 1, 1000.0, 350000),
+        ],
+        &[
+            (3, 1, 21000000),
+            (3, 2, 18000000),
+            (4, 1, 112000),
+            (4, 2, 96000),
+            (5, 1, 490000),
+            (5, 2, 420000),
+        ],
+    )
+    .await?;
 
     // Receipt 3: Electrical, Paint, Roof tiles
-    sqlx::query("INSERT INTO inventory_receipts (id, reference, supplier_name) VALUES (3, 'INV-2026-003', 'Importadora Electrica')")
-        .execute(pool).await?;
-
-    // Cable: 2000m at 150000 (1500.00), warehouse 1
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (6, 1, 2000, 150000, 3)")
-        .execute(pool).await?;
-    // Paint: 100 buckets at 18000000 (180000.00), warehouse 2
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (7, 2, 100, 18000000, 3)")
-        .execute(pool).await?;
-    // Roof tiles: 5000 at 250000 (2500.00), warehouse 2
-    sqlx::query("INSERT INTO inventory_utxos (product_id, warehouse_id, quantity, cost_per_unit, receipt_id) VALUES (8, 2, 5000, 250000, 3)")
-        .execute(pool).await?;
-
-    // Prices for receipt 3
-    sqlx::query("INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit) VALUES
-        (3, 6, 1, 210000),    (3, 6, 2, 180000),
-        (3, 7, 1, 25200000),  (3, 7, 2, 21600000),
-        (3, 8, 1, 350000),    (3, 8, 2, 300000)")
-        .execute(pool).await?;
+    seed_receipt(
+        state,
+        3,
+        "INV-2026-003",
+        "Importadora Electrica",
+        &[
+            (6, 1, 2000.0, 150000),
+            (7, 2, 100.0, 18000000),
+            (8, 2, 5000.0, 250000),
+        ],
+        &[
+            (6, 1, 210000),
+            (6, 2, 180000),
+            (7, 1, 25200000),
+            (7, 2, 21600000),
+            (8, 1, 350000),
+            (8, 2, 300000),
+        ],
+    )
+    .await?;
 
     // Teams
     sqlx::query("INSERT INTO teams (name, color) VALUES ('Electrical Team', '#e74c3c'), ('Plumbing Team', '#3498db'), ('General Works', '#2ecc71')")
         .execute(pool).await?;
 
     tracing::info!("Dev data seeded successfully");
+    Ok(())
+}
+
+async fn seed_receipt(
+    state: &AppState,
+    receipt_id: i64,
+    reference: &str,
+    supplier: &str,
+    lines: &[(i64, i64, f64, i64)],       // (product_id, warehouse_id, qty, cost_cents)
+    prices: &[(i64, i64, i64)],            // (product_id, group_id, price_cents)
+) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = &state.pool;
+
+    // Calculate total cost
+    let total_cost: i64 = lines
+        .iter()
+        .map(|&(_, _, qty, cost)| (qty * cost as f64).round() as i64)
+        .sum();
+
+    sqlx::query(
+        "INSERT INTO inventory_receipts (id, reference, supplier_name, total_cost) VALUES (?, ?, ?, ?)",
+    )
+    .bind(receipt_id)
+    .bind(reference)
+    .bind(supplier)
+    .bind(total_cost)
+    .execute(pool)
+    .await?;
+
+    // Build ledger transaction for inventory tokens
+    let mut builder = state
+        .ledger
+        .transaction(format!("receipt-{receipt_id}"));
+
+    for &(product_id, warehouse_id, qty, cost) in lines {
+        // Store line item metadata
+        sqlx::query(
+            "INSERT INTO inventory_receipt_lines (receipt_id, product_id, warehouse_id, quantity, cost_per_unit)
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(receipt_id)
+        .bind(product_id)
+        .bind(warehouse_id)
+        .bind(qty)
+        .bind(cost)
+        .execute(pool)
+        .await?;
+
+        // Credit inventory to the store warehouse
+        let account = format!("@store/{warehouse_id}/product/{product_id}");
+        let asset = format!("product:{product_id}");
+        let qty_str = format!("{qty:.3}");
+        builder = builder.credit(&account, &asset, &qty_str);
+    }
+
+    // Commit ledger transaction
+    let ledger_tx = builder.build().await?;
+    state.ledger.commit(ledger_tx).await?;
+
+    // Store prices
+    for &(product_id, group_id, price) in prices {
+        sqlx::query(
+            "INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(receipt_id)
+        .bind(product_id)
+        .bind(group_id)
+        .bind(price)
+        .execute(pool)
+        .await?;
+    }
+
     Ok(())
 }

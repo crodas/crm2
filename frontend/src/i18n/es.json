@@ -1,7 +1,6 @@
 {
   "app.brand": "CRM2",
   "app.toggleDarkMode": "Cambiar modo oscuro",
-
   "nav.dashboard": "Inicio",
   "nav.customers": "Clientes",
   "nav.quotes": "Cotizaciones",
@@ -15,7 +14,6 @@
   "nav.bookings": "Reservas",
   "nav.settings": "Configuración",
   "nav.home": "Inicio",
-
   "common.loading": "Cargando...",
   "common.saving": "Guardando...",
   "common.processing": "Procesando...",
@@ -47,7 +45,6 @@
   "common.details": "Detalles",
   "common.location": "Ubicación",
   "common.method": "Método",
-
   "dashboard.title": "Panel",
   "dashboard.customers": "Clientes",
   "dashboard.products": "Productos",
@@ -60,7 +57,6 @@
   "dashboard.upcomingBookings": "Próximas Reservas",
   "dashboard.noUpcomingBookings": "No hay reservas próximas",
   "dashboard.start": "Inicio",
-
   "customers.title": "Clientes",
   "customers.addCustomer": "Agregar Cliente",
   "customers.searchPlaceholder": "Buscar clientes...",
@@ -77,7 +73,6 @@
   "customers.eventSale": "Venta",
   "customers.eventBooking": "Reserva",
   "customers.eventPayment": "Pago",
-
   "products.title": "Productos y Servicios",
   "products.addProduct": "Agregar Producto",
   "products.addService": "Agregar Servicio",
@@ -98,7 +93,6 @@
   "products.service": "Servicio",
   "products.createProduct": "Crear Producto",
   "products.createService": "Crear Servicio",
-
   "sales.title": "Ventas",
   "sales.newSale": "Nueva Venta",
   "sales.saleNumber": "Venta #{{id}}",
@@ -119,7 +113,6 @@
   "sales.date_label": "Fecha:",
   "sales.total_label": "Total:",
   "sales.notes_label": "Notas:",
-
   "inventory.currentStock": "Stock Actual",
   "inventory.receiveInventory": "Recibir Inventario",
   "inventory.noStock": "Sin stock aún",
@@ -145,9 +138,8 @@
   "inventory.noPayments": "No hay pagos registrados",
   "inventory.recentReceipts": "Recibos Recientes",
   "inventory.noReceipts": "Sin recibos aún",
-  "inventory.debt": "deuda",
+  "inventory.debt": "Deuda",
   "inventory.paymentType": "Tipo de Pago",
-
   "quotes.title": "Cotizaciones",
   "quotes.quickDebt": "Deuda Rápida",
   "quotes.newQuote": "Nueva Cotización",
@@ -173,7 +165,6 @@
   "quotes.createQuote": "Crear Cotización",
   "quotes.addProduct": "+ Agregar Producto",
   "quotes.addService": "+ Agregar Servicio",
-
   "bookings.newBooking": "Nueva Reserva",
   "bookings.team": "Equipo",
   "bookings.customer": "Cliente",
@@ -188,7 +179,6 @@
   "bookings.noLinkedQuotes": "Sin cotizaciones vinculadas",
   "bookings.linkedBookings": "Reservas Vinculadas",
   "bookings.noLinkedBookings": "Sin reservas vinculadas",
-
   "calendar.title": "Calendario",
   "calendar.week": "Semana",
   "calendar.month": "Mes",
@@ -201,13 +191,11 @@
   "calendar.noQuote": "Sin cotización",
   "calendar.notesPlaceholder": "Detalles de la visita...",
   "calendar.editBooking": "Editar Reserva — {{date}} a las {{time}}",
-
   "teams.title": "Equipos",
   "teams.createTeam": "Crear Equipo",
   "teams.addMember": "Agregar Miembro",
   "teams.members": "Miembros",
   "teams.selectTeam": "Seleccioná un equipo para ver los miembros",
-
   "settings.title": "Configuración",
   "settings.generalConfig": "Configuración General",
   "settings.companyName": "Nombre de la Empresa",
@@ -236,14 +224,11 @@
   "settings.noWarehouses": "Sin depósitos",
   "settings.noTypes": "Sin tipos",
   "settings.noGroups": "Sin grupos",
-
   "dashboard.toCollect": "Por Cobrar",
   "dashboard.toPay": "Por Pagar",
-
   "debt.title": "Deuda Rápida",
   "debt.customer": "Cliente",
   "debt.createDebt": "Crear Deuda",
-
   "settings.language": "Idioma",
   "settings.languageEs": "Español (Latinoamérica)",
   "settings.languageEn": "English"

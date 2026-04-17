@@ -29,7 +29,6 @@ export default function SaleDetail() {
           <p><strong>{t('sales.date_label')}</strong> {new Date(sale.sold_at).toLocaleString()}</p>
           <p><strong>{t('sales.total_label')}</strong> {sale.total_amount.toLocaleString()}</p>
           <p><strong>{t('sales.notes_label')}</strong> {sale.notes || '—'}</p>
-          <p><strong>{t('common.versionId')}</strong> <code title={sale.version_id}>{sale.version_id?.slice(0, 8)}</code></p>
         </div>
       </div>
 
@@ -37,12 +36,11 @@ export default function SaleDetail() {
       <div className="table-wrap">
         <table>
           <thead>
-            <tr><th>{t('common.versionId')}</th><th>{t('sales.product')}</th><th>{t('common.quantity')}</th><th>{t('sales.priceUnit')}</th><th>{t('sales.subtotal')}</th></tr>
+            <tr><th>{t('sales.product')}</th><th>{t('common.quantity')}</th><th>{t('sales.priceUnit')}</th><th>{t('sales.subtotal')}</th></tr>
           </thead>
           <tbody>
             {lines.map((l: any) => (
               <tr key={l.id}>
-                <td><code title={l.version_id}>{l.version_id?.slice(0, 8)}</code></td>
                 <td>{productName(l.product_id)}</td>
                 <td>{l.quantity}</td>
                 <td>{l.price_per_unit.toLocaleString()}</td>

@@ -4,15 +4,21 @@ mod error;
 mod models;
 mod routes;
 mod seed;
+mod state;
 mod version;
+
+use std::path::Path;
+use std::sync::Arc;
 
 use axum::{
     routing::{get, patch, post, put},
     Router,
 };
-use std::path::Path;
+use ledger::{Asset, AssetKind};
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
+
+use crate::state::AppState;
 
 fn build_frontend(dev: bool) -> Result<(), Box<dyn std::error::Error>> {
     let frontend_dir = Path::new("frontend");
@@ -67,9 +73,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:crm2.db?mode=rwc".into());
     let pool = db::init_pool(&database_url).await?;
 
+    // Initialize ledger (shares the same SQLite pool)
+    let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone()).await?;
+    let ledger = ledger::Ledger::new(Arc::new(storage));
+
+    // Register monetary asset
+    ledger
+        .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+        .await
+        .map_err(|e| format!("register gs: {e}"))?;
+
+    // Register one asset per product (precision 3 = thousandths for fractional quantities)
+    let product_ids: Vec<(i64,)> =
+        sqlx::query_as("SELECT id FROM products")
+            .fetch_all(&pool)
+            .await?;
+    for (id,) in &product_ids {
+        ledger
+            .register_asset(Asset::new(
+                format!("product:{id}"),
+                3,
+                AssetKind::Unsigned,
+            ))
+            .await
+            .map_err(|e| format!("register product:{id}: {e}"))?;
+    }
+    tracing::info!("Ledger initialized with {} product assets", product_ids.len());
+
+    let state = Arc::new(AppState { pool, ledger });
+
     // Seed dev data (only in debug mode)
     if !is_release {
-        seed::seed_dev_data(&pool).await?;
+        seed::seed_dev_data(&state).await.map_err(|e| e.to_string())?;
     }
 
     // API routes
@@ -161,12 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "/supplier-balance",
             get(routes::inventory::supplier_balance),
         )
-        .route("/inventory/utxos", get(routes::inventory::list_utxos))
         .route("/inventory/prices", get(routes::inventory::latest_prices))
-        .route(
-            "/inventory/history/{product_id}",
-            get(routes::inventory::product_history),
-        )
         // Sales
         .route(
             "/sales",
@@ -229,7 +259,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .nest("/api", api)
         .fallback_service(serve_dir)
         .layer(CorsLayer::permissive())
-        .with_state(pool);
+        .with_state(state);
 
     let addr = "0.0.0.0:3000";
     tracing::info!("Server running on http://{addr}");

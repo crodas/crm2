@@ -40,7 +40,6 @@ pub struct PaymentUtxo {
     pub notes: Option<String>,
     pub paid_at: String,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]

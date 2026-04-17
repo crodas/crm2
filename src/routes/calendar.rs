@@ -3,9 +3,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::error::AppError;
+use crate::state::AppState;
 use crate::models::booking::Booking;
 
 #[derive(Deserialize)]
@@ -16,7 +17,7 @@ pub struct CalendarQuery {
 }
 
 pub async fn get_calendar(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<CalendarQuery>,
 ) -> Result<Json<Vec<Booking>>, AppError> {
     let bookings = if let Some(team_id) = params.team_id {
@@ -28,7 +29,7 @@ pub async fn get_calendar(
         .bind(team_id)
         .bind(&params.start)
         .bind(&params.end)
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?
     } else {
         sqlx::query_as::<_, Booking>(
@@ -38,7 +39,7 @@ pub async fn get_calendar(
         )
         .bind(&params.start)
         .bind(&params.end)
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?
     };
     Ok(Json(bookings))

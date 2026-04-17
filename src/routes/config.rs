@@ -1,12 +1,13 @@
 use axum::{extract::State, Json};
 use serde_json::{Map, Value};
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::error::AppError;
+use crate::state::AppState;
 
-pub async fn get_config(State(pool): State<SqlitePool>) -> Result<Json<Value>, AppError> {
+pub async fn get_config(State(state): State<Arc<AppState>>) -> Result<Json<Value>, AppError> {
     let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM config")
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?;
 
     let mut map = Map::new();
@@ -19,7 +20,7 @@ pub async fn get_config(State(pool): State<SqlitePool>) -> Result<Json<Value>, A
 }
 
 pub async fn update_config(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<Map<String, Value>>,
 ) -> Result<Json<Value>, AppError> {
     for (key, value) in &body {
@@ -33,8 +34,8 @@ pub async fn update_config(
         )
         .bind(key)
         .bind(&val_str)
-        .execute(&pool)
+        .execute(&state.pool)
         .await?;
     }
-    get_config(State(pool)).await
+    get_config(State(state.clone())).await
 }
