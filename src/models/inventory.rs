@@ -11,22 +11,17 @@ pub struct InventoryReceipt {
     pub total_cost: Amount,
     pub received_at: String,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
-pub struct InventoryUtxo {
+pub struct ReceiptLine {
     pub id: i64,
+    pub receipt_id: i64,
     pub product_id: i64,
     pub warehouse_id: i64,
     pub quantity: f64,
     pub cost_per_unit: Amount,
-    pub receipt_id: Option<i64>,
-    pub source_sale_id: Option<i64>,
-    pub spent: bool,
-    pub spent_by_sale_id: Option<i64>,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -43,7 +38,6 @@ pub struct ReceiptPrice {
     pub product_id: i64,
     pub customer_group_id: i64,
     pub price_per_unit: Amount,
-    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,7 +86,6 @@ pub struct SupplierLedgerUtxo {
     pub method: Option<String>,
     pub notes: Option<String>,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]

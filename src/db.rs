@@ -1,7 +1,5 @@
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
-use crate::version;
-
 pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -69,6 +67,10 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             "009_supplier_ledger",
             include_str!("../migrations/009_supplier_ledger.sql"),
         ),
+        (
+            "010_drop_old_utxo",
+            include_str!("../migrations/010_drop_old_utxo.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {
@@ -91,14 +93,6 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
                 .bind(name)
                 .execute(pool)
                 .await?;
-
-            // Backfill version_id hash chains for existing rows.
-            // Only recompute on the latest migration that changes chains,
-            // since earlier recomputes would use stale field definitions.
-            if name == "009_supplier_ledger" {
-                tracing::info!("Backfilling version_id chains (all tables)...");
-                version::recompute_all_chains(pool).await?;
-            }
         }
     }
 

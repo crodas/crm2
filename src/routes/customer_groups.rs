@@ -3,9 +3,10 @@ use axum::{
     Json,
 };
 use serde::Deserialize;
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::error::AppError;
+use crate::state::AppState;
 use crate::models::customer::CustomerGroup;
 
 #[derive(Deserialize)]
@@ -20,22 +21,22 @@ pub struct UpdateGroupReq {
 }
 
 pub async fn list_groups(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<CustomerGroup>>, AppError> {
     let groups = sqlx::query_as::<_, CustomerGroup>("SELECT * FROM customer_groups ORDER BY id")
-        .fetch_all(&pool)
+        .fetch_all(&state.pool)
         .await?;
     Ok(Json(groups))
 }
 
 pub async fn create_group(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<CreateGroupReq>,
 ) -> Result<Json<CustomerGroup>, AppError> {
     // Auto-derive name from customer type
     let type_name: String = sqlx::query_scalar("SELECT name FROM customer_types WHERE id = ?")
         .bind(body.customer_type_id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::BadRequest("Customer type not found".into()))?;
 
@@ -45,19 +46,19 @@ pub async fn create_group(
     .bind(&type_name)
     .bind(body.customer_type_id)
     .bind(body.default_markup_pct)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(group))
 }
 
 pub async fn update_group(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<UpdateGroupReq>,
 ) -> Result<Json<CustomerGroup>, AppError> {
     let existing = sqlx::query_as::<_, CustomerGroup>("SELECT * FROM customer_groups WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Customer group not found".into()))?;
 
@@ -69,7 +70,7 @@ pub async fn update_group(
             .unwrap_or(existing.default_markup_pct),
     )
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
     Ok(Json(group))
 }

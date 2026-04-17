@@ -5,10 +5,14 @@ use axum::{
 use serde::Deserialize;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use ledger::{Asset, AssetKind};
 
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::product::*;
+use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct ProductQuery {
@@ -58,21 +62,21 @@ fn enrich(
 }
 
 pub async fn list_products(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Query(params): Query<ProductQuery>,
 ) -> Result<Json<Vec<ProductWithPrices>>, AppError> {
     let products = if let Some(pt) = &params.product_type {
         sqlx::query_as::<_, Product>("SELECT * FROM products WHERE product_type = ? ORDER BY name")
             .bind(pt)
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
     } else {
         sqlx::query_as::<_, Product>("SELECT * FROM products ORDER BY product_type, name")
-            .fetch_all(&pool)
+            .fetch_all(&state.pool)
             .await?
     };
 
-    let prices_map = fetch_latest_prices(&pool).await?;
+    let prices_map = fetch_latest_prices(&state.pool).await?;
     let result: Vec<ProductWithPrices> = products
         .into_iter()
         .map(|p| enrich(p, &prices_map))
@@ -81,7 +85,7 @@ pub async fn list_products(
 }
 
 pub async fn create_product(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Json(body): Json<CreateProduct>,
 ) -> Result<Json<ProductWithPrices>, AppError> {
     let pt = body.product_type.as_deref().unwrap_or("product");
@@ -102,8 +106,20 @@ pub async fn create_product(
     .bind(body.unit.as_deref().unwrap_or("unit"))
     .bind(pt)
     .bind(body.suggested_price.unwrap_or(Amount(0)))
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
+
+    // Register a ledger asset for this product
+    state
+        .ledger
+        .register_asset(Asset::new(
+            format!("product:{}", product.id),
+            3,
+            AssetKind::Unsigned,
+        ))
+        .await
+        .map_err(|e| AppError::Internal(format!("register asset: {e}")))?;
+
     Ok(Json(ProductWithPrices {
         product,
         prices: HashMap::new(),
@@ -111,27 +127,27 @@ pub async fn create_product(
 }
 
 pub async fn get_product(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
 ) -> Result<Json<ProductWithPrices>, AppError> {
     let product = sqlx::query_as::<_, Product>("SELECT * FROM products WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
-    let prices_map = fetch_latest_prices(&pool).await?;
+    let prices_map = fetch_latest_prices(&state.pool).await?;
     Ok(Json(enrich(product, &prices_map)))
 }
 
 pub async fn update_product(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(id): Path<i64>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<ProductWithPrices>, AppError> {
     let existing = sqlx::query_as::<_, Product>("SELECT * FROM products WHERE id = ?")
         .bind(id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Product not found".into()))?;
 
@@ -146,9 +162,9 @@ pub async fn update_product(
     .bind(body["product_type"].as_str().unwrap_or(&existing.product_type))
     .bind(body["suggested_price"].as_f64().map(Amount::from_float).unwrap_or(existing.suggested_price))
     .bind(id)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
 
-    let prices_map = fetch_latest_prices(&pool).await?;
+    let prices_map = fetch_latest_prices(&state.pool).await?;
     Ok(Json(enrich(product, &prices_map)))
 }

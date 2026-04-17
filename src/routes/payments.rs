@@ -3,12 +3,12 @@ use axum::{
     Json,
 };
 use serde::Serialize;
-use sqlx::SqlitePool;
+use std::sync::Arc;
 
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
-use crate::version;
+use crate::state::AppState;
 
 #[derive(Serialize)]
 pub struct CustomerBalance {
@@ -19,13 +19,13 @@ pub struct CustomerBalance {
 }
 
 pub async fn record_payment(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(quote_id): Path<i64>,
     Json(body): Json<CreatePayment>,
 ) -> Result<Json<PaymentUtxo>, AppError> {
-    let _quote = sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE id = ?")
+    let quote = sqlx::query_as::<_, Quote>("SELECT * FROM quotes WHERE id = ?")
         .bind(quote_id)
-        .fetch_optional(&pool)
+        .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Quote not found".into()))?;
 
@@ -33,56 +33,72 @@ pub async fn record_payment(
         return Err(AppError::BadRequest("Amount must be positive".into()));
     }
 
-    let prev_pay = version::latest_version_id(&pool, "payment_utxos").await?;
-    let pay_vid = version::compute_version_id(
-        &version::payment_utxo_fields(quote_id, body.amount.cents(), &body.method, &body.notes),
-        &prev_pay,
-    );
-
+    // Record metadata in payment_utxos table
     let payment = sqlx::query_as::<_, PaymentUtxo>(
-        "INSERT INTO payment_utxos (quote_id, amount, method, notes, version_id) VALUES (?, ?, ?, ?, ?) RETURNING *",
+        "INSERT INTO payment_utxos (quote_id, amount, method, notes) VALUES (?, ?, ?, ?) RETURNING *",
     )
     .bind(quote_id)
     .bind(body.amount)
     .bind(&body.method)
     .bind(&body.notes)
-    .bind(&pay_vid)
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
+
+    // Record in ledger: customer payment offsets debt, reduces receivable, adds cash
+    let amount = body.amount.cents();
+    let amount_str = format!("{amount}");
+    let neg_amount_str = format!("-{amount}");
+    let customer_id = quote.customer_id;
+
+    let ledger_tx = state
+        .ledger
+        .transaction(format!("customer-payment-{}", payment.id))
+        .credit(
+            &format!("@customer/{customer_id}/payments"),
+            "gs",
+            &amount_str,
+        )
+        .credit(
+            &format!("@store/receivables/{customer_id}"),
+            "gs",
+            &neg_amount_str,
+        )
+        .credit("@store/cash", "gs", &amount_str)
+        .build()
+        .await
+        .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
+    state
+        .ledger
+        .commit(ledger_tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("ledger commit: {e}")))?;
+
     Ok(Json(payment))
 }
 
 pub async fn customer_balance(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
     Path(customer_id): Path<i64>,
 ) -> Result<Json<CustomerBalance>, AppError> {
-    #[derive(sqlx::FromRow)]
-    struct Row {
-        total_owed: Amount,
-        total_paid: Amount,
-    }
+    // Total owed from quotes (SQL — quotes are not managed by ledger)
+    let total_owed: Amount =
+        sqlx::query_scalar("SELECT COALESCE(SUM(total_amount), 0) FROM quotes WHERE customer_id = ? AND status IN ('accepted', 'booked')")
+            .bind(customer_id)
+            .fetch_one(&state.pool)
+            .await?;
 
-    let row = sqlx::query_as::<_, Row>(
-        "SELECT
-            COALESCE(SUM(q.total_amount), 0) as total_owed,
-            COALESCE(SUM(COALESCE(p.paid, 0)), 0) as total_paid
-         FROM quotes q
-         LEFT JOIN (
-            SELECT quote_id, SUM(amount) as paid
-            FROM payment_utxos
-            GROUP BY quote_id
-         ) p ON p.quote_id = q.id
-         WHERE q.customer_id = ? AND q.status IN ('accepted', 'booked')",
-    )
-    .bind(customer_id)
-    .fetch_one(&pool)
-    .await?;
+    // Total paid from payment_utxos metadata (still in SQL)
+    let total_paid: Amount =
+        sqlx::query_scalar("SELECT COALESCE(SUM(amount), 0) FROM payment_utxos WHERE quote_id IN (SELECT id FROM quotes WHERE customer_id = ?)")
+            .bind(customer_id)
+            .fetch_one(&state.pool)
+            .await?;
 
     Ok(Json(CustomerBalance {
         customer_id,
-        total_owed: row.total_owed,
-        total_paid: row.total_paid,
-        outstanding: row.total_owed - row.total_paid,
+        total_owed,
+        total_paid,
+        outstanding: total_owed - total_paid,
     }))
 }
 
@@ -94,7 +110,7 @@ pub struct ReceivablesBalance {
 }
 
 pub async fn total_receivables(
-    State(pool): State<SqlitePool>,
+    State(state): State<Arc<AppState>>,
 ) -> Result<Json<ReceivablesBalance>, AppError> {
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -114,7 +130,7 @@ pub async fn total_receivables(
          ) p ON p.quote_id = q.id
          WHERE q.status IN ('accepted', 'booked')",
     )
-    .fetch_one(&pool)
+    .fetch_one(&state.pool)
     .await?;
 
     Ok(Json(ReceivablesBalance {

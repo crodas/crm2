@@ -11,7 +11,6 @@ pub struct Sale {
     pub total_amount: Amount,
     pub sold_at: String,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -22,7 +21,6 @@ pub struct SaleLine {
     pub quantity: f64,
     pub price_per_unit: Amount,
     pub created_at: String,
-    pub version_id: String,
 }
 
 #[derive(Debug, Deserialize)]
