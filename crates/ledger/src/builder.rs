@@ -17,6 +17,15 @@ struct DebitRequest {
     qty: String,
 }
 
+/// A pre-selected debit that bypasses coin selection.
+struct RawDebit {
+    tx_id: String,
+    entry_index: u32,
+    owner: String,
+    asset_name: String,
+    qty: String,
+}
+
 /// High-level transaction builder that automatically selects unspent
 /// tokens for debits and generates change credits.
 ///
@@ -33,6 +42,7 @@ pub struct TransactionBuilder {
     storage: Arc<dyn Storage>,
     assets: HashMap<String, Asset>,
     debits: Vec<DebitRequest>,
+    raw_debits: Vec<RawDebit>,
     credits: Vec<Credit>,
 }
 
@@ -47,6 +57,7 @@ impl TransactionBuilder {
             storage,
             assets,
             debits: Vec::new(),
+            raw_debits: Vec::new(),
             credits: Vec::new(),
         }
     }
@@ -77,6 +88,28 @@ impl TransactionBuilder {
     ) -> Self {
         self.credits.push(Credit {
             to: to.into(),
+            asset_name: asset_name.into(),
+            qty: qty.into(),
+        });
+        self
+    }
+
+    /// Add a pre-selected debit, bypassing automatic coin selection.
+    ///
+    /// Use this when you have already performed token selection externally
+    /// (e.g., debt settlement selects tokens with negative quantities).
+    pub fn debit_raw(
+        mut self,
+        tx_id: impl Into<String>,
+        entry_index: u32,
+        owner: impl Into<String>,
+        asset_name: impl Into<String>,
+        qty: impl Into<String>,
+    ) -> Self {
+        self.raw_debits.push(RawDebit {
+            tx_id: tx_id.into(),
+            entry_index,
+            owner: owner.into(),
             asset_name: asset_name.into(),
             qty: qty.into(),
         });
@@ -144,6 +177,17 @@ impl TransactionBuilder {
                 let change = total - requested;
                 low = low.credit(&req.account, &req.asset_name, asset.format_qty(change));
             }
+        }
+
+        // Pass through pre-selected raw debits without coin selection.
+        for raw in &self.raw_debits {
+            low = low.debit(
+                &raw.tx_id,
+                raw.entry_index,
+                &raw.owner,
+                &raw.asset_name,
+                &raw.qty,
+            );
         }
 
         let tx = low.build(&self.assets)?;
@@ -371,14 +415,7 @@ mod tests {
     async fn multi_asset_debits() {
         let ledger = setup_ledger().await;
 
-        issue(
-            &ledger,
-            "issue-brush",
-            "@store1/inventory",
-            "brush",
-            "10",
-        )
-        .await;
+        issue(&ledger, "issue-brush", "@store1/inventory", "brush", "10").await;
         issue(&ledger, "issue-usd", "@store1/cash", "usd", "100.00").await;
 
         let tx = ledger

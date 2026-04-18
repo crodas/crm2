@@ -9,6 +9,7 @@
 //! For low-level access (explicit entry refs), use [`ledger_core`] directly.
 
 mod builder;
+pub mod debt;
 mod error;
 mod ledger;
 

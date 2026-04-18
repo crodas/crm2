@@ -272,8 +272,7 @@ impl Storage for SqliteStorage {
         new_tokens: &[SpendingToken],
         spent_refs: &[EntryRef],
     ) -> Result<(), LedgerError> {
-        let data =
-            serde_json::to_string(tx).map_err(|e| LedgerError::Storage(e.to_string()))?;
+        let data = serde_json::to_string(tx).map_err(|e| LedgerError::Storage(e.to_string()))?;
 
         let mut conn = self.pool.acquire().await.map_err(db_err)?;
         let mut db_tx = conn.begin().await.map_err(db_err)?;
@@ -320,11 +319,10 @@ impl Storage for SqliteStorage {
     }
 
     async fn load_transactions(&self) -> Result<Vec<Transaction>, LedgerError> {
-        let rows =
-            sqlx::query("SELECT data FROM ledger_transactions ORDER BY rowid")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(db_err)?;
+        let rows = sqlx::query("SELECT data FROM ledger_transactions ORDER BY rowid")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?;
 
         rows.iter()
             .map(|row| {
@@ -370,7 +368,11 @@ mod tests {
     use super::SqliteStorage;
     use ledger_core::storage_tests;
 
-    storage_tests!(async { SqliteStorage::connect("sqlite::memory:").await.expect("connect") });
+    storage_tests!(async {
+        SqliteStorage::connect("sqlite::memory:")
+            .await
+            .expect("connect")
+    });
 
     #[tokio::test]
     async fn from_pool_works() {

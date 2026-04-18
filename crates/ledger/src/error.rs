@@ -14,6 +14,18 @@ pub enum Error {
         available: i128,
     },
 
+    /// Debt amount must be positive.
+    #[error("debt amount must be positive")]
+    NonPositiveAmount,
+
+    /// Not enough debt tokens to cover the settlement.
+    #[error("insufficient debt: need {required}, have {available}")]
+    InsufficientDebt { required: i128, available: i128 },
+
+    /// No debt strategy configured on this ledger.
+    #[error("no debt strategy configured — call Ledger::with_debt_strategy first")]
+    NoDebtStrategy,
+
     /// Core ledger error.
     #[error(transparent)]
     Ledger(#[from] LedgerError),

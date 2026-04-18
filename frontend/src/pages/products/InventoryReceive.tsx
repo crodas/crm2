@@ -82,6 +82,7 @@ export default function InventoryReceive() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] })
+      qc.invalidateQueries({ queryKey: ['supplier-balance'] })
       nav('/inventory')
     },
   })

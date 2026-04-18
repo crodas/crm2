@@ -24,8 +24,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    AccountPath, Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage,
-    TokenStatus, Transaction, TransactionBuilder,
+    AccountPath, Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
+    Transaction, TransactionBuilder,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -81,7 +81,13 @@ fn make_transfer(
 ) -> (Transaction, Vec<SpendingToken>, Vec<EntryRef>) {
     let assets = test_assets();
     let tx = TransactionBuilder::new(key)
-        .debit(&spent_ref.tx_id, spent_ref.entry_index, from, asset_name, qty_str)
+        .debit(
+            &spent_ref.tx_id,
+            spent_ref.entry_index,
+            from,
+            asset_name,
+            qty_str,
+        )
         .credit(to, asset_name, qty_str)
         .build(&assets)
         .expect("build transfer fixture");
@@ -120,7 +126,9 @@ pub async fn save_and_load_asset(s: &dyn Storage) {
 pub async fn register_asset_duplicate_is_noop(s: &dyn Storage) {
     let brush = Asset::new("brush", 0, AssetKind::Unsigned);
     s.register_asset(&brush).await.expect("save brush");
-    s.register_asset(&brush).await.expect("duplicate save should be a no-op");
+    s.register_asset(&brush)
+        .await
+        .expect("duplicate save should be a no-op");
 
     let loaded = s.load_assets().await.expect("load_assets");
     assert_eq!(loaded.len(), 1);
@@ -132,7 +140,10 @@ pub async fn register_asset_conflict_rejected(s: &dyn Storage) {
     s.register_asset(&v1).await.expect("save v1");
 
     let v2 = Asset::new("thing", 2, AssetKind::Signed);
-    let err = s.register_asset(&v2).await.expect_err("conflicting save should fail");
+    let err = s
+        .register_asset(&v2)
+        .await
+        .expect_err("conflicting save should fail");
     assert!(
         matches!(err, LedgerError::AssetConflict { .. }),
         "expected AssetConflict, got {err:?}"
@@ -201,7 +212,9 @@ pub async fn get_token_after_commit(s: &dyn Storage) {
 pub async fn token_marked_spent(s: &dyn Storage) {
     let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
     let eref = tokens1[0].entry_ref.clone();
-    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+    s.commit_tx(&tx1, &tokens1, &[])
+        .await
+        .expect("commit issuance");
 
     let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
     s.commit_tx(&tx2, &tokens2, &spent)
@@ -243,7 +256,9 @@ pub async fn unspent_account_returns_matching(s: &dyn Storage) {
 pub async fn unspent_account_excludes_spent(s: &dyn Storage) {
     let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
     let eref = tokens1[0].entry_ref.clone();
-    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+    s.commit_tx(&tx1, &tokens1, &[])
+        .await
+        .expect("commit issuance");
 
     let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", "brush", "5", 5);
     s.commit_tx(&tx2, &tokens2, &spent)
@@ -324,10 +339,19 @@ pub async fn unspent_prefix_includes_exact(s: &dyn Storage) {
 pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
     let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
     let eref = tokens1[0].entry_ref.clone();
-    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+    s.commit_tx(&tx1, &tokens1, &[])
+        .await
+        .expect("commit issuance");
 
-    let (tx2, tokens2, spent) =
-        make_transfer("xfer-001", &eref, "@store1/inventory", "@b", "brush", "5", 5);
+    let (tx2, tokens2, spent) = make_transfer(
+        "xfer-001",
+        &eref,
+        "@store1/inventory",
+        "@b",
+        "brush",
+        "5",
+        5,
+    );
     s.commit_tx(&tx2, &tokens2, &spent)
         .await
         .expect("commit transfer");
@@ -337,7 +361,10 @@ pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
         .unspent_by_prefix(&prefix, "brush")
         .await
         .expect("unspent_by_prefix");
-    assert!(result.is_empty(), "spent tokens should be excluded from prefix query");
+    assert!(
+        result.is_empty(),
+        "spent tokens should be excluded from prefix query"
+    );
 }
 
 pub async fn unspent_prefix_excludes_other_assets(s: &dyn Storage) {
@@ -361,7 +388,10 @@ pub async fn unspent_prefix_excludes_non_descendants(s: &dyn Storage) {
         .unspent_by_prefix(&prefix, "brush")
         .await
         .expect("unspent_by_prefix");
-    assert!(result.is_empty(), "non-descendant accounts should be excluded");
+    assert!(
+        result.is_empty(),
+        "non-descendant accounts should be excluded"
+    );
 }
 
 // ── Transaction tests ────────────────────────────────────────────────
@@ -398,7 +428,10 @@ pub async fn transactions_preserve_order(s: &dyn Storage) {
     let txs = s.load_transactions().await.expect("load_transactions");
     assert_eq!(txs.len(), 2);
     assert_eq!(txs[0].tx_id, id1, "first committed should be first loaded");
-    assert_eq!(txs[1].tx_id, id2, "second committed should be second loaded");
+    assert_eq!(
+        txs[1].tx_id, id2,
+        "second committed should be second loaded"
+    );
 }
 
 // ── Combined / atomicity tests ───────────────────────────────────────
@@ -422,7 +455,9 @@ pub async fn commit_creates_tokens_and_key(s: &dyn Storage) {
 pub async fn commit_spends_and_creates(s: &dyn Storage) {
     let (tx1, tokens1) = make_issuance("issue-001", "@a", "brush", "5", 5);
     let eref_a = tokens1[0].entry_ref.clone();
-    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit issuance");
+    s.commit_tx(&tx1, &tokens1, &[])
+        .await
+        .expect("commit issuance");
 
     let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref_a, "@a", "@b", "brush", "5", 5);
     let eref_b = tokens2[0].entry_ref.clone();
@@ -446,12 +481,11 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
 
     let acc_a = AccountPath::new("@a").expect("valid path");
     let acc_b = AccountPath::new("@b").expect("valid path");
-    assert!(
-        s.unspent_by_account(&acc_a, "brush")
-            .await
-            .expect("unspent @a")
-            .is_empty()
-    );
+    assert!(s
+        .unspent_by_account(&acc_a, "brush")
+        .await
+        .expect("unspent @a")
+        .is_empty());
     assert_eq!(
         s.unspent_by_account(&acc_b, "brush")
             .await
@@ -476,7 +510,9 @@ pub async fn unspent_all_prefix_empty(s: &dyn Storage) {
 
 pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
     let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", "brush", "5", 5);
-    s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit brush");
+    s.commit_tx(&tx1, &tokens1, &[])
+        .await
+        .expect("commit brush");
 
     let assets = test_assets();
     let tx2 = TransactionBuilder::new("issue-002")
@@ -629,7 +665,10 @@ pub async fn balances_prefix_excludes_spent(s: &dyn Storage) {
         .balances_by_prefix(&prefix)
         .await
         .expect("balances_by_prefix");
-    assert!(result.is_empty(), "spent tokens should not contribute to balance");
+    assert!(
+        result.is_empty(),
+        "spent tokens should not contribute to balance"
+    );
 }
 
 pub async fn balances_prefix_excludes_non_descendants(s: &dyn Storage) {
