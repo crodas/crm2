@@ -54,9 +54,7 @@ pub async fn create_sale_tx(
     }
 
     // Build ledger transaction: debit inventory, credit sold sink + customer debt
-    let mut builder = state
-        .ledger
-        .transaction(format!("sale-{}", sale.id));
+    let mut builder = state.ledger.transaction(format!("sale-{}", sale.id));
 
     for &(product_id, warehouse_id, quantity, _price_cents) in lines {
         let account = format!("@store/{warehouse_id}/product/{product_id}");

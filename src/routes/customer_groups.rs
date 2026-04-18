@@ -6,8 +6,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::error::AppError;
-use crate::state::AppState;
 use crate::models::customer::CustomerGroup;
+use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct CreateGroupReq {

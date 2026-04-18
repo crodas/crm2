@@ -84,27 +84,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map_err(|e| format!("register gs: {e}"))?;
 
     // Register one asset per product (precision 3 = thousandths for fractional quantities)
-    let product_ids: Vec<(i64,)> =
-        sqlx::query_as("SELECT id FROM products")
-            .fetch_all(&pool)
-            .await?;
+    let product_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM products")
+        .fetch_all(&pool)
+        .await?;
     for (id,) in &product_ids {
         ledger
-            .register_asset(Asset::new(
-                format!("product:{id}"),
-                3,
-                AssetKind::Unsigned,
-            ))
+            .register_asset(Asset::new(format!("product:{id}"), 3, AssetKind::Unsigned))
             .await
             .map_err(|e| format!("register product:{id}: {e}"))?;
     }
-    tracing::info!("Ledger initialized with {} product assets", product_ids.len());
+    tracing::info!(
+        "Ledger initialized with {} product assets",
+        product_ids.len()
+    );
 
     let state = Arc::new(AppState { pool, ledger });
 
     // Seed dev data (only in debug mode)
     if !is_release {
-        seed::seed_dev_data(&state).await.map_err(|e| e.to_string())?;
+        seed::seed_dev_data(&state)
+            .await
+            .map_err(|e| e.to_string())?;
     }
 
     // API routes

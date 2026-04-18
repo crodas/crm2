@@ -164,8 +164,8 @@ async fn seed_receipt(
     receipt_id: i64,
     reference: &str,
     supplier: &str,
-    lines: &[(i64, i64, f64, i64)],       // (product_id, warehouse_id, qty, cost_cents)
-    prices: &[(i64, i64, i64)],            // (product_id, group_id, price_cents)
+    lines: &[(i64, i64, f64, i64)], // (product_id, warehouse_id, qty, cost_cents)
+    prices: &[(i64, i64, i64)],     // (product_id, group_id, price_cents)
 ) -> Result<(), Box<dyn std::error::Error>> {
     let pool = &state.pool;
 
@@ -186,9 +186,7 @@ async fn seed_receipt(
     .await?;
 
     // Build ledger transaction for inventory tokens
-    let mut builder = state
-        .ledger
-        .transaction(format!("receipt-{receipt_id}"));
+    let mut builder = state.ledger.transaction(format!("receipt-{receipt_id}"));
 
     for &(product_id, warehouse_id, qty, cost) in lines {
         // Store line item metadata

@@ -5,8 +5,8 @@ use axum::{
 use std::sync::Arc;
 
 use crate::error::AppError;
-use crate::state::AppState;
 use crate::models::product::*;
+use crate::state::AppState;
 
 pub async fn list_warehouses(
     State(state): State<Arc<AppState>>,
