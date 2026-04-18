@@ -6,10 +6,10 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::amount::Amount;
-use crate::state::AppState;
 use crate::error::AppError;
 use crate::models::booking::Booking;
 use crate::models::quote::*;
+use crate::state::AppState;
 use crate::version;
 
 #[derive(Deserialize)]

@@ -6,8 +6,8 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::error::AppError;
-use crate::state::AppState;
 use crate::models::booking::Booking;
+use crate::state::AppState;
 
 #[derive(Deserialize)]
 pub struct CalendarQuery {

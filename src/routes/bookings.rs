@@ -5,12 +5,14 @@ use axum::{
 use std::sync::Arc;
 
 use crate::error::AppError;
-use crate::state::AppState;
 use crate::models::booking::*;
 use crate::models::quote::Quote;
+use crate::state::AppState;
 use crate::version;
 
-pub async fn list_bookings(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Booking>>, AppError> {
+pub async fn list_bookings(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<Booking>>, AppError> {
     let bookings = sqlx::query_as::<_, Booking>("SELECT * FROM bookings ORDER BY start_at DESC")
         .fetch_all(&state.pool)
         .await?;

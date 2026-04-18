@@ -42,9 +42,7 @@ pub async fn receive_inventory(
     .await?;
 
     // Build a ledger transaction to issue inventory tokens
-    let mut builder = state
-        .ledger
-        .transaction(format!("receipt-{}", receipt.id));
+    let mut builder = state.ledger.transaction(format!("receipt-{}", receipt.id));
 
     for line in &body.lines {
         if line.quantity <= 0.0 {
@@ -95,16 +93,8 @@ pub async fn receive_inventory(
 
         // Debt: supplier is owed, store has payable
         builder = builder
-            .credit(
-                &format!("@supplier/{}", receipt.id),
-                "gs",
-                &neg_total_str,
-            )
-            .credit(
-                &format!("@store/payables/{}", receipt.id),
-                "gs",
-                &total_str,
-            );
+            .credit(&format!("@supplier/{}", receipt.id), "gs", &neg_total_str)
+            .credit(&format!("@store/payables/{}", receipt.id), "gs", &total_str);
 
         // Record metadata for the debt entry
         sqlx::query(
@@ -120,11 +110,7 @@ pub async fn receive_inventory(
         if paid_cash {
             // Settle immediately: cancel the debt
             builder = builder
-                .credit(
-                    &format!("@supplier/{}", receipt.id),
-                    "gs",
-                    &total_str,
-                )
+                .credit(&format!("@supplier/{}", receipt.id), "gs", &total_str)
                 .credit(
                     &format!("@store/payables/{}", receipt.id),
                     "gs",
@@ -164,8 +150,7 @@ pub async fn get_stock(
     State(state): State<Arc<AppState>>,
     Query(params): Query<StockQuery>,
 ) -> Result<Json<Vec<StockLevel>>, AppError> {
-    let prefix = AccountPath::new("@store")
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let prefix = AccountPath::new("@store").map_err(|e| AppError::Internal(e.to_string()))?;
     let entries = state
         .ledger
         .balances_by_prefix(&prefix)
@@ -263,11 +248,7 @@ pub async fn get_receipt(
     // Compute supplier balance from the ledger
     let payable_account = format!("@store/payables/{id}");
     let outstanding = match AccountPath::new(&payable_account) {
-        Ok(acc) => state
-            .ledger
-            .balance(&acc, "gs")
-            .await
-            .unwrap_or(0),
+        Ok(acc) => state.ledger.balance(&acc, "gs").await.unwrap_or(0),
         Err(_) => 0,
     };
 
@@ -365,11 +346,7 @@ pub async fn record_supplier_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("supplier-payment-{}", entry.id))
-        .credit(
-            &format!("@supplier/{receipt_id}"),
-            "gs",
-            &amount_str,
-        )
+        .credit(&format!("@supplier/{receipt_id}"), "gs", &amount_str)
         .credit(
             &format!("@store/payables/{receipt_id}"),
             "gs",
@@ -390,8 +367,8 @@ pub async fn record_supplier_payment(
 pub async fn supplier_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SupplierBalance>, AppError> {
-    let prefix = AccountPath::new("@store/payables")
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let prefix =
+        AccountPath::new("@store/payables").map_err(|e| AppError::Internal(e.to_string()))?;
     let tokens = state
         .ledger
         .unspent_tokens_prefix(&prefix, "gs")

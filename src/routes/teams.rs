@@ -5,8 +5,8 @@ use axum::{
 use std::sync::Arc;
 
 use crate::error::AppError;
-use crate::state::AppState;
 use crate::models::team::*;
+use crate::state::AppState;
 
 pub async fn list_teams(State(state): State<Arc<AppState>>) -> Result<Json<Vec<Team>>, AppError> {
     let teams = sqlx::query_as::<_, Team>("SELECT * FROM teams ORDER BY name")
