@@ -136,12 +136,14 @@ impl DebtStrategy for SplitAssetDebt {
             return Err(Error::NonPositiveAmount);
         }
         let debt_name = Self::debt_asset_name(asset);
-        let neg = asset.format_qty(-amount);
-        let pos = asset.format_qty(amount);
+        let neg = asset.from_cents(-amount);
+        let pos = asset.from_cents(amount);
 
-        Ok(builder
-            .credit(debtor.as_str(), &debt_name, &neg)
-            .credit(creditor.as_str(), &debt_name, &pos))
+        Ok(builder.credit(debtor.as_str(), &debt_name, &neg).credit(
+            creditor.as_str(),
+            &debt_name,
+            &pos,
+        ))
     }
 
     async fn settle(
@@ -178,7 +180,7 @@ impl DebtStrategy for SplitAssetDebt {
                 token.entry_ref.entry_index,
                 debtor.as_str(),
                 &debt_name,
-                asset.format_qty(token.qty),
+                asset.from_cents(token.qty),
             );
         }
         for token in &selected_creditor {
@@ -187,16 +189,16 @@ impl DebtStrategy for SplitAssetDebt {
                 token.entry_ref.entry_index,
                 creditor.as_str(),
                 &debt_name,
-                asset.format_qty(token.qty),
+                asset.from_cents(token.qty),
             );
         }
 
         // Add change credits if partial consumption.
         if let Some(change) = debtor_change {
-            b = b.credit(debtor.as_str(), &debt_name, asset.format_qty(change));
+            b = b.credit(debtor.as_str(), &debt_name, asset.from_cents(change));
         }
         if let Some(change) = creditor_change {
-            b = b.credit(creditor.as_str(), &debt_name, asset.format_qty(change));
+            b = b.credit(creditor.as_str(), &debt_name, asset.from_cents(change));
         }
 
         Ok(b)
@@ -493,9 +495,10 @@ mod tests {
             .settle_debt(builder, &debtor(), &creditor(), &gs(), 5000)
             .await
             .unwrap();
-        let builder = builder
-            .debit("@customer/1/cash", "gs", "5000")
-            .credit("@store/cash", "gs", "5000");
+        let builder =
+            builder
+                .debit("@customer/1/cash", "gs", "5000")
+                .credit("@store/cash", "gs", "5000");
         let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
@@ -520,7 +523,8 @@ mod tests {
     async fn query_owed_by_and_owed_to() {
         let storage = Arc::new(MemoryStorage::new());
         let debt = SplitAssetDebt::new(storage.clone());
-        let ledger = Ledger::new(storage).with_debt_strategy(SplitAssetDebt::new(debt.storage.clone()));
+        let ledger =
+            Ledger::new(storage).with_debt_strategy(SplitAssetDebt::new(debt.storage.clone()));
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -536,10 +540,7 @@ mod tests {
         let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(
-            debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(),
-            7500
-        );
+        assert_eq!(debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(), 7500);
         assert_eq!(
             debt.owed_to(&ledger, &creditor(), &gs()).await.unwrap(),
             7500
@@ -553,10 +554,7 @@ mod tests {
         let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(
-            debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(),
-            4500
-        );
+        assert_eq!(debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(), 4500);
         assert_eq!(
             debt.owed_to(&ledger, &creditor(), &gs()).await.unwrap(),
             4500

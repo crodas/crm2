@@ -168,14 +168,14 @@ impl TransactionBuilder {
                     token.entry_ref.entry_index,
                     &req.account,
                     &req.asset_name,
-                    asset.format_qty(token.qty),
+                    asset.from_cents(token.qty),
                 );
             }
 
             // Auto-generate change credit if needed.
             if total > requested {
                 let change = total - requested;
-                low = low.credit(&req.account, &req.asset_name, asset.format_qty(change));
+                low = low.credit(&req.account, &req.asset_name, asset.from_cents(change));
             }
         }
 

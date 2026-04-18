@@ -114,10 +114,7 @@ impl Ledger {
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error> {
-        let strategy = self
-            .debt_strategy
-            .as_ref()
-            .ok_or(Error::NoDebtStrategy)?;
+        let strategy = self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?;
         strategy.issue(builder, debtor, creditor, asset, amount)
     }
 
@@ -136,10 +133,7 @@ impl Ledger {
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error> {
-        let strategy = self
-            .debt_strategy
-            .as_ref()
-            .ok_or(Error::NoDebtStrategy)?;
+        let strategy = self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?;
         strategy
             .settle(builder, debtor, creditor, asset, amount)
             .await

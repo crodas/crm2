@@ -66,13 +66,15 @@ impl DebtStrategy for SignedPositionDebt {
         if amount <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        let neg = asset.format_qty(-amount);
-        let pos = asset.format_qty(amount);
+        let neg = asset.from_cents(-amount);
+        let pos = asset.from_cents(amount);
         let asset_name = asset.name();
 
-        Ok(builder
-            .credit(debtor.as_str(), asset_name, &neg)
-            .credit(creditor.as_str(), asset_name, &pos))
+        Ok(builder.credit(debtor.as_str(), asset_name, &neg).credit(
+            creditor.as_str(),
+            asset_name,
+            &pos,
+        ))
     }
 
     async fn settle(
@@ -87,13 +89,15 @@ impl DebtStrategy for SignedPositionDebt {
             return Err(Error::NonPositiveAmount);
         }
         // Issuance that offsets the original position.
-        let pos = asset.format_qty(amount);
-        let neg = asset.format_qty(-amount);
+        let pos = asset.from_cents(amount);
+        let neg = asset.from_cents(-amount);
         let asset_name = asset.name();
 
-        Ok(builder
-            .credit(debtor.as_str(), asset_name, &pos)
-            .credit(creditor.as_str(), asset_name, &neg))
+        Ok(builder.credit(debtor.as_str(), asset_name, &pos).credit(
+            creditor.as_str(),
+            asset_name,
+            &neg,
+        ))
     }
 }
 
