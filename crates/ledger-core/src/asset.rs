@@ -67,21 +67,23 @@ impl Asset {
         self.kind
     }
 
-    /// Format an integer amount as a decimal string with the asset's precision.
+    /// Convert a scaled integer amount to its decimal string representation.
     ///
-    /// The internal representation stores amounts as integers scaled by
-    /// `10^precision`. This method converts back to a human-readable decimal.
+    /// Amounts are stored internally as integers scaled by `10^precision`
+    /// (e.g., 1050 cents → `"10.50"` for a precision-2 asset). This method
+    /// converts back to the human-readable decimal form expected by the
+    /// transaction builder.
     ///
     /// ```
     /// # use ledger_core::{Asset, AssetKind};
     /// let usd = Asset::new("usd", 2, AssetKind::Signed);
-    /// assert_eq!(usd.format_qty(1050), "10.50");
-    /// assert_eq!(usd.format_qty(-1050), "-10.50");
+    /// assert_eq!(usd.from_cents(1050), "10.50");
+    /// assert_eq!(usd.from_cents(-1050), "-10.50");
     ///
     /// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-    /// assert_eq!(brush.format_qty(5), "5");
+    /// assert_eq!(brush.from_cents(5), "5");
     /// ```
-    pub fn format_qty(&self, raw: i128) -> String {
+    pub fn from_cents(&self, raw: i128) -> String {
         if self.precision == 0 {
             return raw.to_string();
         }
@@ -167,7 +169,7 @@ mod tests {
     fn format_and_parse_roundtrip() {
         let usd = Asset::new("usd", 2, AssetKind::Signed);
         for raw in [-1050, -100, 0, 100, 1050, 999999] {
-            let s = usd.format_qty(raw);
+            let s = usd.from_cents(raw);
             assert_eq!(
                 usd.parse_qty(&s).expect("roundtrip parse should succeed"),
                 raw,
@@ -179,7 +181,7 @@ mod tests {
     #[test]
     fn zero_precision() {
         let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-        assert_eq!(brush.format_qty(42), "42");
+        assert_eq!(brush.from_cents(42), "42");
         assert_eq!(brush.parse_qty("42").expect("parse whole number"), 42);
         assert!(brush.parse_qty("4.2").is_err());
     }
