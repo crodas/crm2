@@ -22,7 +22,11 @@ export default function DebtForm() {
       description: description || null,
       amount,
     }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['quotes'] }); nav('/quotes') },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quotes'] })
+      qc.invalidateQueries({ queryKey: ['receivables'] })
+      nav('/quotes')
+    },
   })
 
   return (

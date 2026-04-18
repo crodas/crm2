@@ -21,7 +21,10 @@ export default function QuoteDetail() {
 
   const statusMutation = useMutation({
     mutationFn: (status: string) => api.patch(`/quotes/${id}/status`, { status }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['quote', id] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['quote', id] })
+      qc.invalidateQueries({ queryKey: ['quotes'] })
+    },
   })
 
   const payMutation = useMutation({
@@ -32,6 +35,8 @@ export default function QuoteDetail() {
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['quote', id] })
+      qc.invalidateQueries({ queryKey: ['quotes'] })
+      qc.invalidateQueries({ queryKey: ['receivables'] })
       setPayAmount(0)
       setPayNotes('')
     },

@@ -129,6 +129,7 @@ export default function CalendarView() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calendar'] })
+      qc.invalidateQueries({ queryKey: ['bookings'] })
       resetForm()
     },
   })
@@ -148,6 +149,7 @@ export default function CalendarView() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['calendar'] })
+      qc.invalidateQueries({ queryKey: ['bookings'] })
       resetForm()
     },
   })

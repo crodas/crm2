@@ -92,6 +92,8 @@ export default function SaleForm() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sales'] })
       qc.invalidateQueries({ queryKey: ['stock'] })
+      qc.invalidateQueries({ queryKey: ['receivables'] })
+      qc.invalidateQueries({ queryKey: ['customers'] })
       nav('/sales')
     },
   })
