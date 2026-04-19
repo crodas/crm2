@@ -1,9 +1,9 @@
 //! # Ledger
 //!
-//! High-level UTXO ledger with automatic coin selection.
+//! High-level UTXO ledger with automatic token selection.
 //!
 //! Re-exports core types from [`ledger_core`] and adds:
-//! - [`TransactionBuilder`] — automatic coin selection for debits
+//! - [`TransactionBuilder`] — automatic token selection for debits
 //! - [`Ledger`] — wraps the core ledger with `.transaction()` method
 //!
 //! For low-level access (explicit entry refs), use [`ledger_core`] directly.
