@@ -20,6 +20,12 @@ pub struct SqliteStorage {
     pool: SqlitePool,
 }
 
+impl std::fmt::Debug for SqliteStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SqliteStorage").finish_non_exhaustive()
+    }
+}
+
 impl SqliteStorage {
     /// Connect to a SQLite database and run migrations.
     pub async fn connect(url: &str) -> Result<Self, sqlx::Error> {

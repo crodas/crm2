@@ -5,6 +5,7 @@
 //! to support database-backed implementations.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::sync::RwLock;
 
 use async_trait::async_trait;
@@ -21,7 +22,7 @@ use crate::transaction::Transaction;
 /// writes (transaction, tokens, spent marks, idempotency key) are durable.
 /// If it fails, none are applied.
 #[async_trait]
-pub trait Storage: Send + Sync {
+pub trait Storage: Send + Sync + Debug {
     // ── Assets ─────────────────────────────────────────────────────
 
     /// Persist an asset definition.
@@ -100,6 +101,7 @@ pub trait Storage: Send + Sync {
 
 // ── In-memory implementation ───────────────────────────────────────
 
+#[derive(Debug)]
 struct MemoryState {
     assets: HashMap<String, Asset>,
     transactions: Vec<Transaction>,
@@ -113,6 +115,12 @@ struct MemoryState {
 /// single-process deployments where durability is not required.
 pub struct MemoryStorage {
     state: RwLock<MemoryState>,
+}
+
+impl std::fmt::Debug for MemoryStorage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MemoryStorage").finish_non_exhaustive()
+    }
 }
 
 impl MemoryStorage {

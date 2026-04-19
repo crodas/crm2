@@ -59,10 +59,11 @@ use crate::AccountPath;
 /// assert_eq!(ledger.balance(&cust, "brush").await.unwrap(), 5);
 /// # });
 /// ```
+#[derive(Debug, Clone)]
 pub struct Ledger {
     storage: Arc<dyn Storage>,
     /// Cached asset definitions, swapped atomically on registration.
-    assets: ArcSwap<HashMap<String, Asset>>,
+    assets: Arc<ArcSwap<HashMap<String, Asset>>>,
 }
 
 impl Ledger {
@@ -70,7 +71,7 @@ impl Ledger {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self {
             storage,
-            assets: ArcSwap::from_pointee(HashMap::new()),
+            assets: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         }
     }
 
