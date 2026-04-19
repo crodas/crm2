@@ -5,6 +5,8 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 
+use ledger::AccountPath;
+
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
@@ -44,25 +46,29 @@ pub async fn record_payment(
     .fetch_one(&state.pool)
     .await?;
 
-    // Record in ledger: customer payment offsets debt, reduces receivable, adds cash
-    let amount = body.amount.cents();
-    let amount_str = format!("{amount}");
-    let neg_amount_str = format!("-{amount}");
+    // Record in ledger: settle debt + cash leg
+    let amount: i128 = body.amount.cents().into();
     let customer_id = quote.customer_id;
 
-    let ledger_tx = state
+    let debtor = AccountPath::new(&format!("@customer/{customer_id}/debt"))
+        .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
+    let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
+        .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
+    let gs = state
         .ledger
-        .transaction(format!("customer-payment-{}", payment.id))
-        .credit(
-            &format!("@customer/{customer_id}/payments"),
-            "gs",
-            &amount_str,
-        )
-        .credit(
-            &format!("@store/receivables/{customer_id}"),
-            "gs",
-            &neg_amount_str,
-        )
+        .asset("gs")
+        .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
+
+    let builder = state
+        .ledger
+        .transaction(format!("customer-payment-{}", payment.id));
+    let builder = state
+        .ledger
+        .settle_debt(builder, &debtor, &creditor, &gs, amount)
+        .await
+        .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?;
+    let amount_str = format!("{amount}");
+    let ledger_tx = builder
         .credit("@store/cash", "gs", &amount_str)
         .build()
         .await

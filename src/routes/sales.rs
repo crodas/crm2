@@ -4,6 +4,8 @@ use axum::{
 };
 use std::sync::Arc;
 
+use ledger::AccountPath;
+
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::sale::*;
@@ -66,20 +68,19 @@ pub async fn create_sale_tx(
             .credit("@sold", &asset, &qty);
     }
 
-    // Customer debt
-    let total_str = format!("{}", total.cents());
-    let neg_total_str = format!("-{}", total.cents());
-    builder = builder
-        .credit(
-            &format!("@customer/{customer_id}/debt"),
-            "gs",
-            &neg_total_str,
-        )
-        .credit(
-            &format!("@store/receivables/{customer_id}"),
-            "gs",
-            &total_str,
-        );
+    // Customer debt via SignedPositionDebt strategy
+    let debtor = AccountPath::new(&format!("@customer/{customer_id}/debt"))
+        .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
+    let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
+        .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
+    let gs = state
+        .ledger
+        .asset("gs")
+        .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
+    builder = state
+        .ledger
+        .issue_debt(builder, &debtor, &creditor, &gs, total.cents().into())
+        .map_err(|e| AppError::Internal(format!("issue debt: {e}")))?;
 
     let ledger_tx = builder.build().await.map_err(|e| match e {
         ledger::Error::InsufficientBalance {
