@@ -1,4 +1,4 @@
-//! High-level ledger with automatic coin selection and optional debt support.
+//! High-level ledger with automatic token selection and optional debt support.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,7 +13,7 @@ use crate::debt::DebtStrategy;
 use crate::error::Error;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
-/// coin selection via [`TransactionBuilder`] and optional debt handling
+/// token selection via [`TransactionBuilder`] and optional debt handling
 /// via a pluggable [`DebtStrategy`].
 ///
 /// # Debt support
@@ -62,7 +62,7 @@ impl Ledger {
 
     // ── Transaction building ─────────────────────────────────────────
 
-    /// Start building a high-level transaction with automatic coin selection.
+    /// Start building a high-level transaction with automatic token selection.
     ///
     /// Debits only require `(account, asset, qty)` — the builder
     /// automatically selects unspent tokens and generates change.

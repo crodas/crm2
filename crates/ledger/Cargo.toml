@@ -2,7 +2,7 @@
 name = "ledger"
 version = "0.1.0"
 edition = "2021"
-description = "High-level UTXO ledger with automatic coin selection"
+description = "High-level UTXO ledger with automatic token selection"
 
 [dependencies]
 ledger-core = { path = "../ledger-core" }

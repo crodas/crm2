@@ -1,4 +1,4 @@
-//! High-level transaction builder with automatic coin selection.
+//! High-level transaction builder with automatic token selection.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,7 +17,7 @@ struct DebitRequest {
     qty: String,
 }
 
-/// A pre-selected debit that bypasses coin selection.
+/// A pre-selected debit that bypasses token selection.
 struct RawDebit {
     tx_id: String,
     entry_index: u32,
@@ -31,7 +31,7 @@ struct RawDebit {
 ///
 /// Created via [`Ledger::transaction`](crate::Ledger::transaction).
 ///
-/// # Coin selection
+/// # Token selection
 ///
 /// For each debit, the builder queries storage for unspent tokens matching
 /// the account and asset, selects the largest tokens first until the
@@ -94,7 +94,7 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add a pre-selected debit, bypassing automatic coin selection.
+    /// Add a pre-selected debit, bypassing automatic token selection.
     ///
     /// Use this when you have already performed token selection externally
     /// (e.g., debt settlement selects tokens with negative quantities).
@@ -116,7 +116,7 @@ impl TransactionBuilder {
         self
     }
 
-    /// Build the transaction with automatic coin selection.
+    /// Build the transaction with automatic token selection.
     ///
     /// Queries storage for unspent tokens, selects them greedily (largest
     /// first), and generates change credits as needed. Then delegates to
@@ -129,7 +129,7 @@ impl TransactionBuilder {
             low = low.credit(&credit.to, &credit.asset_name, &credit.qty);
         }
 
-        // Coin selection for each debit.
+        // Token selection for each debit.
         for req in &self.debits {
             let asset = self
                 .assets
@@ -179,7 +179,7 @@ impl TransactionBuilder {
             }
         }
 
-        // Pass through pre-selected raw debits without coin selection.
+        // Pass through pre-selected raw debits without token selection.
         for raw in &self.raw_debits {
             low = low.debit(
                 &raw.tx_id,
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_coin_selection_single_token() {
+    async fn auto_token_selection_single_token() {
         let ledger = setup_ledger().await;
 
         issue(&ledger, "issue-001", "@store1/inventory", "brush", "10").await;
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn auto_coin_selection_multiple_tokens() {
+    async fn auto_token_selection_multiple_tokens() {
         let ledger = setup_ledger().await;
 
         // Issue 3 separate tokens: 2 + 3 + 4 = 9 brushes.
