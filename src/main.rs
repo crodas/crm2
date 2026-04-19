@@ -14,6 +14,7 @@ use axum::{
     routing::{get, patch, post, put},
     Router,
 };
+use ledger::debt::SignedPositionDebt;
 use ledger::{Asset, AssetKind};
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
@@ -75,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize ledger (shares the same SQLite pool)
     let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone()).await?;
-    let ledger = ledger::Ledger::new(Arc::new(storage));
+    let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(SignedPositionDebt);
 
     // Register monetary asset
     ledger
