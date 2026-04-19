@@ -36,6 +36,12 @@ pub struct Ledger {
     debt_strategy: Option<Box<dyn DebtStrategy>>,
 }
 
+impl std::fmt::Debug for Ledger {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ledger").finish_non_exhaustive()
+    }
+}
+
 impl Ledger {
     /// Create a new ledger backed by the given storage, with no debt strategy.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
