@@ -12,6 +12,7 @@
 //! For low-level access (explicit entry refs), use [`ledger_core`] directly.
 
 mod builder;
+pub mod credit;
 pub mod debt;
 mod error;
 mod ledger;
@@ -21,8 +22,8 @@ pub use ledger_core;
 
 // Re-export core types for convenience.
 pub use ledger_core::{
-    AccountPath, Amount, Asset, AssetKind, BalanceEntry, Credit, DebitRef, EntryRef, LedgerError,
-    MemoryStorage, SpendingToken, Storage, TokenStatus, Transaction,
+    Amount, Asset, AssetKind, BalanceEntry, Credit, DebitRef, EntryRef, LedgerError, MemoryStorage,
+    SpendingToken, Storage, TokenStatus, Transaction,
 };
 
 // High-level API.

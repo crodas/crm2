@@ -10,7 +10,7 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 
-use crate::account::AccountPath;
+use crate::account::is_prefix_of;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
@@ -26,10 +26,6 @@ pub trait Storage: Send + Sync + Debug {
     // ── Assets ─────────────────────────────────────────────────────
 
     /// Persist an asset definition.
-    ///
-    /// If an asset with the same name already exists and is identical, this
-    /// is a no-op. If the existing asset differs (e.g. different precision
-    /// or kind), implementations must return [`LedgerError::AssetConflict`].
     async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError>;
 
     /// Load all registered assets, keyed by name.
@@ -43,48 +39,32 @@ pub trait Storage: Send + Sync + Debug {
     // ── Tokens ─────────────────────────────────────────────────────
 
     /// Fetch a single spending token by its entry reference.
-    ///
-    /// Returns `None` if no token exists at that reference.
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
 
     /// Return all unspent tokens owned by `account` for the given asset.
     async fn unspent_by_account(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
 
     /// Return all unspent tokens under `prefix` for the given asset.
     async fn unspent_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
 
     /// Return all unspent tokens under `prefix`, across all assets.
-    async fn unspent_all_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<SpendingToken>, LedgerError>;
+    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError>;
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under `prefix`.
-    async fn balances_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<BalanceEntry>, LedgerError>;
+    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError>;
 
     // ── Transactions ───────────────────────────────────────────────
 
     /// Atomically commit a transaction to storage.
-    ///
-    /// This must persist in a single atomic operation:
-    /// - The transaction itself
-    /// - New spending tokens (one per credit)
-    /// - Mark consumed tokens as spent (one per debit)
-    /// - The idempotency key
-    ///
-    /// If any step fails, the entire operation must be rolled back.
     async fn commit_tx(
         &self,
         tx: &Transaction,
@@ -181,7 +161,7 @@ impl Storage for MemoryStorage {
 
     async fn unspent_by_account(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
@@ -190,7 +170,7 @@ impl Storage for MemoryStorage {
             .values()
             .filter(|t| {
                 t.status == TokenStatus::Unspent
-                    && t.owner == *account
+                    && t.owner == account
                     && t.amount.asset_name() == asset_name
             })
             .cloned()
@@ -199,7 +179,7 @@ impl Storage for MemoryStorage {
 
     async fn unspent_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
@@ -208,40 +188,31 @@ impl Storage for MemoryStorage {
             .values()
             .filter(|t| {
                 t.status == TokenStatus::Unspent
-                    && prefix.is_prefix_of(&t.owner)
+                    && is_prefix_of(prefix, &t.owner)
                     && t.amount.asset_name() == asset_name
             })
             .cloned()
             .collect())
     }
 
-    async fn unspent_all_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
             .tokens
             .values()
-            .filter(|t| t.status == TokenStatus::Unspent && prefix.is_prefix_of(&t.owner))
+            .filter(|t| t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner))
             .cloned()
             .collect())
     }
 
-    async fn balances_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         use crate::amount::Amount;
 
         let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
         for t in state.tokens.values() {
-            if t.status == TokenStatus::Unspent && prefix.is_prefix_of(&t.owner) {
-                let key = (
-                    t.owner.as_str().to_string(),
-                    t.amount.asset_name().to_string(),
-                );
+            if t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {
+                let key = (t.owner.clone(), t.amount.asset_name().to_string());
                 let entry = map
                     .entry(key)
                     .or_insert_with(|| (t.amount.asset().clone(), 0));
@@ -252,14 +223,13 @@ impl Storage for MemoryStorage {
             .into_iter()
             .filter(|(_, (_, balance))| *balance != 0)
             .map(|((account, _asset_name), (asset, balance))| BalanceEntry {
-                account: AccountPath::new(account).expect("stored account is valid"),
+                account,
                 amount: Amount::new_unchecked(asset, balance),
             })
             .collect();
         entries.sort_by(|a, b| {
             a.account
-                .as_str()
-                .cmp(b.account.as_str())
+                .cmp(&b.account)
                 .then(a.amount.asset_name().cmp(b.amount.asset_name()))
         });
         Ok(entries)

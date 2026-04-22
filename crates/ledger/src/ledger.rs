@@ -4,11 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    AccountPath, Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
+    Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
 use crate::builder::TransactionBuilder;
+use crate::credit::CreditStrategy;
 use crate::debt::DebtStrategy;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
@@ -24,8 +25,8 @@ use crate::debt::DebtStrategy;
 /// ```ignore
 /// let ledger = Ledger::new(storage)
 ///     .with_debt_strategy(SignedPositionDebt::new(
-///         "@customer/{id}/debt",
-///         "@store/receivables/{id}",
+///         "customer/{id}/debt",
+///         "store/receivables/{id}",
 ///     ));
 /// ```
 ///
@@ -36,6 +37,7 @@ use crate::debt::DebtStrategy;
 pub struct Ledger {
     inner: ledger_core::Ledger,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
+    credit_strategy: Option<Arc<dyn CreditStrategy>>,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -50,34 +52,31 @@ impl Ledger {
         Self {
             inner: ledger_core::Ledger::new(storage),
             debt_strategy: None,
+            credit_strategy: None,
         }
     }
 
     /// Set the debt strategy for this ledger.
-    ///
-    /// Enables [`TransactionBuilder::create_debt`] and
-    /// [`TransactionBuilder::settle_debt`] on builders created by
-    /// [`transaction`](Self::transaction).
     pub fn with_debt_strategy(mut self, strategy: impl DebtStrategy + 'static) -> Self {
         self.debt_strategy = Some(Arc::new(strategy));
+        self
+    }
+
+    /// Set the credit strategy for this ledger.
+    pub fn with_credit_strategy(mut self, strategy: impl CreditStrategy + 'static) -> Self {
+        self.credit_strategy = Some(Arc::new(strategy));
         self
     }
 
     // ── Transaction building ─────────────────────────────────────────
 
     /// Start building a high-level transaction with automatic token selection.
-    ///
-    /// Debits only require `(account, asset, qty)` — the builder
-    /// automatically selects unspent tokens and generates change.
-    ///
-    /// If a [`DebtStrategy`] is configured, the builder also exposes
-    /// [`create_debt`](TransactionBuilder::create_debt) and
-    /// [`settle_debt`](TransactionBuilder::settle_debt).
     pub fn transaction(&self, idempotency_key: impl Into<String>) -> TransactionBuilder {
         TransactionBuilder::new(
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
             self.debt_strategy.clone(),
+            self.credit_strategy.clone(),
         )
     }
 
@@ -114,8 +113,7 @@ impl Ledger {
 
     /// Return the balance of a specific account for a given asset.
     pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
-        let path = parse_path(account)?;
-        self.inner.balance(&path, asset_name).await
+        self.inner.balance(account, asset_name).await
     }
 
     /// Return the aggregate balance of all accounts under a prefix.
@@ -124,8 +122,7 @@ impl Ledger {
         prefix: &str,
         asset_name: &str,
     ) -> Result<i128, LedgerError> {
-        let path = parse_path(prefix)?;
-        self.inner.balance_prefix(&path, asset_name).await
+        self.inner.balance_prefix(prefix, asset_name).await
     }
 
     /// Return all unspent tokens owned by the given account for a given asset.
@@ -134,8 +131,7 @@ impl Ledger {
         account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let path = parse_path(account)?;
-        self.inner.unspent_tokens(&path, asset_name).await
+        self.inner.unspent_tokens(account, asset_name).await
     }
 
     /// Return all unspent tokens under a prefix for a given asset.
@@ -144,8 +140,7 @@ impl Ledger {
         prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let path = parse_path(prefix)?;
-        self.inner.unspent_tokens_prefix(&path, asset_name).await
+        self.inner.unspent_tokens_prefix(prefix, asset_name).await
     }
 
     /// Return all unspent tokens under a prefix, across all assets.
@@ -153,15 +148,13 @@ impl Ledger {
         &self,
         prefix: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let path = parse_path(prefix)?;
-        self.inner.unspent_all_by_prefix(&path).await
+        self.inner.unspent_all_by_prefix(prefix).await
     }
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under a prefix.
     pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        let path = parse_path(prefix)?;
-        self.inner.balances_by_prefix(&path).await
+        self.inner.balances_by_prefix(prefix).await
     }
 
     /// Return all committed transactions in append order.
@@ -173,8 +166,4 @@ impl Ledger {
     pub async fn tx_count(&self) -> Result<usize, LedgerError> {
         self.inner.tx_count().await
     }
-}
-
-fn parse_path(s: &str) -> Result<AccountPath, LedgerError> {
-    AccountPath::new(s).map_err(|e| LedgerError::InvalidAccount(e.to_string()))
 }

@@ -14,7 +14,7 @@ The token selection algorithm is **greedy largest-first**:
 4. **Generate change** if the accumulated sum exceeds the requested amount
 
 ```
-Unspent tokens for @store/cash (usd):
+Unspent tokens for store/cash (usd):
   Token A: 5000  (50.00)
   Token B: 3000  (30.00)
   Token C: 1000  (10.00)
@@ -24,7 +24,7 @@ Request: debit 7000 (70.00)
 Step 1: Sort → [A=5000, B=3000, C=1000]
 Step 2: Take A (total=5000, need 7000) → not enough
 Step 3: Take B (total=8000, need 7000) → enough!
-Step 4: Change = 8000 - 7000 = 1000 → credit @store/cash for 1000
+Step 4: Change = 8000 - 7000 = 1000 → credit store/cash for 1000
 ```
 
 ### Why Largest-First?
@@ -45,8 +45,8 @@ Step 4: Change = 8000 - 7000 = 1000 → credit @store/cash for 1000
 
 ```rust
 let builder = ledger.transaction("sale-001")
-    .debit("@store/inventory", "brush", 5)   // Auto token selection
-    .credit("@customer/goods", "brush", "5");
+    .debit("store/inventory", "brush", 5)   // Auto token selection
+    .credit("customer/goods", "brush", 5);
 ```
 
 The `debit()` method records a `DebitRequest` (account, asset, quantity). Actual token selection happens during `build()`.
@@ -55,7 +55,7 @@ The `debit()` method records a `DebitRequest` (account, asset, quantity). Actual
 
 ```rust
 let builder = ledger.transaction("settle-001")
-    .debit_raw(&tx_id, 0, "@customer/debt", "usd", "-50.00");  // Explicit token ref
+    .debit_raw(&tx_id, 0, "customer/debt", "usd", -5000);  // Explicit token ref
 ```
 
 The `debit_raw()` method adds a pre-selected debit that bypasses token selection. This is used by debt strategies that need to reference specific tokens (e.g., `SplitAssetDebt` consuming specific debt tokens).
@@ -78,16 +78,16 @@ During `build()`:
 When selected tokens sum to more than the requested amount, the builder automatically creates a **change credit** back to the source account.
 
 ```rust
-// Token at @store/cash has qty 10000 (100.00 usd)
+// Token at store/cash has qty 10000 (100.00 usd)
 ledger.transaction("tx-001")
-    .debit("@store/cash", "usd", 7000)      // Need 70.00
-    .credit("@vendor/cash", "usd", "70.00")
+    .debit("store/cash", "usd", 7000)      // Need 70.00
+    .credit("vendor/cash", "usd", 7000)
     .build().await?;
 
 // Result transaction:
-//   Debit: (token_tx_id, 0) from @store/cash for 100.00
-//   Credit: @vendor/cash  70.00
-//   Credit: @store/cash   30.00  ← auto-generated change
+//   Debit: (token_tx_id, 0) from store/cash for 100.00
+//   Credit: vendor/cash  70.00
+//   Credit: store/cash   30.00  ← auto-generated change
 ```
 
 Change is credited to the **same account** that was debited. The change credit is added before any user-specified credits, so the credit ordering is: change credits first, then user credits.
@@ -98,11 +98,11 @@ If the available unspent tokens don't cover the requested amount:
 
 ```rust
 let result = ledger.transaction("tx-001")
-    .debit("@store/cash", "usd", 100000)  // Need 1000.00
+    .debit("store/cash", "usd", 100000)  // Need 1000.00
     .build().await;
 
 // Err(Error::InsufficientBalance {
-//     account: "@store/cash",
+//     account: "store/cash",
 //     asset: "usd",
 //     required: 100000,
 //     available: 10000,
@@ -115,10 +115,10 @@ A single transaction can debit multiple accounts and assets. Each debit request 
 
 ```rust
 ledger.transaction("sale-001")
-    .debit("@store/inventory", "brush", 5)   // Selects brush tokens
-    .debit("@store/inventory", "paint", 2)   // Selects paint tokens independently
-    .credit("@customer/goods", "brush", "5")
-    .credit("@customer/goods", "paint", "2")
+    .debit("store/inventory", "brush", 5)   // Selects brush tokens
+    .debit("store/inventory", "paint", 2)   // Selects paint tokens independently
+    .credit("customer/goods", "brush", 5)
+    .credit("customer/goods", "paint", 2)
     .build().await?;
 ```
 
@@ -128,9 +128,9 @@ Debt strategies use the builder's `debit_raw()` and `credit()` methods to inject
 
 ```rust
 let tx = ledger.transaction("credit-sale")
-    .debit("@store/inventory", "brush", 5)
-    .credit("@customer/goods", "brush", "5")
-    .create_debt(customer_id, &usd, 5000)?
+    .debit("store/inventory", "brush", 5)
+    .credit("customer/goods", "brush", 5)
+    .create_debt("customer-1", &usd, 5000)?
     .build().await?;
 ```
 

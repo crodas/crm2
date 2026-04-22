@@ -21,6 +21,10 @@ pub struct Ledger {
 - `inner`: The core ledger engine. All query and commit operations delegate here.
 - `debt_strategy`: Optional strategy for issuing and settling debt. When set, builders created by `transaction()` expose `create_debt()` and `settle_debt()`. When `None`, those builder methods return `Error::NoDebtStrategy`.
 
+### CreditStrategy
+
+Issuance transactions (minting new tokens) are credit-only -- they credit an account without a corresponding debit. The `CreditStrategy` trait controls which accounts are allowed to receive credit-only entries. This replaces the old `@world` concept; there is no special "world" account. Instead, the strategy validates that a credit-only transaction targets a permitted account.
+
 ## Design Decisions
 
 ### Why Wrap Instead of Extend?
@@ -41,18 +45,20 @@ The `TransactionBuilder` follows a linear ownership pattern:
 
 ```
 ledger.transaction("key")           → TransactionBuilder
-    .debit(account, asset, qty)     → TransactionBuilder (moved)
-    .credit(to, asset, qty)         → TransactionBuilder (moved)
+    .debit(account, asset, qty)     → TransactionBuilder (Self)
+    .credit(to, asset, qty)         → TransactionBuilder (Self)
     .build().await                  → Transaction
 ```
+
+Both `.credit()` and `.debit()` return `Self` (not `Result`), so no `.unwrap()` or `?` is needed on those calls.
 
 Debt operations are part of the same fluent chain:
 
 ```
 let tx = ledger.transaction("key")
-    .debit("@store/inventory", "brush", "3")
-    .credit("@customer/1", "brush", "3")
-    .create_debt(customer_id, &asset, 5000)?
+    .debit("store/inventory", "brush", 3)
+    .credit("customer/1", "brush", 3)
+    .create_debt("customer-1", &asset, 5000)?
     .build().await?;
 ```
 
@@ -74,6 +80,6 @@ ledger (this crate)
       ledger-core (dependency)
         ├── Ledger, TransactionBuilder, Transaction
         ├── Storage, MemoryStorage
-        ├── Asset, AccountPath, SpendingToken
+        ├── Asset, SpendingToken
         └── LedgerError
 ```

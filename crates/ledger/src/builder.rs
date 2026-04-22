@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use ledger_core::{
-    AccountPath, Amount, LedgerError, SpendingToken, Storage, Transaction,
-    TransactionBuilder as LowLevelBuilder,
+    Amount, SpendingToken, Storage, Transaction, TransactionBuilder as LowLevelBuilder,
 };
 
+use crate::credit::CreditStrategy;
 use crate::debt::DebtStrategy;
 use crate::error::Error;
 
@@ -46,6 +46,7 @@ pub struct TransactionBuilder {
     idempotency_key: String,
     storage: Arc<dyn Storage>,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
+    credit_strategy: Option<Arc<dyn CreditStrategy>>,
     debits: Vec<DebitRequest>,
     raw_debits: Vec<RawDebit>,
     credits: Vec<(String, Amount)>,
@@ -56,11 +57,13 @@ impl TransactionBuilder {
         idempotency_key: String,
         storage: Arc<dyn Storage>,
         debt_strategy: Option<Arc<dyn DebtStrategy>>,
+        credit_strategy: Option<Arc<dyn CreditStrategy>>,
     ) -> Self {
         Self {
             idempotency_key,
             storage,
             debt_strategy,
+            credit_strategy,
             debits: Vec::new(),
             raw_debits: Vec::new(),
             credits: Vec::new(),
@@ -109,9 +112,9 @@ impl TransactionBuilder {
     /// Issue debt for `entity_id` using the configured [`DebtStrategy`].
     ///
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub fn create_debt(mut self, entity_id: i64, amount: &Amount) -> Result<Self, Error> {
+    pub fn create_debt(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy.issue(self, &entity_id.to_string(), amount)?;
+        self = strategy.issue(self, entity_id, amount)?;
         Ok(self)
     }
 
@@ -120,11 +123,24 @@ impl TransactionBuilder {
     /// The caller is responsible for adding the cash leg.
     ///
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub async fn settle_debt(mut self, entity_id: i64, amount: &Amount) -> Result<Self, Error> {
+    pub async fn settle_debt(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy
-            .settle(self, &entity_id.to_string(), amount)
-            .await?;
+        self = strategy.settle(self, entity_id, amount).await?;
+        Ok(self)
+    }
+
+    // ── Credit operations ────────────────────────────────────────────
+
+    /// Apply credit entries for `entity_id` using the configured [`CreditStrategy`].
+    ///
+    /// Returns [`Error::NoCreditStrategy`] if no strategy is configured.
+    pub fn create_credit(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
+        let strategy = Arc::clone(
+            self.credit_strategy
+                .as_ref()
+                .ok_or(Error::NoCreditStrategy)?,
+        );
+        self = strategy.apply(self, entity_id, amount)?;
         Ok(self)
     }
 
@@ -140,16 +156,14 @@ impl TransactionBuilder {
 
         // Process user-specified credits first.
         for (to, amount) in &self.credits {
-            low = low.credit(to, amount)?;
+            low = low.credit(to, amount);
         }
 
         // Token selection for each debit.
         for req in &self.debits {
-            let account = AccountPath::new(&req.account).map_err(|_| LedgerError::WorldAsOwner)?;
-
             let mut tokens = self
                 .storage
-                .unspent_by_account(&account, req.amount.asset_name())
+                .unspent_by_account(&req.account, req.amount.asset_name())
                 .await?;
 
             // Sort largest first for greedy selection.
@@ -173,20 +187,20 @@ impl TransactionBuilder {
                     token.entry_ref.entry_index,
                     &req.account,
                     &token.amount,
-                )?;
+                );
             }
 
             // Auto-generate change credit if needed.
             if total > req.amount.raw() {
                 let change = total - req.amount.raw();
                 let change_amount = req.amount.asset().amount_unchecked(change);
-                low = low.credit(&req.account, &change_amount)?;
+                low = low.credit(&req.account, &change_amount);
             }
         }
 
         // Pass through pre-selected raw debits without token selection.
         for raw in &self.raw_debits {
-            low = low.debit(&raw.tx_id, raw.entry_index, &raw.from, &raw.amount)?;
+            low = low.debit(&raw.tx_id, raw.entry_index, &raw.from, &raw.amount);
         }
 
         let tx = low.build()?;
@@ -215,10 +229,7 @@ fn select_tokens(
 
     if sum < needed {
         return Err(Error::InsufficientBalance {
-            account: tokens
-                .first()
-                .map(|t| t.owner.as_str().to_string())
-                .unwrap_or_default(),
+            account: tokens.first().map(|t| t.owner.clone()).unwrap_or_default(),
             asset: tokens
                 .first()
                 .map(|t| t.amount.asset_name().to_string())
@@ -270,22 +281,22 @@ mod tests {
         let b10 = brush.try_amount(10).unwrap();
         let b5 = brush.try_amount(5).unwrap();
 
-        issue(&ledger, "issue-001", "@store1/inventory", &b10).await;
+        issue(&ledger, "issue-001", "store1/inventory", &b10).await;
 
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b5)
-            .credit("@customer1", &b5)
+            .debit("store1/inventory", &b5)
+            .credit("customer1", &b5)
             .build()
             .await
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             5
         );
-        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 5);
+        assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 5);
     }
 
     #[tokio::test]
@@ -295,24 +306,24 @@ mod tests {
 
         for (i, qty) in [(1, 2), (2, 3), (3, 4)] {
             let amt = brush.try_amount(qty).unwrap();
-            issue(&ledger, &format!("issue-{i}"), "@store1/inventory", &amt).await;
+            issue(&ledger, &format!("issue-{i}"), "store1/inventory", &amt).await;
         }
 
         let b6 = brush.try_amount(6).unwrap();
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b6)
-            .credit("@customer1", &b6)
+            .debit("store1/inventory", &b6)
+            .credit("customer1", &b6)
             .build()
             .await
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             3
         );
-        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 6);
+        assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 6);
     }
 
     #[tokio::test]
@@ -321,12 +332,12 @@ mod tests {
         let brush = ledger.asset("brush").unwrap();
         let b5 = brush.try_amount(5).unwrap();
 
-        issue(&ledger, "issue-001", "@store1/inventory", &b5).await;
+        issue(&ledger, "issue-001", "store1/inventory", &b5).await;
 
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b5)
-            .credit("@customer1", &b5)
+            .debit("store1/inventory", &b5)
+            .credit("customer1", &b5)
             .build()
             .await
             .expect("build tx");
@@ -336,7 +347,7 @@ mod tests {
 
         ledger.commit(tx).await.expect("commit tx");
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             0
         );
     }
@@ -348,12 +359,12 @@ mod tests {
         let b3 = brush.try_amount(3).unwrap();
         let b10 = brush.try_amount(10).unwrap();
 
-        issue(&ledger, "issue-001", "@store1/inventory", &b3).await;
+        issue(&ledger, "issue-001", "store1/inventory", &b3).await;
 
         let result = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b10)
-            .credit("@customer1", &b10)
+            .debit("store1/inventory", &b10)
+            .credit("customer1", &b10)
             .build()
             .await;
 
@@ -368,7 +379,7 @@ mod tests {
 
         let tx = ledger
             .transaction("issue-001")
-            .credit("@store1/inventory", &b10)
+            .credit("store1/inventory", &b10)
             .build()
             .await
             .expect("build tx");
@@ -376,7 +387,7 @@ mod tests {
         assert!(tx.debits.is_empty());
         ledger.commit(tx).await.expect("commit tx");
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             10
         );
     }
@@ -392,27 +403,27 @@ mod tests {
         let u10000 = usd.try_amount(10000).unwrap();
         let u2500 = usd.try_amount(2500).unwrap();
 
-        issue(&ledger, "issue-brush", "@store1/inventory", &b10).await;
-        issue(&ledger, "issue-usd", "@store1/cash", &u10000).await;
+        issue(&ledger, "issue-brush", "store1/inventory", &b10).await;
+        issue(&ledger, "issue-usd", "store1/cash", &u10000).await;
 
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b3)
-            .debit("@store1/cash", &u2500)
-            .credit("@customer1", &b3)
-            .credit("@customer1", &u2500)
+            .debit("store1/inventory", &b3)
+            .debit("store1/cash", &u2500)
+            .credit("customer1", &b3)
+            .credit("customer1", &u2500)
             .build()
             .await
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             7
         );
-        assert_eq!(ledger.balance("@store1/cash", "usd").await.unwrap(), 7500);
-        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 3);
-        assert_eq!(ledger.balance("@customer1", "usd").await.unwrap(), 2500);
+        assert_eq!(ledger.balance("store1/cash", "usd").await.unwrap(), 7500);
+        assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 3);
+        assert_eq!(ledger.balance("customer1", "usd").await.unwrap(), 2500);
     }
 
     #[tokio::test]
@@ -426,23 +437,23 @@ mod tests {
         let neg_usd = usd.try_amount(-1000).unwrap();
         let pos_usd = usd.try_amount(1000).unwrap();
 
-        issue(&ledger, "issue-001", "@store1/inventory", &b5).await;
+        issue(&ledger, "issue-001", "store1/inventory", &b5).await;
 
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store1/inventory", &b2)
-            .credit("@customer1", &b2)
-            .credit("@customer1", &neg_usd)
-            .credit("@store1/receivables", &pos_usd)
+            .debit("store1/inventory", &b2)
+            .credit("customer1", &b2)
+            .credit("customer1", &neg_usd)
+            .credit("store1/receivables", &pos_usd)
             .build()
             .await
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
-        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 2);
-        assert_eq!(ledger.balance("@customer1", "usd").await.unwrap(), -1000);
+        assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 2);
+        assert_eq!(ledger.balance("customer1", "usd").await.unwrap(), -1000);
         assert_eq!(
-            ledger.balance("@store1/inventory", "brush").await.unwrap(),
+            ledger.balance("store1/inventory", "brush").await.unwrap(),
             3
         );
     }

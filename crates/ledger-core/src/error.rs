@@ -34,10 +34,6 @@ pub enum LedgerError {
     #[error("dangling debt: negative credit for '{asset}' without matching positive credit")]
     DanglingDebt { asset: String },
 
-    /// `@world` was used as a credit owner.
-    #[error("@world cannot own credit tokens")]
-    WorldAsOwner,
-
     /// The computed transaction ID does not match the stored one.
     #[error("transaction ID mismatch: computed {computed}, stored {stored}")]
     TxIdMismatch { computed: String, stored: String },

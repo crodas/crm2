@@ -23,7 +23,6 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::account::AccountPath;
 use crate::amount::Amount;
 use crate::error::LedgerError;
 
@@ -38,7 +37,7 @@ pub struct DebitRef {
     /// Position within that transaction's credits.
     pub entry_index: u32,
     /// Expected owner of the token (verified at commit time).
-    pub from: AccountPath,
+    pub from: String,
     /// Expected amount (verified at commit time).
     pub amount: Amount,
 }
@@ -46,8 +45,8 @@ pub struct DebitRef {
 /// A new credit to be created by the transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credit {
-    /// Destination account path.
-    pub to: AccountPath,
+    /// Destination account.
+    pub to: String,
     /// Amount to credit.
     pub amount: Amount,
 }
@@ -65,7 +64,7 @@ pub struct Transaction {
     pub tx_id: String,
     /// Caller-supplied unique key for idempotent submission.
     pub idempotency_key: String,
-    /// Spending tokens consumed (empty for issuance from `@world`).
+    /// Spending tokens consumed (empty for issuance transactions).
     pub debits: Vec<DebitRef>,
     /// New spending tokens produced.
     pub credits: Vec<Credit>,
@@ -79,11 +78,11 @@ pub struct Transaction {
 /// let five = brush.try_amount(5).unwrap();
 ///
 /// let tx = TransactionBuilder::new("issue-brush-001")
-///     .credit("@store1/inventory", &five).unwrap()
+///     .credit("store1/inventory", &five)
 ///     .build()
 ///     .unwrap();
 ///
-/// assert!(tx.debits.is_empty()); // issuance from @world
+/// assert!(tx.debits.is_empty()); // issuance
 /// assert_eq!(tx.credits.len(), 1);
 /// ```
 pub struct TransactionBuilder {
@@ -109,32 +108,23 @@ impl TransactionBuilder {
         entry_index: u32,
         from: impl Into<String>,
         amount: &Amount,
-    ) -> Result<Self, LedgerError> {
-        let from_str: String = from.into();
-        let from = AccountPath::new(from_str.clone())
-            .map_err(|_| LedgerError::InvalidAccount(from_str))?;
+    ) -> Self {
         self.debits.push(DebitRef {
             tx_id: tx_id.into(),
             entry_index,
-            from,
+            from: from.into(),
             amount: amount.clone(),
         });
-        Ok(self)
+        self
     }
 
     /// Add a credit (a new spending token to create).
-    pub fn credit(mut self, to: impl Into<String>, amount: &Amount) -> Result<Self, LedgerError> {
-        let to_str: String = to.into();
-        if to_str == "@world" {
-            return Err(LedgerError::WorldAsOwner);
-        }
-        let to =
-            AccountPath::new(to_str.clone()).map_err(|_| LedgerError::InvalidAccount(to_str))?;
+    pub fn credit(mut self, to: impl Into<String>, amount: &Amount) -> Self {
         self.credits.push(Credit {
-            to,
+            to: to.into(),
             amount: amount.clone(),
         });
-        Ok(self)
+        self
     }
 
     /// Build the transaction, validating balance invariants.
@@ -150,7 +140,7 @@ impl TransactionBuilder {
         let tx_id = compute_tx_id(&self.debits, &self.credits, &self.idempotency_key);
 
         // Collect credit sums per asset.
-        let mut asset_credit_sums: std::collections::HashMap<&str, i128> = HashMap::new();
+        let mut asset_credit_sums: HashMap<&str, i128> = HashMap::new();
         for credit in &self.credits {
             *asset_credit_sums
                 .entry(credit.amount.asset_name())
@@ -158,7 +148,7 @@ impl TransactionBuilder {
         }
 
         // Collect debit sums per asset.
-        let mut asset_debit_sums: std::collections::HashMap<&str, i128> = HashMap::new();
+        let mut asset_debit_sums: HashMap<&str, i128> = HashMap::new();
         for debit in &self.debits {
             *asset_debit_sums
                 .entry(debit.amount.asset_name())
@@ -187,8 +177,8 @@ impl TransactionBuilder {
         }
 
         // Dual-sided debt: negative credits must be balanced by positive credits.
-        let mut neg_debt_by_asset: std::collections::HashMap<&str, i128> = HashMap::new();
-        let mut pos_debt_by_asset: std::collections::HashMap<&str, i128> = HashMap::new();
+        let mut neg_debt_by_asset: HashMap<&str, i128> = HashMap::new();
+        let mut pos_debt_by_asset: HashMap<&str, i128> = HashMap::new();
 
         for credit in &self.credits {
             let qty = credit.amount.raw();
@@ -223,19 +213,6 @@ impl TransactionBuilder {
 /// ```text
 /// tx_id = hex(sha256(sha256(preimage)))
 /// ```
-///
-/// Debits and credits preserve declaration order — the caller is responsible
-/// for constructing transactions deterministically.
-///
-/// The preimage is a null-byte (`\0`) delimited concatenation:
-///
-/// ```text
-/// D\0<tx_id>\0<entry_index>\0<owner>\0<asset>\0<qty>\0
-/// ...
-/// C\0<to>\0<asset>\0<qty>\0
-/// ...
-/// K\0<idempotency_key>
-/// ```
 pub fn compute_tx_id(debits: &[DebitRef], credits: &[Credit], idempotency_key: &str) -> String {
     let preimage = canonical_preimage(debits, credits, idempotency_key);
     let first = Sha256::digest(preimage.as_bytes());
@@ -256,7 +233,7 @@ fn canonical_preimage(debits: &[DebitRef], credits: &[Credit], idempotency_key: 
         out.push('\0');
         out.push_str(&d.entry_index.to_string());
         out.push('\0');
-        out.push_str(d.from.as_str());
+        out.push_str(&d.from);
         out.push('\0');
         out.push_str(d.amount.asset_name());
         out.push('\0');
@@ -266,7 +243,7 @@ fn canonical_preimage(debits: &[DebitRef], credits: &[Credit], idempotency_key: 
 
     for c in credits {
         out.push_str("C\0");
-        out.push_str(c.to.as_str());
+        out.push_str(&c.to);
         out.push('\0');
         out.push_str(c.amount.asset_name());
         out.push('\0');
@@ -301,55 +278,52 @@ mod tests {
     }
 
     #[test]
-    fn issuance_tx_id_is_deterministic() -> Result<(), LedgerError> {
+    fn issuance_tx_id_is_deterministic() {
         let five_brush = brush().try_amount(5).unwrap();
         let tx1 = TransactionBuilder::new("test-key")
-            .credit("@store1/inventory", &five_brush)?
+            .credit("store1/inventory", &five_brush)
             .build()
             .expect("build issuance tx1");
         let tx2 = TransactionBuilder::new("test-key")
-            .credit("@store1/inventory", &five_brush)?
+            .credit("store1/inventory", &five_brush)
             .build()
             .expect("build issuance tx2");
         assert_eq!(tx1.tx_id, tx2.tx_id);
         assert_eq!(tx1.tx_id.len(), 64);
-        Ok(())
     }
 
     #[test]
-    fn different_keys_produce_different_ids() -> Result<(), LedgerError> {
+    fn different_keys_produce_different_ids() {
         let five_brush = brush().try_amount(5).unwrap();
         let tx1 = TransactionBuilder::new("key-a")
-            .credit("@store1/inventory", &five_brush)?
+            .credit("store1/inventory", &five_brush)
             .build()
             .expect("build tx with key-a");
         let tx2 = TransactionBuilder::new("key-b")
-            .credit("@store1/inventory", &five_brush)?
+            .credit("store1/inventory", &five_brush)
             .build()
             .expect("build tx with key-b");
         assert_ne!(tx1.tx_id, tx2.tx_id);
-        Ok(())
     }
 
     #[test]
-    fn debit_order_matters_for_tx_id() -> Result<(), LedgerError> {
+    fn debit_order_matters_for_tx_id() {
         let usd1 = usd().try_amount(100).unwrap();
         let usd2 = usd().try_amount(200).unwrap();
         let usd3 = usd().try_amount(300).unwrap();
         let tx1 = TransactionBuilder::new("k")
-            .debit("aaa", 0, "@x", &usd1)?
-            .debit("bbb", 0, "@y", &usd2)?
-            .credit("@z", &usd3)?
+            .debit("aaa", 0, "x", &usd1)
+            .debit("bbb", 0, "y", &usd2)
+            .credit("z", &usd3)
             .build()
             .expect("build tx with debit order a,b");
         let tx2 = TransactionBuilder::new("k")
-            .debit("bbb", 0, "@y", &usd2)?
-            .debit("aaa", 0, "@x", &usd1)?
-            .credit("@z", &usd3)?
+            .debit("bbb", 0, "y", &usd2)
+            .debit("aaa", 0, "x", &usd1)
+            .credit("z", &usd3)
             .build()
             .expect("build tx with debit order b,a");
         assert_ne!(tx1.tx_id, tx2.tx_id);
-        Ok(())
     }
 
     #[test]
@@ -359,40 +333,28 @@ mod tests {
     }
 
     #[test]
-    fn conservation_rejected_at_build() -> Result<(), LedgerError> {
+    fn conservation_rejected_at_build() {
         let five_brush = brush().try_amount(5).unwrap();
         let ten_brush = brush().try_amount(10).unwrap();
         let result = TransactionBuilder::new("bad")
-            .debit("aaa", 0, "@x", &five_brush)?
-            .credit("@y", &ten_brush)?
+            .debit("aaa", 0, "x", &five_brush)
+            .credit("y", &ten_brush)
             .build();
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
         ));
-        Ok(())
     }
 
     #[test]
-    fn dangling_debt_rejected_at_build() -> Result<(), LedgerError> {
+    fn dangling_debt_rejected_at_build() {
         let neg_usd = usd().try_amount(-1000).unwrap();
-        let result = TransactionBuilder::new("bad")
-            .credit("@x", &neg_usd)?
-            .build();
+        let result = TransactionBuilder::new("bad").credit("x", &neg_usd).build();
         assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
-        Ok(())
     }
 
     #[test]
     fn negative_unsigned_rejected_at_amount_creation() {
-        // This now fails at Amount creation, not at build time.
         assert!(brush().try_amount(-5).is_err());
-    }
-
-    #[test]
-    fn world_as_owner_rejected() {
-        let five_brush = brush().try_amount(5).unwrap();
-        let result = TransactionBuilder::new("bad").credit("@world", &five_brush);
-        assert!(matches!(result, Err(LedgerError::WorldAsOwner)));
     }
 }

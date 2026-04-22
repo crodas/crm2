@@ -2,7 +2,7 @@
 //!
 //! Low-level append-only UTXO ledger engine for modeling the movement
 //! of value — inventory, cash, receivables, and debt — using spending tokens
-//! and hierarchical account paths.
+//! and hierarchical accounts.
 
 mod account;
 mod amount;
@@ -16,7 +16,7 @@ mod storage;
 mod token;
 mod transaction;
 
-pub use account::AccountPath;
+pub use account::is_prefix_of;
 pub use amount::Amount;
 pub use asset::{Asset, AssetKind};
 pub use error::LedgerError;

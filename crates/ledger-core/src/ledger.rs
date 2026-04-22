@@ -17,7 +17,6 @@ use crate::error::LedgerError;
 use crate::storage::Storage;
 use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
 use crate::transaction::{compute_tx_id, Transaction};
-use crate::AccountPath;
 
 /// The append-only UTXO ledger engine.
 ///
@@ -36,28 +35,25 @@ use crate::AccountPath;
 /// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
 /// ledger.register_asset(brush.clone()).await.unwrap();
 ///
-/// // Issue 7 brushes from @world into store inventory.
+/// // Issue 7 brushes into store inventory.
 /// let issue = TransactionBuilder::new("issue-001")
-///     .credit("@store1/inventory", &brush.try_amount(7).unwrap()).unwrap()
+///     .credit("store1/inventory", &brush.try_amount(7).unwrap())
 ///     .build()
 ///     .unwrap();
 /// let tx_id = ledger.commit(issue).await.unwrap();
 ///
 /// // Transfer 5 brushes to a customer, returning 2 as change.
 /// let transfer = TransactionBuilder::new("sale-001")
-///     .debit(&tx_id, 0, "@store1/inventory", &brush.try_amount(7).unwrap()).unwrap()
-///     .credit("@customer1", &brush.try_amount(5).unwrap()).unwrap()
-///     .credit("@store1/inventory", &brush.try_amount(2).unwrap()).unwrap()
+///     .debit(&tx_id, 0, "store1/inventory", &brush.try_amount(7).unwrap())
+///     .credit("customer1", &brush.try_amount(5).unwrap())
+///     .credit("store1/inventory", &brush.try_amount(2).unwrap())
 ///     .build()
 ///     .unwrap();
 /// ledger.commit(transfer).await.unwrap();
 ///
 /// // Check balances.
-/// let store = AccountPath::new("@store1/inventory").unwrap();
-/// assert_eq!(ledger.balance(&store, "brush").await.unwrap(), 2);
-///
-/// let cust = AccountPath::new("@customer1").unwrap();
-/// assert_eq!(ledger.balance(&cust, "brush").await.unwrap(), 5);
+/// assert_eq!(ledger.balance("store1/inventory", "brush").await.unwrap(), 2);
+/// assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 5);
 /// # });
 /// ```
 #[derive(Debug, Clone)]
@@ -201,11 +197,7 @@ impl Ledger {
     }
 
     /// Return the balance of a specific account for a given asset.
-    pub async fn balance(
-        &self,
-        account: &AccountPath,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
+    pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
         let tokens = self.storage.unspent_by_account(account, asset_name).await?;
         Ok(tokens.iter().map(|t| t.amount.raw()).sum())
     }
@@ -213,7 +205,7 @@ impl Ledger {
     /// Return the aggregate balance of all accounts under a prefix.
     pub async fn balance_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<i128, LedgerError> {
         let tokens = self.storage.unspent_by_prefix(prefix, asset_name).await?;
@@ -223,7 +215,7 @@ impl Ledger {
     /// Return all unspent tokens owned by the given account for a given asset.
     pub async fn unspent_tokens(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         self.storage.unspent_by_account(account, asset_name).await
@@ -232,7 +224,7 @@ impl Ledger {
     /// Return all unspent tokens under a prefix for a given asset.
     pub async fn unspent_tokens_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         self.storage.unspent_by_prefix(prefix, asset_name).await
@@ -241,17 +233,14 @@ impl Ledger {
     /// Return all unspent tokens under a prefix, across all assets.
     pub async fn unspent_all_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         self.storage.unspent_all_by_prefix(prefix).await
     }
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under a prefix.
-    pub async fn balances_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         self.storage.balances_by_prefix(prefix).await
     }
 
@@ -303,16 +292,14 @@ mod tests {
         let b = brush(&ledger);
 
         let tx = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build issuance");
         ledger.commit(tx).await.expect("commit issuance");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path");
         assert_eq!(
             ledger
-                .balance(&store, "brush")
+                .balance("store1/inventory", "brush")
                 .await
                 .expect("query balance"),
             5
@@ -325,35 +312,29 @@ mod tests {
         let b = brush(&ledger);
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(7).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(7).unwrap())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let transfer = TransactionBuilder::new("sale-001")
-            .debit(&issue_id, 0, "@store1/inventory", &b.try_amount(7).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@store1/inventory", &b.try_amount(2).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(7).unwrap())
+            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &b.try_amount(2).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        let cust = AccountPath::new("@customer1/sale_1").expect("valid path: @customer1/sale_1");
         assert_eq!(
             ledger
-                .balance(&store, "brush")
+                .balance("store1/inventory", "brush")
                 .await
                 .expect("store brush balance"),
             2
         );
         assert_eq!(
             ledger
-                .balance(&cust, "brush")
+                .balance("customer1/sale_1", "brush")
                 .await
                 .expect("cust brush balance"),
             5
@@ -367,47 +348,37 @@ mod tests {
         let u = usd(&ledger);
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let sale = TransactionBuilder::new("credit-sale-001")
-            .debit(&issue_id, 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &u.try_amount(-1000).unwrap())
-            .unwrap()
-            .credit("@store1/receivables/sale_1", &u.try_amount(1000).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
+            .credit("customer1/sale_1", &u.try_amount(-1000).unwrap())
+            .credit("store1/receivables/sale_1", &u.try_amount(1000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(sale).await.expect("commit sale");
 
-        let cust_sale =
-            AccountPath::new("@customer1/sale_1").expect("valid path: @customer1/sale_1");
-        let store_recv = AccountPath::new("@store1/receivables/sale_1")
-            .expect("valid path: @store1/receivables/sale_1");
-
         assert_eq!(
             ledger
-                .balance(&cust_sale, "brush")
+                .balance("customer1/sale_1", "brush")
                 .await
                 .expect("cust_sale brush balance"),
             5
         );
         assert_eq!(
             ledger
-                .balance(&cust_sale, "usd")
+                .balance("customer1/sale_1", "usd")
                 .await
                 .expect("cust_sale usd balance"),
             -1000
         );
         assert_eq!(
             ledger
-                .balance(&store_recv, "usd")
+                .balance("store1/receivables/sale_1", "usd")
                 .await
                 .expect("store_recv usd balance"),
             1000
@@ -421,146 +392,117 @@ mod tests {
         let u = usd(&ledger);
 
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("credit-sale-001")
-            .debit(&t1_id, 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &u.try_amount(-1000).unwrap())
-            .unwrap()
-            .credit("@store1/receivables/sale_1", &u.try_amount(1000).unwrap())
-            .unwrap()
+            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
+            .credit("customer1/sale_1", &u.try_amount(-1000).unwrap())
+            .credit("store1/receivables/sale_1", &u.try_amount(1000).unwrap())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let t3 = TransactionBuilder::new("cash-in-001")
-            .credit("@customer1/cash", &u.try_amount(1000).unwrap())
-            .unwrap()
+            .credit("customer1/cash", &u.try_amount(1000).unwrap())
             .build()
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
         let t4 = TransactionBuilder::new("partial-pay-001")
-            .debit(&t3_id, 0, "@customer1/cash", &u.try_amount(1000).unwrap())
-            .unwrap()
-            .debit(
-                &t2_id,
-                1,
-                "@customer1/sale_1",
-                &u.try_amount(-1000).unwrap(),
-            )
-            .unwrap()
+            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(1000).unwrap())
+            .debit(&t2_id, 1, "customer1/sale_1", &u.try_amount(-1000).unwrap())
             .debit(
                 &t2_id,
                 2,
-                "@store1/receivables/sale_1",
+                "store1/receivables/sale_1",
                 &u.try_amount(1000).unwrap(),
             )
-            .unwrap()
-            .credit("@store1/cash", &u.try_amount(600).unwrap())
-            .unwrap()
-            .credit("@customer1/cash", &u.try_amount(400).unwrap())
-            .unwrap()
-            .credit("@customer1/sale_1", &u.try_amount(-400).unwrap())
-            .unwrap()
-            .credit("@store1/receivables/sale_1", &u.try_amount(400).unwrap())
-            .unwrap()
+            .credit("store1/cash", &u.try_amount(600).unwrap())
+            .credit("customer1/cash", &u.try_amount(400).unwrap())
+            .credit("customer1/sale_1", &u.try_amount(-400).unwrap())
+            .credit("store1/receivables/sale_1", &u.try_amount(400).unwrap())
             .build()
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
 
-        let store_cash = AccountPath::new("@store1/cash").expect("valid path: @store1/cash");
-        let cust_cash = AccountPath::new("@customer1/cash").expect("valid path: @customer1/cash");
-        let cust_sale =
-            AccountPath::new("@customer1/sale_1").expect("valid path: @customer1/sale_1");
-        let store_recv = AccountPath::new("@store1/receivables/sale_1")
-            .expect("valid path: @store1/receivables/sale_1");
-
         assert_eq!(
             ledger
-                .balance(&store_cash, "usd")
+                .balance("store1/cash", "usd")
                 .await
                 .expect("store_cash usd balance"),
             600
         );
         assert_eq!(
             ledger
-                .balance(&cust_cash, "usd")
+                .balance("customer1/cash", "usd")
                 .await
                 .expect("cust_cash usd balance"),
             400
         );
         assert_eq!(
             ledger
-                .balance(&cust_sale, "usd")
+                .balance("customer1/sale_1", "usd")
                 .await
                 .expect("cust_sale usd balance"),
             -400
         );
         assert_eq!(
             ledger
-                .balance(&store_recv, "usd")
+                .balance("store1/receivables/sale_1", "usd")
                 .await
                 .expect("store_recv usd balance"),
             400
         );
 
         let t5 = TransactionBuilder::new("final-pay-001")
-            .debit(&t4_id, 1, "@customer1/cash", &u.try_amount(400).unwrap())
-            .unwrap()
-            .debit(&t4_id, 2, "@customer1/sale_1", &u.try_amount(-400).unwrap())
-            .unwrap()
+            .debit(&t4_id, 1, "customer1/cash", &u.try_amount(400).unwrap())
+            .debit(&t4_id, 2, "customer1/sale_1", &u.try_amount(-400).unwrap())
             .debit(
                 &t4_id,
                 3,
-                "@store1/receivables/sale_1",
+                "store1/receivables/sale_1",
                 &u.try_amount(400).unwrap(),
             )
-            .unwrap()
-            .credit("@store1/cash", &u.try_amount(400).unwrap())
-            .unwrap()
+            .credit("store1/cash", &u.try_amount(400).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(t5).await.expect("commit t5");
 
         assert_eq!(
             ledger
-                .balance(&store_cash, "usd")
+                .balance("store1/cash", "usd")
                 .await
                 .expect("store_cash usd balance"),
             1000
         );
         assert_eq!(
             ledger
-                .balance(&cust_cash, "usd")
+                .balance("customer1/cash", "usd")
                 .await
                 .expect("cust_cash usd balance"),
             0
         );
         assert_eq!(
             ledger
-                .balance(&cust_sale, "usd")
+                .balance("customer1/sale_1", "usd")
                 .await
                 .expect("cust_sale usd balance"),
             0
         );
         assert_eq!(
             ledger
-                .balance(&store_recv, "usd")
+                .balance("store1/receivables/sale_1", "usd")
                 .await
                 .expect("store_recv usd balance"),
             0
         );
         assert_eq!(
             ledger
-                .balance(&cust_sale, "brush")
+                .balance("customer1/sale_1", "brush")
                 .await
                 .expect("cust_sale brush balance"),
             5
@@ -573,23 +515,20 @@ mod tests {
         let u = usd(&ledger);
 
         let t1 = TransactionBuilder::new("k1")
-            .credit("@store1/cash", &u.try_amount(600).unwrap())
-            .unwrap()
+            .credit("store1/cash", &u.try_amount(600).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("k2")
-            .credit("@store1/receivables/s1", &u.try_amount(400).unwrap())
-            .unwrap()
+            .credit("store1/receivables/s1", &u.try_amount(400).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(t2).await.expect("commit t2");
 
-        let prefix = AccountPath::new("@store1").expect("valid path: @store1");
         assert_eq!(
             ledger
-                .balance_prefix(&prefix, "usd")
+                .balance_prefix("store1", "usd")
                 .await
                 .expect("prefix usd prefix balance"),
             1000
@@ -602,26 +541,21 @@ mod tests {
         let b = brush(&ledger);
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let spend1 = TransactionBuilder::new("spend-1")
-            .debit(&issue_id, 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1", &b.try_amount(5).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer1", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(spend1).await.expect("commit spend1");
 
         let spend2 = TransactionBuilder::new("spend-2")
-            .debit(&issue_id, 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer2", &b.try_amount(5).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer2", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         assert!(matches!(
@@ -635,10 +569,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1", &b.try_amount(10).unwrap())
-            .unwrap()
+            .debit("fake-tx", 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer1", &b.try_amount(10).unwrap())
             .build();
         assert!(matches!(
             result,
@@ -651,8 +583,7 @@ mod tests {
         let u = usd(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .credit("@customer1", &u.try_amount(-1000).unwrap())
-            .unwrap()
+            .credit("customer1", &u.try_amount(-1000).unwrap())
             .build();
         assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
     }
@@ -672,29 +603,19 @@ mod tests {
         let b = brush(&ledger);
 
         let tx1 = TransactionBuilder::new("same-key")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(tx1).await.expect("commit tx1");
 
         let tx2 = TransactionBuilder::new("same-key")
-            .credit("@store1/inventory", &b.try_amount(3).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(3).unwrap())
             .build()
             .expect("build tx");
         assert!(matches!(
             ledger.commit(tx2).await,
             Err(LedgerError::DuplicateIdempotencyKey(_))
         ));
-    }
-
-    #[tokio::test]
-    async fn world_as_owner_rejected_at_build() {
-        let b = brush(&setup_ledger().await);
-
-        let result = TransactionBuilder::new("bad-001").credit("@world", &b.try_amount(5).unwrap());
-        assert!(matches!(result, Err(LedgerError::WorldAsOwner)));
     }
 
     // ── Transaction balance tests ──────────────────────────────────
@@ -706,26 +627,22 @@ mod tests {
         let u = usd(&ledger);
 
         let tx = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(10).unwrap())
-            .unwrap()
-            .credit("@store1/cash", &u.try_amount(5000).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(10).unwrap())
+            .credit("store1/cash", &u.try_amount(5000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
-        let inv = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        let cash = AccountPath::new("@store1/cash").expect("valid path: @store1/cash");
         assert_eq!(
             ledger
-                .balance(&inv, "brush")
+                .balance("store1/inventory", "brush")
                 .await
                 .expect("inv brush balance"),
             10
         );
         assert_eq!(
             ledger
-                .balance(&cash, "usd")
+                .balance("store1/cash", "usd")
                 .await
                 .expect("cash usd balance"),
             5000
@@ -738,41 +655,30 @@ mod tests {
         let b = brush(&ledger);
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("@a", &b.try_amount(10).unwrap())
-            .unwrap()
+            .credit("a", &b.try_amount(10).unwrap())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let split = TransactionBuilder::new("split-001")
-            .debit(&issue_id, 0, "@a", &b.try_amount(10).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(3).unwrap())
-            .unwrap()
-            .credit("@c", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@a", &b.try_amount(2).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "a", &b.try_amount(10).unwrap())
+            .credit("b", &b.try_amount(3).unwrap())
+            .credit("c", &b.try_amount(5).unwrap())
+            .credit("a", &b.try_amount(2).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(split).await.expect("commit split");
 
-        let a = AccountPath::new("@a").expect("valid path: @a");
-        let b_acct = AccountPath::new("@b").expect("valid path: @b");
-        let c = AccountPath::new("@c").expect("valid path: @c");
         assert_eq!(
-            ledger.balance(&a, "brush").await.expect("a brush balance"),
+            ledger.balance("a", "brush").await.expect("a brush balance"),
             2
         );
         assert_eq!(
-            ledger
-                .balance(&b_acct, "brush")
-                .await
-                .expect("b brush balance"),
+            ledger.balance("b", "brush").await.expect("b brush balance"),
             3
         );
         assert_eq!(
-            ledger.balance(&c, "brush").await.expect("c brush balance"),
+            ledger.balance("c", "brush").await.expect("c brush balance"),
             5
         );
     }
@@ -782,10 +688,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "@a", &b.try_amount(10).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(7).unwrap())
-            .unwrap()
+            .debit("fake-tx", 0, "a", &b.try_amount(10).unwrap())
+            .credit("b", &b.try_amount(7).unwrap())
             .build();
         assert!(matches!(
             result,
@@ -798,10 +702,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "@a", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(8).unwrap())
-            .unwrap()
+            .debit("fake-tx", 0, "a", &b.try_amount(5).unwrap())
+            .credit("b", &b.try_amount(8).unwrap())
             .build();
         assert!(matches!(
             result,
@@ -815,27 +717,21 @@ mod tests {
         let u = usd(&ledger);
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("@a", &u.try_amount(10000).unwrap())
-            .unwrap()
+            .credit("a", &u.try_amount(10000).unwrap())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let transfer = TransactionBuilder::new("xfer-001")
-            .debit(&issue_id, 0, "@a", &u.try_amount(10000).unwrap())
-            .unwrap()
-            .credit("@b", &u.try_amount(4000).unwrap())
-            .unwrap()
-            .credit("@a", &u.try_amount(6000).unwrap())
-            .unwrap()
+            .debit(&issue_id, 0, "a", &u.try_amount(10000).unwrap())
+            .credit("b", &u.try_amount(4000).unwrap())
+            .credit("a", &u.try_amount(6000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
 
-        let a = AccountPath::new("@a").expect("valid path: @a");
-        let b_acct = AccountPath::new("@b").expect("valid path: @b");
-        let sum = ledger.balance(&a, "usd").await.expect("a usd balance")
-            + ledger.balance(&b_acct, "usd").await.expect("b usd balance");
+        let sum = ledger.balance("a", "usd").await.expect("a usd balance")
+            + ledger.balance("b", "usd").await.expect("b usd balance");
         assert_eq!(sum, 10000);
     }
 
@@ -845,36 +741,32 @@ mod tests {
         let u = usd(&ledger);
 
         let tx = TransactionBuilder::new("debt-001")
-            .credit("@debtor", &u.try_amount(-5000).unwrap())
-            .unwrap()
-            .credit("@creditor", &u.try_amount(5000).unwrap())
-            .unwrap()
+            .credit("debtor", &u.try_amount(-5000).unwrap())
+            .credit("creditor", &u.try_amount(5000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
 
-        let debtor = AccountPath::new("@debtor").expect("valid path: @debtor");
-        let creditor = AccountPath::new("@creditor").expect("valid path: @creditor");
         assert_eq!(
             ledger
-                .balance(&debtor, "usd")
+                .balance("debtor", "usd")
                 .await
                 .expect("debtor usd balance"),
             -5000
         );
         assert_eq!(
             ledger
-                .balance(&creditor, "usd")
+                .balance("creditor", "usd")
                 .await
                 .expect("creditor usd balance"),
             5000
         );
         let sum = ledger
-            .balance(&debtor, "usd")
+            .balance("debtor", "usd")
             .await
             .expect("debtor usd balance")
             + ledger
-                .balance(&creditor, "usd")
+                .balance("creditor", "usd")
                 .await
                 .expect("creditor usd balance");
         assert_eq!(sum, 0);
@@ -886,46 +778,37 @@ mod tests {
         let u = usd(&ledger);
 
         let t1 = TransactionBuilder::new("debt-001")
-            .credit("@debtor", &u.try_amount(-5000).unwrap())
-            .unwrap()
-            .credit("@creditor", &u.try_amount(5000).unwrap())
-            .unwrap()
+            .credit("debtor", &u.try_amount(-5000).unwrap())
+            .credit("creditor", &u.try_amount(5000).unwrap())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("cash-in")
-            .credit("@debtor", &u.try_amount(5000).unwrap())
-            .unwrap()
+            .credit("debtor", &u.try_amount(5000).unwrap())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let t3 = TransactionBuilder::new("settle-001")
-            .debit(&t1_id, 0, "@debtor", &u.try_amount(-5000).unwrap())
-            .unwrap()
-            .debit(&t2_id, 0, "@debtor", &u.try_amount(5000).unwrap())
-            .unwrap()
-            .debit(&t1_id, 1, "@creditor", &u.try_amount(5000).unwrap())
-            .unwrap()
-            .credit("@creditor/cash", &u.try_amount(5000).unwrap())
-            .unwrap()
+            .debit(&t1_id, 0, "debtor", &u.try_amount(-5000).unwrap())
+            .debit(&t2_id, 0, "debtor", &u.try_amount(5000).unwrap())
+            .debit(&t1_id, 1, "creditor", &u.try_amount(5000).unwrap())
+            .credit("creditor/cash", &u.try_amount(5000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(t3).await.expect("commit t3");
 
-        let debtor = AccountPath::new("@debtor").expect("valid path: @debtor");
-        let creditor_prefix = AccountPath::new("@creditor").expect("valid path: @creditor");
         assert_eq!(
             ledger
-                .balance(&debtor, "usd")
+                .balance("debtor", "usd")
                 .await
                 .expect("debtor usd balance"),
             0
         );
         assert_eq!(
             ledger
-                .balance_prefix(&creditor_prefix, "usd")
+                .balance_prefix("creditor", "usd")
                 .await
                 .expect("creditor_prefix usd prefix balance"),
             5000
@@ -939,48 +822,37 @@ mod tests {
         let u = usd(&ledger);
 
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("@a", &b.try_amount(10).unwrap())
-            .unwrap()
+            .credit("a", &b.try_amount(10).unwrap())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("issue-002")
-            .credit("@a", &u.try_amount(2000).unwrap())
-            .unwrap()
+            .credit("a", &u.try_amount(2000).unwrap())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let xfer = TransactionBuilder::new("xfer-001")
-            .debit(&t1_id, 0, "@a", &b.try_amount(10).unwrap())
-            .unwrap()
-            .debit(&t2_id, 0, "@a", &u.try_amount(2000).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(10).unwrap())
-            .unwrap()
-            .credit("@b", &u.try_amount(2000).unwrap())
-            .unwrap()
+            .debit(&t1_id, 0, "a", &b.try_amount(10).unwrap())
+            .debit(&t2_id, 0, "a", &u.try_amount(2000).unwrap())
+            .credit("b", &b.try_amount(10).unwrap())
+            .credit("b", &u.try_amount(2000).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(xfer).await.expect("commit xfer");
 
-        let a = AccountPath::new("@a").expect("valid path: @a");
-        let b_acct = AccountPath::new("@b").expect("valid path: @b");
         assert_eq!(
-            ledger.balance(&a, "brush").await.expect("a brush balance"),
+            ledger.balance("a", "brush").await.expect("a brush balance"),
             0
         );
         assert_eq!(
-            ledger
-                .balance(&b_acct, "brush")
-                .await
-                .expect("b brush balance"),
+            ledger.balance("b", "brush").await.expect("b brush balance"),
             10
         );
-        assert_eq!(ledger.balance(&a, "usd").await.expect("a usd balance"), 0);
+        assert_eq!(ledger.balance("a", "usd").await.expect("a usd balance"), 0);
         assert_eq!(
-            ledger.balance(&b_acct, "usd").await.expect("b usd balance"),
+            ledger.balance("b", "usd").await.expect("b usd balance"),
             2000
         );
     }
@@ -992,14 +864,10 @@ mod tests {
         let u = usd(&ledger);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake1", 0, "@a", &b.try_amount(10).unwrap())
-            .unwrap()
-            .debit("fake2", 0, "@a", &u.try_amount(2000).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(10).unwrap())
-            .unwrap()
-            .credit("@b", &u.try_amount(1500).unwrap())
-            .unwrap()
+            .debit("fake1", 0, "a", &b.try_amount(10).unwrap())
+            .debit("fake2", 0, "a", &u.try_amount(2000).unwrap())
+            .credit("b", &b.try_amount(10).unwrap())
+            .credit("b", &u.try_amount(1500).unwrap())
             .build();
         let err = result.expect_err("should fail with conservation error");
         match err {
@@ -1023,12 +891,9 @@ mod tests {
         let u = usd(&ledger);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake", 0, "@a", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@b", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@b", &u.try_amount(1000).unwrap())
-            .unwrap()
+            .debit("fake", 0, "a", &b.try_amount(5).unwrap())
+            .credit("b", &b.try_amount(5).unwrap())
+            .credit("b", &u.try_amount(1000).unwrap())
             .build();
         assert!(matches!(
             result,
@@ -1041,132 +906,106 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
-        let store = AccountPath::new("@store1").expect("valid path: @store1");
-
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
+            .credit("store1/inventory", &b.try_amount(5).unwrap())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("sale-001")
-            .debit(&t1_id, 0, "@store1/inventory", &b.try_amount(5).unwrap())
-            .unwrap()
-            .credit("@customer1", &b.try_amount(2).unwrap())
-            .unwrap()
-            .credit("@store1/inventory", &b.try_amount(3).unwrap())
-            .unwrap()
-            .credit("@customer1", &u.try_amount(-1000).unwrap())
-            .unwrap()
-            .credit("@store1/receivables", &u.try_amount(1000).unwrap())
-            .unwrap()
+            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
+            .credit("customer1", &b.try_amount(2).unwrap())
+            .credit("store1/inventory", &b.try_amount(3).unwrap())
+            .credit("customer1", &u.try_amount(-1000).unwrap())
+            .credit("store1/receivables", &u.try_amount(1000).unwrap())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         assert_eq!(
             ledger
-                .balance(&cust, "usd")
+                .balance("customer1", "usd")
                 .await
                 .expect("cust usd balance"),
             -1000
         );
         assert_eq!(
             ledger
-                .balance(&cust, "brush")
+                .balance("customer1", "brush")
                 .await
                 .expect("cust brush balance"),
             2
         );
 
         let t3 = TransactionBuilder::new("cash-in-001")
-            .credit("@customer1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
+            .credit("customer1/cash", &u.try_amount(500).unwrap())
             .build()
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
         let t4 = TransactionBuilder::new("pay-partial")
-            .debit(&t3_id, 0, "@customer1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
-            .debit(&t2_id, 2, "@customer1", &u.try_amount(-1000).unwrap())
-            .unwrap()
+            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(500).unwrap())
+            .debit(&t2_id, 2, "customer1", &u.try_amount(-1000).unwrap())
             .debit(
                 &t2_id,
                 3,
-                "@store1/receivables",
+                "store1/receivables",
                 &u.try_amount(1000).unwrap(),
             )
-            .unwrap()
-            .credit("@store1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
-            .credit("@customer1", &u.try_amount(-500).unwrap())
-            .unwrap()
-            .credit("@store1/receivables", &u.try_amount(500).unwrap())
-            .unwrap()
+            .credit("store1/cash", &u.try_amount(500).unwrap())
+            .credit("customer1", &u.try_amount(-500).unwrap())
+            .credit("store1/receivables", &u.try_amount(500).unwrap())
             .build()
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
 
         assert_eq!(
             ledger
-                .balance(&cust, "usd")
+                .balance("customer1", "usd")
                 .await
                 .expect("cust usd balance"),
             -500
         );
         assert_eq!(
             ledger
-                .balance_prefix(&store, "usd")
+                .balance_prefix("store1", "usd")
                 .await
                 .expect("store usd prefix balance"),
             1000
         );
 
         let t5 = TransactionBuilder::new("cash-in-002")
-            .credit("@customer1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
+            .credit("customer1/cash", &u.try_amount(500).unwrap())
             .build()
             .expect("build tx");
         let t5_id = ledger.commit(t5).await.expect("commit t5");
 
         let t6 = TransactionBuilder::new("pay-final")
-            .debit(&t5_id, 0, "@customer1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
-            .debit(&t4_id, 1, "@customer1", &u.try_amount(-500).unwrap())
-            .unwrap()
-            .debit(
-                &t4_id,
-                2,
-                "@store1/receivables",
-                &u.try_amount(500).unwrap(),
-            )
-            .unwrap()
-            .credit("@store1/cash", &u.try_amount(500).unwrap())
-            .unwrap()
+            .debit(&t5_id, 0, "customer1/cash", &u.try_amount(500).unwrap())
+            .debit(&t4_id, 1, "customer1", &u.try_amount(-500).unwrap())
+            .debit(&t4_id, 2, "store1/receivables", &u.try_amount(500).unwrap())
+            .credit("store1/cash", &u.try_amount(500).unwrap())
             .build()
             .expect("build tx");
         ledger.commit(t6).await.expect("commit t6");
 
         assert_eq!(
             ledger
-                .balance(&cust, "usd")
+                .balance("customer1", "usd")
                 .await
                 .expect("cust usd balance"),
             0
         );
         assert_eq!(
             ledger
-                .balance(&cust, "brush")
+                .balance("customer1", "brush")
                 .await
                 .expect("cust brush balance"),
             2
         );
         assert_eq!(
             ledger
-                .balance_prefix(&store, "usd")
+                .balance_prefix("store1", "usd")
                 .await
                 .expect("store usd prefix balance"),
             1000

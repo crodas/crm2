@@ -22,8 +22,8 @@
 //! ```
 
 use crate::{
-    AccountPath, Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
-    Transaction, TransactionBuilder,
+    Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
+    TransactionBuilder,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -53,7 +53,6 @@ fn make_issuance(
     let amount = asset.try_amount(raw).expect("valid amount for fixture");
     let tx = TransactionBuilder::new(key)
         .credit(account, &amount)
-        .unwrap()
         .build()
         .expect("build issuance fixture");
 
@@ -62,7 +61,7 @@ fn make_issuance(
             tx_id: tx.tx_id.clone(),
             entry_index: 0,
         },
-        owner: AccountPath::new(account).expect("valid fixture account"),
+        owner: account.to_string(),
         amount,
         status: TokenStatus::Unspent,
     }];
@@ -82,9 +81,7 @@ fn make_transfer(
     let amount = asset.try_amount(raw).expect("valid amount for fixture");
     let tx = TransactionBuilder::new(key)
         .debit(&spent_ref.tx_id, spent_ref.entry_index, from, &amount)
-        .unwrap()
         .credit(to, &amount)
-        .unwrap()
         .build()
         .expect("build transfer fixture");
 
@@ -93,7 +90,7 @@ fn make_transfer(
             tx_id: tx.tx_id.clone(),
             entry_index: 0,
         },
-        owner: AccountPath::new(to).expect("valid fixture account"),
+        owner: to.to_string(),
         amount,
         status: TokenStatus::Unspent,
     }];
@@ -169,14 +166,14 @@ pub async fn has_key_empty(s: &dyn Storage) {
 
 pub async fn key_recorded_after_commit(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
     assert!(s.has_idempotency_key("issue-001").await.expect("has_key"));
 }
 
 pub async fn key_absent_for_uncommitted(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
     assert!(!s.has_idempotency_key("other-key").await.expect("has_key"));
 }
@@ -193,7 +190,7 @@ pub async fn get_token_nonexistent(s: &dyn Storage) {
 
 pub async fn get_token_after_commit(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens[0].entry_ref.clone();
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
@@ -209,13 +206,13 @@ pub async fn get_token_after_commit(s: &dyn Storage) {
 
 pub async fn token_marked_spent(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[])
         .await
         .expect("commit issuance");
 
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "b", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent)
         .await
         .expect("commit transfer");
@@ -232,9 +229,8 @@ pub async fn token_marked_spent(s: &dyn Storage) {
 
 pub async fn unspent_account_empty(s: &dyn Storage) {
     register_test_assets(s).await;
-    let acc = AccountPath::new("@nobody").expect("valid path");
     let result = s
-        .unspent_by_account(&acc, "brush")
+        .unspent_by_account("nobody", "brush")
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty());
@@ -242,12 +238,11 @@ pub async fn unspent_account_empty(s: &dyn Storage) {
 
 pub async fn unspent_account_returns_matching(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let acc = AccountPath::new("@a").expect("valid path");
     let result = s
-        .unspent_by_account(&acc, "brush")
+        .unspent_by_account("a", "brush")
         .await
         .expect("unspent_by_account");
     assert_eq!(result.len(), 1);
@@ -256,20 +251,19 @@ pub async fn unspent_account_returns_matching(s: &dyn Storage) {
 
 pub async fn unspent_account_excludes_spent(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[])
         .await
         .expect("commit issuance");
 
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "b", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent)
         .await
         .expect("commit transfer");
 
-    let acc = AccountPath::new("@a").expect("valid path");
     let result = s
-        .unspent_by_account(&acc, "brush")
+        .unspent_by_account("a", "brush")
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty(), "spent tokens should be excluded");
@@ -277,12 +271,11 @@ pub async fn unspent_account_excludes_spent(s: &dyn Storage) {
 
 pub async fn unspent_account_excludes_other_assets(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let acc = AccountPath::new("@a").expect("valid path");
     let result = s
-        .unspent_by_account(&acc, "usd")
+        .unspent_by_account("a", "usd")
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty(), "different asset should be excluded");
@@ -290,12 +283,11 @@ pub async fn unspent_account_excludes_other_assets(s: &dyn Storage) {
 
 pub async fn unspent_account_excludes_children(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store1/inventory", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store1/inventory", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let parent = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_account(&parent, "brush")
+        .unspent_by_account("store1", "brush")
         .await
         .expect("unspent_by_account");
     assert!(
@@ -308,9 +300,8 @@ pub async fn unspent_account_excludes_children(s: &dyn Storage) {
 
 pub async fn unspent_prefix_empty(s: &dyn Storage) {
     register_test_assets(s).await;
-    let prefix = AccountPath::new("@nobody").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "brush")
+        .unspent_by_prefix("nobody", "brush")
         .await
         .expect("unspent_by_prefix");
     assert!(result.is_empty());
@@ -318,12 +309,11 @@ pub async fn unspent_prefix_empty(s: &dyn Storage) {
 
 pub async fn unspent_prefix_includes_descendants(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store1/inventory", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store1/inventory", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "brush")
+        .unspent_by_prefix("store1", "brush")
         .await
         .expect("unspent_by_prefix");
     assert_eq!(result.len(), 1);
@@ -332,12 +322,11 @@ pub async fn unspent_prefix_includes_descendants(s: &dyn Storage) {
 
 pub async fn unspent_prefix_includes_exact(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store1", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store1", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "brush")
+        .unspent_by_prefix("store1", "brush")
         .await
         .expect("unspent_by_prefix");
     assert_eq!(result.len(), 1);
@@ -345,21 +334,20 @@ pub async fn unspent_prefix_includes_exact(s: &dyn Storage) {
 
 pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "store1/inventory", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[])
         .await
         .expect("commit issuance");
 
     let (tx2, tokens2, spent) =
-        make_transfer("xfer-001", &eref, "@store1/inventory", "@b", &brush(), 5);
+        make_transfer("xfer-001", &eref, "store1/inventory", "b", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent)
         .await
         .expect("commit transfer");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "brush")
+        .unspent_by_prefix("store1", "brush")
         .await
         .expect("unspent_by_prefix");
     assert!(
@@ -370,12 +358,11 @@ pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
 
 pub async fn unspent_prefix_excludes_other_assets(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store1", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store1", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "usd")
+        .unspent_by_prefix("store1", "usd")
         .await
         .expect("unspent_by_prefix");
     assert!(result.is_empty(), "different asset should be excluded");
@@ -383,12 +370,11 @@ pub async fn unspent_prefix_excludes_other_assets(s: &dyn Storage) {
 
 pub async fn unspent_prefix_excludes_non_descendants(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store2", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store2", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_by_prefix(&prefix, "brush")
+        .unspent_by_prefix("store1", "brush")
         .await
         .expect("unspent_by_prefix");
     assert!(
@@ -410,7 +396,7 @@ pub async fn tx_count_empty(s: &dyn Storage) {
 
 pub async fn commit_and_load_transaction(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     let expected_id = tx.tx_id.clone();
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
@@ -422,8 +408,8 @@ pub async fn commit_and_load_transaction(s: &dyn Storage) {
 
 pub async fn transactions_preserve_order(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
-    let (tx2, tokens2) = make_issuance("issue-002", "@b", &brush(), 3);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
+    let (tx2, tokens2) = make_issuance("issue-002", "b", &brush(), 3);
     let id1 = tx1.tx_id.clone();
     let id2 = tx2.tx_id.clone();
 
@@ -443,7 +429,7 @@ pub async fn transactions_preserve_order(s: &dyn Storage) {
 
 pub async fn commit_creates_tokens_and_key(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens[0].entry_ref.clone();
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
@@ -460,13 +446,13 @@ pub async fn commit_creates_tokens_and_key(s: &dyn Storage) {
 
 pub async fn commit_spends_and_creates(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref_a = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[])
         .await
         .expect("commit issuance");
 
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref_a, "@a", "@b", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref_a, "a", "b", &brush(), 5);
     let eref_b = tokens2[0].entry_ref.clone();
     s.commit_tx(&tx2, &tokens2, &spent)
         .await
@@ -486,15 +472,13 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
         .expect("B should exist");
     assert_eq!(b.status, TokenStatus::Unspent);
 
-    let acc_a = AccountPath::new("@a").expect("valid path");
-    let acc_b = AccountPath::new("@b").expect("valid path");
     assert!(s
-        .unspent_by_account(&acc_a, "brush")
+        .unspent_by_account("a", "brush")
         .await
         .expect("unspent @a")
         .is_empty());
     assert_eq!(
-        s.unspent_by_account(&acc_b, "brush")
+        s.unspent_by_account("b", "brush")
             .await
             .expect("unspent @b")
             .len(),
@@ -508,9 +492,8 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
 
 pub async fn unspent_all_prefix_empty(s: &dyn Storage) {
     register_test_assets(s).await;
-    let prefix = AccountPath::new("@nobody").expect("valid path");
     let result = s
-        .unspent_all_by_prefix(&prefix)
+        .unspent_all_by_prefix("nobody")
         .await
         .expect("unspent_all_by_prefix");
     assert!(result.is_empty());
@@ -519,15 +502,14 @@ pub async fn unspent_all_prefix_empty(s: &dyn Storage) {
 pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
     register_test_assets(s).await;
 
-    let (tx1, tokens1) = make_issuance("issue-001", "@store1/inventory", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "store1/inventory", &brush(), 5);
     s.commit_tx(&tx1, &tokens1, &[])
         .await
         .expect("commit brush");
 
     let usd_amount = usd().try_amount(1000).expect("valid usd amount");
     let tx2 = TransactionBuilder::new("issue-002")
-        .credit("@store1/cash", &usd_amount)
-        .unwrap()
+        .credit("store1/cash", &usd_amount)
         .build()
         .expect("build usd issuance");
     let tokens2 = vec![SpendingToken {
@@ -535,15 +517,14 @@ pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
             tx_id: tx2.tx_id.clone(),
             entry_index: 0,
         },
-        owner: AccountPath::new("@store1/cash").expect("valid"),
+        owner: "store1/cash".to_string(),
         amount: usd_amount,
         status: TokenStatus::Unspent,
     }];
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit usd");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_all_by_prefix(&prefix)
+        .unspent_all_by_prefix("store1")
         .await
         .expect("unspent_all_by_prefix");
     assert_eq!(result.len(), 2);
@@ -562,16 +543,15 @@ pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
 
 pub async fn unspent_all_prefix_excludes_spent(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
 
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "b", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
 
-    let prefix = AccountPath::new("@a").expect("valid path");
     let result = s
-        .unspent_all_by_prefix(&prefix)
+        .unspent_all_by_prefix("a")
         .await
         .expect("unspent_all_by_prefix");
     assert!(result.is_empty());
@@ -579,12 +559,11 @@ pub async fn unspent_all_prefix_excludes_spent(s: &dyn Storage) {
 
 pub async fn unspent_all_prefix_excludes_non_descendants(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store2", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store2", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .unspent_all_by_prefix(&prefix)
+        .unspent_all_by_prefix("store1")
         .await
         .expect("unspent_all_by_prefix");
     assert!(result.is_empty());
@@ -594,9 +573,8 @@ pub async fn unspent_all_prefix_excludes_non_descendants(s: &dyn Storage) {
 
 pub async fn balances_prefix_empty(s: &dyn Storage) {
     register_test_assets(s).await;
-    let prefix = AccountPath::new("@nobody").expect("valid path");
     let result = s
-        .balances_by_prefix(&prefix)
+        .balances_by_prefix("nobody")
         .await
         .expect("balances_by_prefix");
     assert!(result.is_empty());
@@ -606,16 +584,15 @@ pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
     register_test_assets(s).await;
 
     // Two products in two warehouses
-    let (tx1, tokens1) = make_issuance("issue-001", "@store/w1/product/1", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "store/w1/product/1", &brush(), 5);
     s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
 
-    let (tx2, tokens2) = make_issuance("issue-002", "@store/w2/product/1", &brush(), 3);
+    let (tx2, tokens2) = make_issuance("issue-002", "store/w2/product/1", &brush(), 3);
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit");
 
     let usd_amount = usd().try_amount(1000).expect("valid usd amount");
     let tx3 = TransactionBuilder::new("issue-003")
-        .credit("@store/w1/product/1", &usd_amount)
-        .unwrap()
+        .credit("store/w1/product/1", &usd_amount)
         .build()
         .expect("build");
     let tokens3 = vec![SpendingToken {
@@ -623,15 +600,14 @@ pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
             tx_id: tx3.tx_id.clone(),
             entry_index: 0,
         },
-        owner: AccountPath::new("@store/w1/product/1").expect("valid"),
+        owner: "store/w1/product/1".to_string(),
         amount: usd_amount,
         status: TokenStatus::Unspent,
     }];
     s.commit_tx(&tx3, &tokens3, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store").expect("valid path");
     let result = s
-        .balances_by_prefix(&prefix)
+        .balances_by_prefix("store")
         .await
         .expect("balances_by_prefix");
 
@@ -640,54 +616,46 @@ pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
 
     let w1_brush = result
         .iter()
-        .find(|e| e.account.as_str() == "@store/w1/product/1" && e.amount.asset_name() == "brush")
+        .find(|e| e.account == "store/w1/product/1" && e.amount.asset_name() == "brush")
         .expect("w1 brush entry");
     assert_eq!(w1_brush.amount.raw(), 5);
 
     let w2_brush = result
         .iter()
-        .find(|e| e.account.as_str() == "@store/w2/product/1" && e.amount.asset_name() == "brush")
+        .find(|e| e.account == "store/w2/product/1" && e.amount.asset_name() == "brush")
         .expect("w2 brush entry");
     assert_eq!(w2_brush.amount.raw(), 3);
 
     let w1_usd = result
         .iter()
-        .find(|e| e.account.as_str() == "@store/w1/product/1" && e.amount.asset_name() == "usd")
+        .find(|e| e.account == "store/w1/product/1" && e.amount.asset_name() == "usd")
         .expect("w1 usd entry");
     assert_eq!(w1_usd.amount.raw(), 1000);
 }
 
 pub async fn balances_prefix_sums_multiple_tokens(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a/sub", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a/sub", &brush(), 5);
     s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
 
-    let (tx2, tokens2) = make_issuance("issue-002", "@a/sub", &brush(), 3);
+    let (tx2, tokens2) = make_issuance("issue-002", "a/sub", &brush(), 3);
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@a").expect("valid path");
-    let result = s
-        .balances_by_prefix(&prefix)
-        .await
-        .expect("balances_by_prefix");
+    let result = s.balances_by_prefix("a").await.expect("balances_by_prefix");
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].amount.raw(), 8);
 }
 
 pub async fn balances_prefix_excludes_spent(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
 
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@b", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "b", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
 
-    let prefix = AccountPath::new("@a").expect("valid path");
-    let result = s
-        .balances_by_prefix(&prefix)
-        .await
-        .expect("balances_by_prefix");
+    let result = s.balances_by_prefix("a").await.expect("balances_by_prefix");
     assert!(
         result.is_empty(),
         "spent tokens should not contribute to balance"
@@ -696,12 +664,11 @@ pub async fn balances_prefix_excludes_spent(s: &dyn Storage) {
 
 pub async fn balances_prefix_excludes_non_descendants(s: &dyn Storage) {
     register_test_assets(s).await;
-    let (tx, tokens) = make_issuance("issue-001", "@store2", &brush(), 5);
+    let (tx, tokens) = make_issuance("issue-001", "store2", &brush(), 5);
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
-    let prefix = AccountPath::new("@store1").expect("valid path");
     let result = s
-        .balances_by_prefix(&prefix)
+        .balances_by_prefix("store1")
         .await
         .expect("balances_by_prefix");
     assert!(result.is_empty());
@@ -710,23 +677,19 @@ pub async fn balances_prefix_excludes_non_descendants(s: &dyn Storage) {
 pub async fn balances_prefix_omits_zero_balances(s: &dyn Storage) {
     register_test_assets(s).await;
     // Create and fully spend a token — net balance is 0
-    let (tx1, tokens1) = make_issuance("issue-001", "@a", &brush(), 5);
+    let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     s.commit_tx(&tx1, &tokens1, &[]).await.expect("commit");
 
     // Transfer all to @a/sub (still under prefix @a)
-    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "@a", "@a/sub", &brush(), 5);
+    let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "a/sub", &brush(), 5);
     s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
 
-    let prefix = AccountPath::new("@a").expect("valid path");
-    let result = s
-        .balances_by_prefix(&prefix)
-        .await
-        .expect("balances_by_prefix");
+    let result = s.balances_by_prefix("a").await.expect("balances_by_prefix");
 
     // @a has 0 balance (spent), @a/sub has 5 — only @a/sub should appear
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].account.as_str(), "@a/sub");
+    assert_eq!(result[0].account, "a/sub");
     assert_eq!(result[0].amount.raw(), 5);
 }
 

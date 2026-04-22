@@ -37,8 +37,8 @@ use std::sync::Arc;
 let storage = Arc::new(MemoryStorage::new());
 let ledger = Ledger::new(storage)
     .with_debt_strategy(SignedPositionDebt::new(
-        "@customer/{id}/debt",
-        "@store/receivables/{id}",
+        "customer/{id}/debt",
+        "store/receivables/{id}",
     ));
 
 // Register assets
@@ -47,14 +47,14 @@ ledger.register_asset(Asset::new("brush", 0, AssetKind::Unsigned)).await?;
 
 // Build transaction with auto token selection
 let tx = ledger.transaction("sale-001")
-    .debit("@store/inventory", "brush", 5)
-    .credit("@customer/goods", "brush", "5")
+    .debit("store/inventory", "brush", 5)
+    .credit("customer/goods", "brush", 5)
     .build().await?;
 ledger.commit(tx).await?;
 
 // Issue and settle debt as part of the builder flow
 let tx = ledger.transaction("credit-sale-001")
-    .create_debt(customer_id, &usd_asset, 5000)?
+    .create_debt("customer-42", &usd_asset, 5000)?
     .build().await?;
 ledger.commit(tx).await?;
 ```

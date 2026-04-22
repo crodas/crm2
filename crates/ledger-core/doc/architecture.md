@@ -20,7 +20,7 @@ Balances are derived by summing unspent tokens, never stored directly. This mean
 
 Every non-issuance transaction must conserve value: for each asset, the sum of debited quantities must equal the sum of credited quantities. This is enforced at `TransactionBuilder::build()` time, before the transaction reaches the storage layer.
 
-Issuance transactions (those with no debits) are exempt -- they represent value entering the system from `@world`.
+Issuance transactions (those with no debits) are exempt -- they represent value entering the system via credit-only transactions.
 
 ### Dual-Sided Debt
 
@@ -37,7 +37,6 @@ When a transaction includes a negative credit (representing a debt obligation), 
                             ▼
                      ┌──────────────┐
                      │  Validation  │
-                     │  - paths     │
                      │  - assets    │
                      │  - signs     │
                      │  - balance   │
@@ -69,7 +68,6 @@ When a transaction includes a negative credit (representing a debt obligation), 
 Validation is split across two layers to keep concerns separate:
 
 1. **TransactionBuilder::build()** -- Structural validation that can be checked without storage access:
-   - Account path syntax
    - Asset registration
    - Unsigned asset sign constraints
    - Per-asset conservation (debits == credits)

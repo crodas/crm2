@@ -16,13 +16,13 @@ pub trait Storage: Send + Sync + Debug {
 
     // Token queries
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
-    async fn unspent_by_account(&self, account: &AccountPath, asset_name: &str)
+    async fn unspent_by_account(&self, account: &str, asset_name: &str)
         -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn unspent_by_prefix(&self, prefix: &AccountPath, asset_name: &str)
+    async fn unspent_by_prefix(&self, prefix: &str, asset_name: &str)
         -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn unspent_all_by_prefix(&self, prefix: &AccountPath)
+    async fn unspent_all_by_prefix(&self, prefix: &str)
         -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn balances_by_prefix(&self, prefix: &AccountPath)
+    async fn balances_by_prefix(&self, prefix: &str)
         -> Result<Vec<BalanceEntry>, LedgerError>;
 
     // Transaction persistence
@@ -59,7 +59,7 @@ pub trait Storage: Send + Sync + Debug {
 #### `unspent_by_account`
 
 - Returns all tokens with `status == Unspent` for the **exact** account and asset
-- Must **not** include descendant accounts (e.g., `@store` does not include `@store/cash`)
+- Must **not** include descendant accounts (e.g., `store` does not include `store/cash`)
 
 #### `unspent_by_prefix`
 

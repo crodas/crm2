@@ -27,15 +27,14 @@ pub use signed_position::SignedPositionDebt;
 pub use split_asset::SplitAssetDebt;
 
 use async_trait::async_trait;
-use ledger_core::{AccountPath, Amount};
+use ledger_core::Amount;
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
 
 /// Resolve a path template by replacing `{id}` with the given entity identifier.
-pub(crate) fn resolve_template(template: &str, entity_id: &str) -> Result<AccountPath, Error> {
-    let path = template.replace("{id}", entity_id);
-    AccountPath::new(path).map_err(|e| Error::InvalidPath(e.to_string()))
+pub fn resolve_template(template: &str, entity_id: &str) -> String {
+    template.replace("{id}", entity_id)
 }
 
 /// Strategy for issuing and settling debt within ledger transactions.
@@ -47,8 +46,8 @@ pub(crate) fn resolve_template(template: &str, entity_id: &str) -> Result<Accoun
 /// ledger accepts the transaction.
 ///
 /// Strategies are configured with debtor/creditor path templates at
-/// construction time (e.g. `@customer/{id}/debt` and
-/// `@store/receivables/{id}`). The `{id}` placeholder is resolved by the
+/// construction time (e.g. `customer/{id}/debt` and
+/// `store/receivables/{id}`). The `{id}` placeholder is resolved by the
 /// strategy when `issue` or `settle` is called.
 #[async_trait]
 pub trait DebtStrategy: Send + Sync {

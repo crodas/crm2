@@ -1,6 +1,6 @@
 # ledger-core
 
-Low-level append-only UTXO ledger engine for modeling the movement of value -- inventory, cash, receivables, and debt -- using spending tokens and hierarchical account paths.
+Low-level append-only UTXO ledger engine for modeling the movement of value -- inventory, cash, receivables, and debt -- using spending tokens and string account identifiers.
 
 ## Overview
 
@@ -9,7 +9,7 @@ Low-level append-only UTXO ledger engine for modeling the movement of value -- i
 ## Key Concepts
 
 - **Spending Tokens**: Immutable units of value owned by an account. Once spent, they cannot be reused (double-spend prevention).
-- **Account Paths**: Hierarchical identifiers (e.g., `@store1/inventory`, `@customer1/cash`) that support prefix-based aggregation queries.
+- **Accounts**: String identifiers (e.g., `store1/inventory`, `customer1/cash`) that support prefix-based aggregation queries.
 - **Assets**: Named quantities with configurable decimal precision and signedness. Signed assets support negative quantities for debt modeling.
 - **Transactions**: Atomic operations that consume existing tokens and produce new ones, enforcing per-asset conservation invariants.
 - **Deterministic IDs**: Transaction IDs are derived from a canonical preimage via double SHA-256, making them reproducible and tamper-evident.
@@ -23,7 +23,7 @@ ledger-core/
     ledger.rs           # Core engine: commit, balance, query
     transaction.rs      # Transaction types and builder with validation
     asset.rs            # Asset definitions, quantity parsing
-    account.rs          # Account path validation and prefix matching
+    account.rs          # Account identifier helpers and prefix matching
     token.rs            # SpendingToken, EntryRef, BalanceEntry
     error.rs            # LedgerError enum
     storage/
@@ -45,14 +45,14 @@ let ledger = Ledger::new(storage);
 let usd = Asset::new("usd", 2, AssetKind::Signed);
 ledger.register_asset(usd).await?;
 
-// Issue tokens from @world (genesis)
+// Issue tokens (credit-only transaction)
 let tx = TransactionBuilder::new("issue-001")
-    .credit("@store/cash", "usd", "100.00")
+    .credit("store/cash", "usd", "100.00")
     .build(&ledger.assets())?;
 ledger.commit(tx).await?;
 
 // Query balances
-let balance = ledger.balance(&"@store/cash".parse()?, "usd").await?;
+let balance = ledger.balance("store/cash", "usd").await?;
 ```
 
 ## Documentation
@@ -61,7 +61,7 @@ See [`doc/`](doc/) for detailed technical documentation:
 
 - [Architecture](doc/architecture.md) -- design principles, UTXO model, data flow
 - [Assets & Quantities](doc/assets.md) -- asset kinds, precision, quantity parsing
-- [Accounts](doc/accounts.md) -- path validation, hierarchy, prefix queries
+- [Accounts](doc/accounts.md) -- path hierarchy, prefix queries
 - [Transactions](doc/transactions.md) -- builder pattern, validation rules, ID derivation
 - [Tokens](doc/tokens.md) -- spending tokens, status lifecycle, balance entries
 - [Storage](doc/storage.md) -- trait contract, MemoryStorage, conformance tests

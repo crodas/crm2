@@ -72,8 +72,8 @@ WHERE (owner = ? OR owner LIKE ?)
 ```
 
 The two conditions handle:
-- `owner = ?` → exact match (e.g., `@store`)
-- `owner LIKE ?` → descendant match (e.g., `@store/%`)
+- `owner = ?` → exact match (e.g., `store`)
+- `owner LIKE ?` → descendant match (e.g., `store/%`)
 
 The LIKE pattern is constructed as `{prefix}/%` in Rust code.
 
@@ -165,6 +165,5 @@ Returns the total number of committed transactions.
 The `rows_to_tokens()` function converts SQLx result rows into `Vec<SpendingToken>`. It:
 
 1. Extracts `tx_id`, `entry_index`, `owner`, `asset_name`, `qty` from each row
-2. Constructs an `AccountPath` from the owner string (validating it)
+2. Uses the owner string directly as the account (plain `&str`, no wrapper type)
 3. Sets status to `TokenStatus::Unspent` (only used by unspent-query methods)
-4. Returns `LedgerError::InvalidAccount` if the owner fails validation

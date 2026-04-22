@@ -9,8 +9,8 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    AccountPath, Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage,
-    TokenStatus, Transaction,
+    Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
+    Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -172,8 +172,7 @@ impl Storage for SqliteStorage {
                 let qty = row.get::<i64, _>("qty") as i128;
                 Ok(Some(SpendingToken {
                     entry_ref: eref.clone(),
-                    owner: AccountPath::new(owner)
-                        .map_err(|e| LedgerError::InvalidAccount(e.to_string()))?,
+                    owner,
                     amount: asset.amount_unchecked(qty),
                     status,
                 }))
@@ -183,14 +182,14 @@ impl Storage for SqliteStorage {
 
     async fn unspent_by_account(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         let sql = format!(
             "{TOKEN_SELECT} WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL"
         );
         let rows = sqlx::query(&sql)
-            .bind(account.as_str())
+            .bind(account)
             .bind(asset_name)
             .fetch_all(&self.pool)
             .await
@@ -201,11 +200,10 @@ impl Storage for SqliteStorage {
 
     async fn unspent_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let prefix_str = prefix.as_str();
-        let like_pattern = format!("{prefix_str}/%");
+        let like_pattern = format!("{prefix}/%");
 
         let sql = format!(
             "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
@@ -213,7 +211,7 @@ impl Storage for SqliteStorage {
                AND t.spent_by_tx IS NULL"
         );
         let rows = sqlx::query(&sql)
-            .bind(prefix_str)
+            .bind(prefix)
             .bind(&like_pattern)
             .bind(asset_name)
             .fetch_all(&self.pool)
@@ -223,19 +221,15 @@ impl Storage for SqliteStorage {
         rows_to_tokens(rows)
     }
 
-    async fn unspent_all_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let prefix_str = prefix.as_str();
-        let like_pattern = format!("{prefix_str}/%");
+    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError> {
+        let like_pattern = format!("{prefix}/%");
 
         let sql = format!(
             "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
                AND t.spent_by_tx IS NULL"
         );
         let rows = sqlx::query(&sql)
-            .bind(prefix_str)
+            .bind(prefix)
             .bind(&like_pattern)
             .fetch_all(&self.pool)
             .await
@@ -244,12 +238,8 @@ impl Storage for SqliteStorage {
         rows_to_tokens(rows)
     }
 
-    async fn balances_by_prefix(
-        &self,
-        prefix: &AccountPath,
-    ) -> Result<Vec<BalanceEntry>, LedgerError> {
-        let prefix_str = prefix.as_str();
-        let like_pattern = format!("{prefix_str}/%");
+    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
+        let like_pattern = format!("{prefix}/%");
 
         let rows = sqlx::query(
             "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
@@ -262,7 +252,7 @@ impl Storage for SqliteStorage {
              HAVING SUM(t.qty) != 0
              ORDER BY t.owner, t.asset_name",
         )
-        .bind(prefix_str)
+        .bind(prefix)
         .bind(&like_pattern)
         .fetch_all(&self.pool)
         .await
@@ -274,8 +264,7 @@ impl Storage for SqliteStorage {
                 let balance: i64 = row.get("balance");
                 let asset = asset_from_row(&row);
                 Ok(BalanceEntry {
-                    account: AccountPath::new(owner)
-                        .map_err(|e| LedgerError::InvalidAccount(e.to_string()))?,
+                    account: owner,
                     amount: asset.amount_unchecked(balance as i128),
                 })
             })
@@ -310,7 +299,7 @@ impl Storage for SqliteStorage {
             )
             .bind(&token.entry_ref.tx_id)
             .bind(token.entry_ref.entry_index as i32)
-            .bind(token.owner.as_str())
+            .bind(&token.owner)
             .bind(token.amount.asset_name())
             .bind(token.amount.raw() as i64)
             .execute(&mut *db_tx)
@@ -371,8 +360,7 @@ fn rows_to_tokens(rows: Vec<sqlx::sqlite::SqliteRow>) -> Result<Vec<SpendingToke
                     tx_id,
                     entry_index: entry_index as u32,
                 },
-                owner: AccountPath::new(owner)
-                    .map_err(|e| LedgerError::InvalidAccount(e.to_string()))?,
+                owner,
                 amount: asset.amount_unchecked(qty),
                 status: TokenStatus::Unspent,
             })

@@ -51,12 +51,12 @@ Each strategy is constructed with debtor/creditor path templates:
 
 ```rust
 let strategy = SignedPositionDebt::new(
-    "@customer/{id}/debt",        // debtor template
-    "@store/receivables/{id}",    // creditor template
+    "customer/{id}/debt",        // debtor template
+    "store/receivables/{id}",    // creditor template
 );
 ```
 
-The `{id}` placeholder is replaced with the entity identifier when `create_debt(entity_id, ...)` or `settle_debt(entity_id, ...)` is called. This keeps account path conventions in one place (strategy configuration) rather than scattered across route handlers.
+The `{id}` placeholder is replaced with the entity identifier when `create_debt(entity_id, ...)` or `settle_debt(entity_id, ...)` is called. `entity_id` is `&str`. `resolve_template` returns a plain `String` (not `Result`). This keeps account path conventions in one place (strategy configuration) rather than scattered across route handlers.
 
 ## SignedPositionDebt
 
@@ -76,21 +76,21 @@ Settlement creates **offsetting** credits rather than consuming prior tokens. Th
 ```rust
 // Issue: customer owes 50.00 usd
 // Creates:
-//   @customer/debt:  -5000 (owes money)
-//   @store/receivable: +5000 (is owed money)
+//   customer/debt:  -5000 (owes money)
+//   store/receivable: +5000 (is owed money)
 
 // After issue:
-//   @customer/debt balance: -5000
-//   @store/receivable balance: +5000
+//   customer/debt balance: -5000
+//   store/receivable balance: +5000
 
 // Settle: customer pays 50.00 usd
 // Creates:
-//   @customer/debt:  +5000 (offset)
-//   @store/receivable: -5000 (offset)
+//   customer/debt:  +5000 (offset)
+//   store/receivable: -5000 (offset)
 
 // After settle:
-//   @customer/debt balance: 0  (net of -5000 + 5000)
-//   @store/receivable balance: 0  (net of +5000 - 5000)
+//   customer/debt balance: 0  (net of -5000 + 5000)
+//   store/receivable balance: 0  (net of +5000 - 5000)
 ```
 
 ### Advantages
@@ -98,7 +98,7 @@ Settlement creates **offsetting** credits rather than consuming prior tokens. Th
 | Advantage | Detail |
 |-----------|--------|
 | **Simplicity** | No extra asset registration. No token selection for settlement. |
-| **Single balance query** | Net position is directly readable: `balance(@customer/debt, "usd")` |
+| **Single balance query** | Net position is directly readable: `balance("customer/debt", "usd")` |
 | **Mixed transactions** | Debt entries mix naturally with product debits in the same transaction |
 | **No UTXO fragmentation** | Settlement creates new tokens instead of splitting existing ones |
 
@@ -138,13 +138,13 @@ SplitAssetDebt::register_debt_asset(&ledger, &usd_asset).await?;
 
 // Issue: customer owes 50.00
 // Creates tokens on usd.d:
-//   @customer/debt: -5000  (token A)
-//   @store/receivable: +5000  (token B)
+//   customer/debt: -5000  (token A)
+//   store/receivable: +5000  (token B)
 
 // Settle: customer pays 50.00
 // Debits:
-//   Consume token A (@customer/debt, -5000)
-//   Consume token B (@store/receivable, +5000)
+//   Consume token A (customer/debt, -5000)
+//   Consume token B (store/receivable, +5000)
 // Sum of debits: -5000 + 5000 = 0
 // Sum of credits: 0
 // Conservation holds: 0 == 0
@@ -155,16 +155,16 @@ SplitAssetDebt::register_debt_asset(&ledger, &usd_asset).await?;
 ```rust
 // Issue: customer owes 100.00
 // Creates:
-//   @customer/debt: -10000  (token A)
-//   @store/receivable: +10000  (token B)
+//   customer/debt: -10000  (token A)
+//   store/receivable: +10000  (token B)
 
 // Settle 60.00:
 // Debits:
 //   Consume token A (-10000)
 //   Consume token B (+10000)
 // Credits (change):
-//   @customer/debt: -4000  (remaining debt)
-//   @store/receivable: +4000  (remaining receivable)
+//   customer/debt: -4000  (remaining debt)
+//   store/receivable: +4000  (remaining receivable)
 ```
 
 ### Token Selection Algorithm
@@ -186,11 +186,11 @@ Both sides generate change credits if the selected tokens exceed the settlement 
 ### Query Helpers
 
 ```rust
-// How much does entity 1 owe? (absolute value of negative balance)
-let owed = strategy.owed_by(&ledger, 1, &usd_asset).await?;
+// How much does entity "customer-1" owe? (absolute value of negative balance)
+let owed = strategy.owed_by(&ledger, "customer-1", &usd_asset).await?;
 
-// How much is owed to entity 1? (positive balance)
-let receivable = strategy.owed_to(&ledger, 1, &usd_asset).await?;
+// How much is owed to entity "customer-1"? (positive balance)
+let receivable = strategy.owed_to(&ledger, "customer-1", &usd_asset).await?;
 ```
 
 ### Advantages

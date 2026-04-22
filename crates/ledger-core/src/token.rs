@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 use crate::amount::Amount;
-use crate::AccountPath;
 
 /// A reference to a specific entry within a committed transaction.
 ///
@@ -45,7 +44,7 @@ pub struct SpendingToken {
     /// Which transaction entry created this token.
     pub entry_ref: EntryRef,
     /// The account that owns this token.
-    pub owner: AccountPath,
+    pub owner: String,
     /// The amount (asset + quantity).
     pub amount: Amount,
     /// Whether this token has been consumed.
@@ -59,7 +58,7 @@ pub struct SpendingToken {
 #[derive(Debug, Clone)]
 pub struct BalanceEntry {
     /// The account that owns the tokens.
-    pub account: AccountPath,
+    pub account: String,
     /// The aggregated amount (asset + net balance).
     pub amount: Amount,
 }

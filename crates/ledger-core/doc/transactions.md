@@ -28,7 +28,7 @@ A new spending token to be created:
 
 ```rust
 pub struct Credit {
-    pub to: String,            // Destination account path
+    pub to: String,            // Destination account
     pub asset_name: String,    // Asset name
     pub qty: String,           // Quantity (decimal string, may be negative for signed assets)
 }
@@ -60,7 +60,7 @@ The idempotency key is a caller-chosen string that uniquely identifies this tran
 ### Adding Debits
 
 ```rust
-builder.debit(&tx_id, entry_index, "@store/inventory", "brush", "5")
+builder.debit(&tx_id, entry_index, "store/inventory", "brush", "5")
 ```
 
 Each debit references a specific credit from a prior committed transaction by its `(tx_id, entry_index)` pair. The remaining fields are expectations that are verified at commit time.
@@ -68,11 +68,11 @@ Each debit references a specific credit from a prior committed transaction by it
 ### Adding Credits
 
 ```rust
-builder.credit("@customer/goods", "brush", "5")
-builder.credit("@customer/debt", "usd", "-10.00")  // Negative for debt (signed assets only)
+builder.credit("customer/goods", "brush", "5")
+builder.credit("customer/debt", "usd", "-10.00")  // Negative for debt (signed assets only)
 ```
 
-Credits create new spending tokens owned by the specified account.
+Credits create new spending tokens owned by the specified account. The `.credit()` and `.debit()` methods return `Self` for chaining (they are infallible).
 
 ### Building
 
@@ -88,8 +88,6 @@ The `build()` method validates the transaction and computes the deterministic tr
 
 | Rule | Error |
 |------|-------|
-| `@world` cannot appear as a credit owner | `WorldAsOwner` |
-| All account paths must be valid | `InvalidAccount` |
 | All assets must be registered | `UnknownAsset` |
 | Unsigned assets cannot have negative quantities | `NegativeUnsigned` |
 | Quantity strings must parse correctly | `InvalidQty` |
@@ -111,12 +109,12 @@ If any credit has a negative quantity, there must be at least one credit with a 
 ```rust
 // Valid: debt has both sides
 builder
-    .credit("@debtor/account", "usd", "-10.00")   // Debtor owes
-    .credit("@creditor/receivable", "usd", "10.00") // Creditor is owed
+    .credit("debtor/account", "usd", "-10.00")   // Debtor owes
+    .credit("creditor/receivable", "usd", "10.00") // Creditor is owed
 
 // Invalid: dangling debt (no positive side)
 builder
-    .credit("@debtor/account", "usd", "-10.00")
+    .credit("debtor/account", "usd", "-10.00")
 // => Err(DanglingDebt { asset: "usd" })
 ```
 
@@ -167,11 +165,11 @@ Double hashing prevents length-extension attacks. With a single SHA-256, an atta
 
 ### Issuance (No Debits)
 
-Represents value entering the system. Used for inventory receipts, cash deposits, or initial balances.
+Represents value entering the system. Used for inventory receipts, cash deposits, or initial balances. These are credit-only transactions with no debits.
 
 ```rust
 TransactionBuilder::new("stock-receipt-001")
-    .credit("@store/inventory", "brush", "100")
+    .credit("store/inventory", "brush", "100")
     .build(&assets)?
 ```
 
@@ -181,8 +179,8 @@ Moves value between accounts. Must conserve per asset.
 
 ```rust
 TransactionBuilder::new("internal-transfer-001")
-    .debit(&tx_id, 0, "@store/cash", "usd", "50.00")
-    .credit("@store/petty_cash", "usd", "50.00")
+    .debit(&tx_id, 0, "store/cash", "usd", "50.00")
+    .credit("store/petty_cash", "usd", "50.00")
     .build(&assets)?
 ```
 
@@ -193,9 +191,9 @@ When a token is larger than needed, the excess is credited back to the source.
 ```rust
 // Token at (tx_id, 0) has qty "100.00"
 TransactionBuilder::new("transfer-with-change")
-    .debit(&tx_id, 0, "@store/cash", "usd", "100.00")
-    .credit("@vendor/cash", "usd", "30.00")
-    .credit("@store/cash", "usd", "70.00")   // Change back to source
+    .debit(&tx_id, 0, "store/cash", "usd", "100.00")
+    .credit("vendor/cash", "usd", "30.00")
+    .credit("store/cash", "usd", "70.00")   // Change back to source
     .build(&assets)?
 ```
 
@@ -205,10 +203,10 @@ Transfers physical goods and creates a debt obligation in a single atomic transa
 
 ```rust
 TransactionBuilder::new("credit-sale-001")
-    .debit(&inv_tx, 0, "@store/inventory", "brush", "5")
-    .credit("@customer/goods", "brush", "5")
-    .credit("@customer/debt", "usd", "-50.00")            // Customer owes
-    .credit("@store/receivables/sale_1", "usd", "50.00")   // Store is owed
+    .debit(&inv_tx, 0, "store/inventory", "brush", "5")
+    .credit("customer/goods", "brush", "5")
+    .credit("customer/debt", "usd", "-50.00")            // Customer owes
+    .credit("store/receivables/sale_1", "usd", "50.00")   // Store is owed
     .build(&assets)?
 ```
 
@@ -218,10 +216,10 @@ Consumes debt tokens and cash tokens to close out obligations.
 
 ```rust
 TransactionBuilder::new("settle-001")
-    .debit(&cash_tx, 0, "@customer/cash", "usd", "50.00")
-    .debit(&debt_tx, 0, "@customer/debt", "usd", "-50.00")
-    .debit(&recv_tx, 0, "@store/receivables/sale_1", "usd", "50.00")
-    .credit("@store/cash", "usd", "50.00")
+    .debit(&cash_tx, 0, "customer/cash", "usd", "50.00")
+    .debit(&debt_tx, 0, "customer/debt", "usd", "-50.00")
+    .debit(&recv_tx, 0, "store/receivables/sale_1", "usd", "50.00")
+    .credit("store/cash", "usd", "50.00")
     .build(&assets)?
 ```
 

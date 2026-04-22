@@ -203,7 +203,7 @@ async fn seed_receipt(
         .await?;
 
         // Credit inventory to the store warehouse
-        let account = format!("@store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}/product/{product_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))

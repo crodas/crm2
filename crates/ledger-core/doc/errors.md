@@ -37,8 +37,7 @@ These errors occur during `TransactionBuilder::build()`. Conservation is only ch
 
 | Variant | When | Fields |
 |---------|------|--------|
-| `WorldAsOwner` | A credit targets `@world` as its destination | (none) |
-| `InvalidAccount(String)` | An account path fails validation | The invalid path string |
+| `InvalidAccount(String)` | A storage-level issue with an account identifier | The invalid account string |
 
 ### Transaction Errors
 

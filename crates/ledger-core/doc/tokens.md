@@ -45,7 +45,7 @@ The complete token with all metadata:
 ```rust
 pub struct SpendingToken {
     pub entry_ref: EntryRef,     // Where this token was created
-    pub owner: AccountPath,      // Account that owns it
+    pub owner: String,           // Account that owns it
     pub asset_name: String,      // Asset name
     pub qty: i128,               // Quantity (scaled by asset precision)
     pub status: TokenStatus,     // Unspent or Spent
@@ -63,7 +63,7 @@ An aggregated view of unspent tokens grouped by account and asset:
 
 ```rust
 pub struct BalanceEntry {
-    pub account: AccountPath,    // Account owning tokens
+    pub account: String,         // Account owning tokens
     pub asset_name: String,      // Asset name
     pub balance: i128,           // Sum of unspent token quantities
 }
@@ -75,13 +75,13 @@ Returned by `balances_by_prefix()` queries. Zero-balance entries are excluded.
 
 ```
 Transaction committed
-    with credit to @store/cash for 100.00 usd
+    with credit to store/cash for 100.00 usd
         │
         ▼
 ┌─────────────────┐
 │  SpendingToken   │
 │  entry_ref: (tx1, 0)  │
-│  owner: @store/cash    │
+│  owner: store/cash     │
 │  asset: usd            │
 │  qty: 10000            │
 │  status: Unspent       │
@@ -93,7 +93,7 @@ Transaction committed
 ┌─────────────────┐
 │  SpendingToken   │
 │  entry_ref: (tx1, 0)  │
-│  owner: @store/cash    │
+│  owner: store/cash     │
 │  asset: usd            │
 │  qty: 10000            │
 │  status: Spent(1)      │  ← Now spent by tx at index 1
@@ -107,47 +107,47 @@ Transaction committed
 ```rust
 // All unspent tokens for a specific account and asset
 let tokens: Vec<SpendingToken> = ledger.unspent_tokens(
-    &AccountPath::new("@store/cash")?,
+    "store/cash",
     "usd"
 ).await?;
 
 // Balance (sum of unspent token quantities)
 let balance: i128 = ledger.balance(
-    &AccountPath::new("@store/cash")?,
+    "store/cash",
     "usd"
 ).await?;
 ```
 
-Single account queries match **exactly** -- `@store` does not include `@store/cash`.
+Single account queries match **exactly** -- `store` does not include `store/cash`.
 
 ### Prefix Queries
 
 ```rust
 // All unspent tokens under a prefix for a specific asset
 let tokens = ledger.unspent_tokens_prefix(
-    &AccountPath::new("@store")?,
+    "store",
     "usd"
 ).await?;
-// Includes: @store, @store/cash, @store/receivables/sale_1, etc.
+// Includes: store, store/cash, store/receivables/sale_1, etc.
 
 // All unspent tokens under a prefix across ALL assets
 let all = ledger.unspent_all_by_prefix(
-    &AccountPath::new("@store")?
+    "store"
 ).await?;
 
 // Aggregated prefix balance for one asset
 let total = ledger.balance_prefix(
-    &AccountPath::new("@store")?,
+    "store",
     "usd"
 ).await?;
 
 // Grouped balances by (account, asset) under prefix
 let entries: Vec<BalanceEntry> = ledger.balances_by_prefix(
-    &AccountPath::new("@store")?
+    "store"
 ).await?;
 // Returns: [
-//   BalanceEntry { account: @store/cash, asset: "usd", balance: 10000 },
-//   BalanceEntry { account: @store/inventory, asset: "brush", balance: 50 },
+//   BalanceEntry { account: "store/cash", asset: "usd", balance: 10000 },
+//   BalanceEntry { account: "store/inventory", asset: "brush", balance: 50 },
 // ]
 ```
 
@@ -160,8 +160,8 @@ For signed assets, tokens can have negative quantities. These represent obligati
 ```rust
 // A credit sale creates a negative token (debt) and a positive token (receivable)
 TransactionBuilder::new("credit-sale")
-    .credit("@customer/debt", "usd", "-50.00")       // qty = -5000
-    .credit("@store/receivable", "usd", "50.00")      // qty = 5000
+    .credit("customer/debt", "usd", "-50.00")       // qty = -5000
+    .credit("store/receivable", "usd", "50.00")      // qty = 5000
     .build(&assets)?;
 ```
 

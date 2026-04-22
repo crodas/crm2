@@ -62,7 +62,7 @@ pub async fn receive_inventory(
         .await?;
 
         // Credit inventory to the store warehouse
-        let account = format!("@store/{}/product/{}", line.warehouse_id, line.product_id);
+        let account = format!("store/{}/product/{}", line.warehouse_id, line.product_id);
         let asset = state
             .ledger
             .asset(&format!("product:{}", line.product_id))
@@ -107,8 +107,8 @@ pub async fn receive_inventory(
 
         // Debt: supplier is owed, store has payable
         builder = builder
-            .credit(&format!("@supplier/{}", receipt.id), &neg_gs_amount)
-            .credit(&format!("@store/payables/{}", receipt.id), &gs_amount);
+            .credit(&format!("supplier/{}", receipt.id), &neg_gs_amount)
+            .credit(&format!("store/payables/{}", receipt.id), &gs_amount);
 
         // Record metadata for the debt entry
         sqlx::query(
@@ -124,8 +124,8 @@ pub async fn receive_inventory(
         if paid_cash {
             // Settle immediately: cancel the debt
             builder = builder
-                .credit(&format!("@supplier/{}", receipt.id), &gs_amount)
-                .credit(&format!("@store/payables/{}", receipt.id), &neg_gs_amount);
+                .credit(&format!("supplier/{}", receipt.id), &gs_amount)
+                .credit(&format!("store/payables/{}", receipt.id), &neg_gs_amount);
 
             // Record metadata for the payment entry
             sqlx::query(
@@ -162,11 +162,11 @@ pub async fn get_stock(
 ) -> Result<Json<Vec<StockLevel>>, AppError> {
     let entries = state
         .ledger
-        .balances_by_prefix("@store")
+        .balances_by_prefix("store")
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Parse account paths like "@store/{warehouse_id}/product/{product_id}"
+    // Parse account paths like "store/{warehouse_id}/product/{product_id}"
     // and filter to product assets only
     let stock: Vec<StockLevel> = entries
         .iter()
@@ -174,7 +174,7 @@ pub async fn get_stock(
         .filter_map(|e| {
             let path = e.account.as_str();
             let parts: Vec<&str> = path.split('/').collect();
-            // Expected: ["@store", "{wh_id}", "product", "{pid}"]
+            // Expected: ["store", "{wh_id}", "product", "{pid}"]
             if parts.len() != 4 || parts[2] != "product" {
                 return None;
             }
@@ -254,7 +254,7 @@ pub async fn get_receipt(
     .await?;
 
     // Compute supplier balance from the ledger
-    let payable_account = format!("@store/payables/{id}");
+    let payable_account = format!("store/payables/{id}");
     let outstanding = state
         .ledger
         .balance(&payable_account, "gs")
@@ -364,8 +364,8 @@ pub async fn record_supplier_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("supplier-payment-{}", entry.id))
-        .credit(&format!("@supplier/{receipt_id}"), &gs_amount)
-        .credit(&format!("@store/payables/{receipt_id}"), &neg_gs_amount)
+        .credit(&format!("supplier/{receipt_id}"), &gs_amount)
+        .credit(&format!("store/payables/{receipt_id}"), &neg_gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -486,8 +486,8 @@ pub async fn transfer_inventory(
             .parse_amount(&format!("{:.3}", line.quantity))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
-        let from_account = format!("@store/{}/product/{}", from_wh, line.product_id);
-        let to_account = format!("@store/{}/product/{}", to_wh, line.product_id);
+        let from_account = format!("store/{}/product/{}", from_wh, line.product_id);
+        let to_account = format!("store/{}/product/{}", to_wh, line.product_id);
 
         // Debit source (spend UTXO via FIFO), credit destination
         builder = builder
@@ -513,7 +513,7 @@ pub async fn supplier_balance(
 ) -> Result<Json<SupplierBalance>, AppError> {
     let tokens = state
         .ledger
-        .unspent_tokens_prefix("@store/payables", "gs")
+        .unspent_tokens_prefix("store/payables", "gs")
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -575,7 +575,7 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
+            SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
         );
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
@@ -599,7 +599,7 @@ mod tests {
     }
 
     async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
-        let account = format!("@store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}/product/{product_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))
@@ -640,8 +640,8 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         // Verify balances
-        let from_acc = "@store/1/product/1";
-        let to_acc = "@store/2/product/1";
+        let from_acc = "store/1/product/1";
+        let to_acc = "store/2/product/1";
         let from_bal = state.ledger.balance(&from_acc, "product:1").await.unwrap();
         let to_bal = state.ledger.balance(&to_acc, "product:1").await.unwrap();
 

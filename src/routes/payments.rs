@@ -59,10 +59,10 @@ pub async fn record_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("customer-payment-{}", payment.id))
-        .settle_debt(customer_id, &gs_amount)
+        .settle_debt(&customer_id.to_string(), &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .credit("@store/cash", &gs_amount)
+        .credit("store/cash", &gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;

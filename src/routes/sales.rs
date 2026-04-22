@@ -66,7 +66,7 @@ pub async fn create_sale_tx(
     let mut builder = state.ledger.transaction(format!("sale-{}", sale.id));
 
     for &(product_id, warehouse_id, quantity, _price_cents) in lines {
-        let account = format!("@store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}/product/{product_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))
@@ -77,7 +77,9 @@ pub async fn create_sale_tx(
             .parse_amount(&format!("{quantity:.3}"))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
-        builder = builder.debit(&account, &amount).credit("@sold", &amount);
+        builder = builder
+            .debit(&account, &amount)
+            .credit(&format!("customer/{customer_id}"), &amount);
     }
 
     let gs = state
@@ -91,7 +93,7 @@ pub async fn create_sale_tx(
             .try_amount(total.cents().into())
             .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
         builder = builder
-            .create_debt(customer_id, &debt_amount)
+            .create_debt(&customer_id.to_string(), &debt_amount)
             .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
     }
 
@@ -102,7 +104,7 @@ pub async fn create_sale_tx(
             required,
             available,
         } => {
-            // Parse product_id from account "@store/{wh}/product/{pid}"
+            // Parse product_id from account "store/{wh}/product/{pid}"
             let product_id = account
                 .split('/')
                 .last()
@@ -135,7 +137,7 @@ pub async fn create_sale_tx(
         let cash_tx = state
             .ledger
             .transaction(format!("sale-{}-cash", sale.id))
-            .credit("@store/cash", &cash_amount)
+            .credit("store/cash", &cash_amount)
             .build()
             .await
             .map_err(|e| AppError::Internal(format!("cash ledger build: {e}")))?;
@@ -266,10 +268,10 @@ pub async fn record_sale_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("sale-payment-{}", payment.id))
-        .settle_debt(customer_id, &gs_amount)
+        .settle_debt(&customer_id.to_string(), &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .credit("@store/cash", &gs_amount)
+        .credit("store/cash", &gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -335,7 +337,7 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
+            SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
         );
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
@@ -354,7 +356,7 @@ mod tests {
         let tx = state
             .ledger
             .transaction("seed-stock")
-            .credit("@store/1/product/1", &seed_amount)
+            .credit("store/1/product/1", &seed_amount)
             .build()
             .await
             .unwrap();
@@ -407,11 +409,7 @@ mod tests {
         assert_eq!(sale["total_amount"], 100.0);
 
         // Customer should have debt in the ledger (10000 cents)
-        let bal = state
-            .ledger
-            .balance("@customer/1/debt", "gs")
-            .await
-            .unwrap();
+        let bal = state.ledger.balance("customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, -10000);
     }
 
@@ -427,15 +425,11 @@ mod tests {
         assert_eq!(sale["payment_status"], "paid");
 
         // No debt issued for paid sales
-        let bal = state
-            .ledger
-            .balance("@customer/1/debt", "gs")
-            .await
-            .unwrap();
+        let bal = state.ledger.balance("customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, 0);
 
         // Cash account should be credited (10000 cents)
-        let cash_bal = state.ledger.balance("@store/cash", "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("store/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 
@@ -508,15 +502,11 @@ mod tests {
         assert_eq!(detail["sale"]["payment_status"], "paid");
 
         // Ledger should show zero debt (fully settled)
-        let bal = state
-            .ledger
-            .balance("@customer/1/debt", "gs")
-            .await
-            .unwrap();
+        let bal = state.ledger.balance("customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, 0);
 
         // Cash should have full amount (10000 cents)
-        let cash_bal = state.ledger.balance("@store/cash", "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("store/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 }
