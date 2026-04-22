@@ -209,6 +209,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             get(routes::sales::list_sales).post(routes::sales::create_sale),
         )
         .route("/sales/{id}", get(routes::sales::get_sale))
+        .route(
+            "/sales/{id}/payments",
+            post(routes::sales::record_sale_payment),
+        )
         // Teams
         .route(
             "/teams",

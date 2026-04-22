@@ -86,19 +86,31 @@ pub async fn customer_balance(
     State(state): State<Arc<AppState>>,
     Path(customer_id): Path<i64>,
 ) -> Result<Json<CustomerBalance>, AppError> {
-    // Total owed from quotes (SQL — quotes are not managed by ledger)
-    let total_owed: Amount =
+    // Total owed from quotes + sales
+    let quote_owed: Amount =
         sqlx::query_scalar("SELECT COALESCE(SUM(total_amount), 0) FROM quotes WHERE customer_id = ? AND status IN ('accepted', 'booked')")
             .bind(customer_id)
             .fetch_one(&state.pool)
             .await?;
+    let sale_owed: Amount =
+        sqlx::query_scalar("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE customer_id = ?")
+            .bind(customer_id)
+            .fetch_one(&state.pool)
+            .await?;
+    let total_owed = quote_owed + sale_owed;
 
-    // Total paid from payment_utxos metadata (still in SQL)
-    let total_paid: Amount =
+    // Total paid from payment_utxos (quotes) + sale_payments
+    let quote_paid: Amount =
         sqlx::query_scalar("SELECT COALESCE(SUM(amount), 0) FROM payment_utxos WHERE quote_id IN (SELECT id FROM quotes WHERE customer_id = ?)")
             .bind(customer_id)
             .fetch_one(&state.pool)
             .await?;
+    let sale_paid: Amount =
+        sqlx::query_scalar("SELECT COALESCE(SUM(amount), 0) FROM sale_payments WHERE sale_id IN (SELECT id FROM sales WHERE customer_id = ?)")
+            .bind(customer_id)
+            .fetch_one(&state.pool)
+            .await?;
+    let total_paid = quote_paid + sale_paid;
 
     Ok(Json(CustomerBalance {
         customer_id,
@@ -124,7 +136,7 @@ pub async fn total_receivables(
         total_paid: Amount,
     }
 
-    let row = sqlx::query_as::<_, Row>(
+    let quote_row = sqlx::query_as::<_, Row>(
         "SELECT
             COALESCE(SUM(q.total_amount), 0) as total_owed,
             COALESCE(SUM(COALESCE(p.paid, 0)), 0) as total_paid
@@ -139,9 +151,26 @@ pub async fn total_receivables(
     .fetch_one(&state.pool)
     .await?;
 
+    let sale_row = sqlx::query_as::<_, Row>(
+        "SELECT
+            COALESCE(SUM(s.total_amount), 0) as total_owed,
+            COALESCE(SUM(COALESCE(p.paid, 0)), 0) as total_paid
+         FROM sales s
+         LEFT JOIN (
+            SELECT sale_id, SUM(amount) as paid
+            FROM sale_payments
+            GROUP BY sale_id
+         ) p ON p.sale_id = s.id",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+
+    let total_owed = quote_row.total_owed + sale_row.total_owed;
+    let total_paid = quote_row.total_paid + sale_row.total_paid;
+
     Ok(Json(ReceivablesBalance {
-        total_owed: row.total_owed,
-        total_paid: row.total_paid,
-        outstanding: row.total_owed - row.total_paid,
+        total_owed,
+        total_paid,
+        outstanding: total_owed - total_paid,
     }))
 }

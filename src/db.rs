@@ -71,6 +71,10 @@ async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
             "010_drop_old_utxo",
             include_str!("../migrations/010_drop_old_utxo.sql"),
         ),
+        (
+            "011_sale_payments",
+            include_str!("../migrations/011_sale_payments.sql"),
+        ),
     ];
 
     for (name, sql) in migrations {

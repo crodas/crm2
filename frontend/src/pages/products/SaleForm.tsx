@@ -24,6 +24,8 @@ export default function SaleForm() {
   const [customerId, setCustomerId] = useState(0)
   const [notes, setNotes] = useState('')
   const [lines, setLines] = useState<SaleLine[]>([])
+  const [payNow, setPayNow] = useState(true)
+  const [paymentMethod, setPaymentMethod] = useState('cash')
 
   // Auto-resolve customer group from customer type
   const selectedCustomer = useMemo(
@@ -88,6 +90,7 @@ export default function SaleForm() {
       customer_group_id: customerGroup?.id,
       notes: notes || null,
       lines,
+      payment_method: payNow ? paymentMethod : null,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['sales'] })
@@ -156,6 +159,31 @@ export default function SaleForm() {
           <button className="btn" onClick={addLine}>{t('sales.addItem')}</button>
           <strong>{t('sales.total')} {total.toLocaleString()}</strong>
         </div>
+
+        <div className="form-group mt-2 mb-1">
+          <label style={{ display: 'flex', gap: '1rem' }}>
+            <label style={{ cursor: 'pointer' }}>
+              <input type="radio" checked={payNow} onChange={() => setPayNow(true)} />{' '}
+              {t('sales.payNow')}
+            </label>
+            <label style={{ cursor: 'pointer' }}>
+              <input type="radio" checked={!payNow} onChange={() => setPayNow(false)} />{' '}
+              {t('sales.payLater')}
+            </label>
+          </label>
+        </div>
+
+        {payNow && (
+          <div className="form-group mb-1">
+            <label>{t('sales.paymentMethod')}</label>
+            <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}>
+              <option value="cash">{t('sales.cash')}</option>
+              <option value="card">{t('sales.card')}</option>
+              <option value="transfer">{t('sales.transfer')}</option>
+              <option value="check">{t('sales.check')}</option>
+            </select>
+          </div>
+        )}
 
         <button
           className="btn btn-primary mt-2"
