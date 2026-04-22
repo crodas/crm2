@@ -23,7 +23,10 @@ use crate::debt::DebtStrategy;
 ///
 /// ```ignore
 /// let ledger = Ledger::new(storage)
-///     .with_debt_strategy(SignedPositionDebt);
+///     .with_debt_strategy(SignedPositionDebt::new(
+///         "@customer/{id}/debt",
+///         "@store/receivables/{id}",
+///     ));
 /// ```
 ///
 /// Without a strategy, debt methods on the builder return
@@ -113,54 +116,60 @@ impl Ledger {
     /// Return the balance of a specific account for a given asset.
     pub async fn balance(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<i128, LedgerError> {
-        self.inner.balance(account, asset_name).await
+        let path = parse_path(account)?;
+        self.inner.balance(&path, asset_name).await
     }
 
     /// Return the aggregate balance of all accounts under a prefix.
     pub async fn balance_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<i128, LedgerError> {
-        self.inner.balance_prefix(prefix, asset_name).await
+        let path = parse_path(prefix)?;
+        self.inner.balance_prefix(&path, asset_name).await
     }
 
     /// Return all unspent tokens owned by the given account for a given asset.
     pub async fn unspent_tokens(
         &self,
-        account: &AccountPath,
+        account: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_tokens(account, asset_name).await
+        let path = parse_path(account)?;
+        self.inner.unspent_tokens(&path, asset_name).await
     }
 
     /// Return all unspent tokens under a prefix for a given asset.
     pub async fn unspent_tokens_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_tokens_prefix(prefix, asset_name).await
+        let path = parse_path(prefix)?;
+        self.inner.unspent_tokens_prefix(&path, asset_name).await
     }
 
     /// Return all unspent tokens under a prefix, across all assets.
     pub async fn unspent_all_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_all_by_prefix(prefix).await
+        let path = parse_path(prefix)?;
+        self.inner.unspent_all_by_prefix(&path).await
     }
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under a prefix.
     pub async fn balances_by_prefix(
         &self,
-        prefix: &AccountPath,
+        prefix: &str,
     ) -> Result<Vec<BalanceEntry>, LedgerError> {
-        self.inner.balances_by_prefix(prefix).await
+        let path = parse_path(prefix)?;
+        self.inner.balances_by_prefix(&path).await
     }
 
     /// Return all committed transactions in append order.
@@ -172,4 +181,8 @@ impl Ledger {
     pub async fn tx_count(&self) -> Result<usize, LedgerError> {
         self.inner.tx_count().await
     }
+}
+
+fn parse_path(s: &str) -> Result<AccountPath, LedgerError> {
+    AccountPath::new(s).map_err(|e| LedgerError::InvalidAccount(e.to_string()))
 }

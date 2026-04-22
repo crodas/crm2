@@ -4,7 +4,6 @@ use axum::{
 };
 use std::sync::Arc;
 
-use ledger::AccountPath;
 
 use crate::amount::Amount;
 use crate::error::AppError;
@@ -83,12 +82,8 @@ pub async fn create_sale_tx(
             .ledger
             .asset("gs")
             .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
-        let debtor = AccountPath::new(&format!("@customer/{customer_id}/debt"))
-            .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
-        let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
-            .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
         builder = builder
-            .create_debt(&debtor, &creditor, &gs, total.cents().into())
+            .create_debt(customer_id, &gs, total.cents().into())
             .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
     }
 
@@ -250,10 +245,6 @@ pub async fn record_sale_payment(
     let customer_id = sale.customer_id;
     let amount: i128 = body.amount.cents().into();
 
-    let debtor = AccountPath::new(&format!("@customer/{customer_id}/debt"))
-        .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
-    let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
-        .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
     let gs = state
         .ledger
         .asset("gs")
@@ -263,7 +254,7 @@ pub async fn record_sale_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("sale-payment-{}", payment.id))
-        .settle_debt(&debtor, &creditor, &gs, amount)
+        .settle_debt(customer_id, &gs, amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
         .credit("@store/cash", "gs", &amount_str)
@@ -331,7 +322,9 @@ mod tests {
         let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone())
             .await
             .unwrap();
-        let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(SignedPositionDebt);
+        let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
+            SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
+        );
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -400,8 +393,7 @@ mod tests {
         assert_eq!(sale["total_amount"], 100.0);
 
         // Customer should have debt in the ledger (10000 cents)
-        let debtor = ledger::AccountPath::new("@customer/1/debt").unwrap();
-        let bal = state.ledger.balance(&debtor, "gs").await.unwrap();
+        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, -10000);
     }
 
@@ -417,13 +409,11 @@ mod tests {
         assert_eq!(sale["payment_status"], "paid");
 
         // No debt issued for paid sales
-        let debtor = ledger::AccountPath::new("@customer/1/debt").unwrap();
-        let bal = state.ledger.balance(&debtor, "gs").await.unwrap();
+        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, 0);
 
         // Cash account should be credited (10000 cents)
-        let cash = ledger::AccountPath::new("@store/cash").unwrap();
-        let cash_bal = state.ledger.balance(&cash, "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("@store/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 
@@ -496,13 +486,11 @@ mod tests {
         assert_eq!(detail["sale"]["payment_status"], "paid");
 
         // Ledger should show zero debt (fully settled)
-        let debtor = ledger::AccountPath::new("@customer/1/debt").unwrap();
-        let bal = state.ledger.balance(&debtor, "gs").await.unwrap();
+        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
         assert_eq!(bal, 0);
 
         // Cash should have full amount (10000 cents)
-        let cash = ledger::AccountPath::new("@store/cash").unwrap();
-        let cash_bal = state.ledger.balance(&cash, "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("@store/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 }

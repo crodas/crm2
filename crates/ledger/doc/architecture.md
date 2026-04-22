@@ -14,7 +14,7 @@ All core functionality -- transaction validation, token management, balance quer
 ```rust
 pub struct Ledger {
     inner: ledger_core::Ledger,
-    debt_strategy: Option<Box<dyn DebtStrategy>>,
+    debt_strategy: Option<Arc<dyn DebtStrategy>>,
 }
 ```
 
@@ -52,7 +52,7 @@ Debt operations are part of the same fluent chain:
 let tx = ledger.transaction("key")
     .debit("@store/inventory", "brush", "3")
     .credit("@customer/1", "brush", "3")
-    .create_debt(&debtor, &creditor, &asset, 5000)?
+    .create_debt(customer_id, &asset, 5000)?
     .build().await?;
 ```
 

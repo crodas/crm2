@@ -47,11 +47,11 @@ Raised by debt strategies when the amount is zero or negative. Both `issue()` an
 
 ```rust
 ledger.transaction("tx")
-    .create_debt(&debtor, &creditor, &usd, 0);
+    .create_debt(customer_id, &usd, 0);
 // => Err(NonPositiveAmount)
 
 ledger.transaction("tx")
-    .create_debt(&debtor, &creditor, &usd, -100);
+    .create_debt(customer_id, &usd, -100);
 // => Err(NonPositiveAmount)
 ```
 
@@ -62,7 +62,7 @@ Raised by `SplitAssetDebt::settle()` when the debtor doesn't owe enough or the c
 ```rust
 // Customer owes 50.00 on usd.d
 ledger.transaction("tx")
-    .settle_debt(&debtor, &creditor, &usd, 10000).await;
+    .settle_debt(customer_id, &usd, 10000).await;
 // => Err(InsufficientDebt { required: 10000, available: 5000 })
 ```
 
@@ -73,7 +73,7 @@ Raised by `TransactionBuilder::create_debt()` or `TransactionBuilder::settle_deb
 ```rust
 let ledger = Ledger::new(storage);  // No strategy set
 ledger.transaction("tx")
-    .create_debt(&debtor, &creditor, &usd, 5000);
+    .create_debt(customer_id, &usd, 5000);
 // => Err(NoDebtStrategy)
 ```
 
@@ -106,7 +106,7 @@ match builder.build().await {
 For settlements that exceed the outstanding debt:
 
 ```rust
-match builder.settle_debt(&debtor, &creditor, &usd, amount).await {
+match builder.settle_debt(customer_id, &usd, amount).await {
     Err(Error::InsufficientDebt { available, .. }) => {
         // Settle only the available amount instead
     }

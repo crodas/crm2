@@ -38,66 +38,80 @@
 //!   rather than linked UTXO chains.
 
 use async_trait::async_trait;
-use ledger_core::{AccountPath, Asset};
+use ledger_core::Asset;
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
 
-use super::DebtStrategy;
+use super::{resolve_template, DebtStrategy};
 
 /// Debt on the same asset using the signed-position model.
+///
+/// Configured with debtor/creditor path templates containing `{id}`.
 ///
 /// - `issue`: credits debtor with `-amount` and creditor with `+amount`
 ///   on the *same* asset (issuance — no debits needed).
 /// - `settle`: credits debtor with `+amount` and creditor with `-amount`
 ///   (issuance that offsets the original position).
-pub struct SignedPositionDebt;
+pub struct SignedPositionDebt {
+    debtor_template: String,
+    creditor_template: String,
+}
+
+impl SignedPositionDebt {
+    pub fn new(
+        debtor_template: impl Into<String>,
+        creditor_template: impl Into<String>,
+    ) -> Self {
+        Self {
+            debtor_template: debtor_template.into(),
+            creditor_template: creditor_template.into(),
+        }
+    }
+}
 
 #[async_trait]
 impl DebtStrategy for SignedPositionDebt {
     fn issue(
         &self,
         builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: &str,
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error> {
         if amount <= 0 {
             return Err(Error::NonPositiveAmount);
         }
+        let debtor = resolve_template(&self.debtor_template, entity_id)?;
+        let creditor = resolve_template(&self.creditor_template, entity_id)?;
         let neg = asset.from_cents(-amount);
         let pos = asset.from_cents(amount);
         let asset_name = asset.name();
 
-        Ok(builder.credit(debtor.as_str(), asset_name, &neg).credit(
-            creditor.as_str(),
-            asset_name,
-            &pos,
-        ))
+        Ok(builder
+            .credit(debtor.as_str(), asset_name, &neg)
+            .credit(creditor.as_str(), asset_name, &pos))
     }
 
     async fn settle(
         &self,
         builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: &str,
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error> {
         if amount <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        // Issuance that offsets the original position.
+        let debtor = resolve_template(&self.debtor_template, entity_id)?;
+        let creditor = resolve_template(&self.creditor_template, entity_id)?;
         let pos = asset.from_cents(amount);
         let neg = asset.from_cents(-amount);
         let asset_name = asset.name();
 
-        Ok(builder.credit(debtor.as_str(), asset_name, &pos).credit(
-            creditor.as_str(),
-            asset_name,
-            &neg,
-        ))
+        Ok(builder
+            .credit(debtor.as_str(), asset_name, &pos)
+            .credit(creditor.as_str(), asset_name, &neg))
     }
 }
 
@@ -105,7 +119,7 @@ impl DebtStrategy for SignedPositionDebt {
 mod tests {
     use std::sync::Arc;
 
-    use ledger_core::{AccountPath, Asset, AssetKind, MemoryStorage};
+    use ledger_core::{Asset, AssetKind, MemoryStorage};
 
     use crate::error::Error;
     use crate::Ledger;
@@ -114,7 +128,10 @@ mod tests {
 
     async fn setup_ledger() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
-        let ledger = Ledger::new(storage).with_debt_strategy(SignedPositionDebt);
+        let ledger = Ledger::new(storage).with_debt_strategy(SignedPositionDebt::new(
+            "@customer/{id}",
+            "@store/{id}",
+        ));
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -130,14 +147,6 @@ mod tests {
         Asset::new("gs", 0, AssetKind::Signed)
     }
 
-    fn debtor() -> AccountPath {
-        AccountPath::new("@customer/1").unwrap()
-    }
-
-    fn creditor() -> AccountPath {
-        AccountPath::new("@store").unwrap()
-    }
-
     #[tokio::test]
     async fn no_strategy_returns_error() {
         let storage = Arc::new(MemoryStorage::new());
@@ -147,9 +156,7 @@ mod tests {
             .await
             .unwrap();
 
-        let result = ledger
-            .transaction("debt-001")
-            .create_debt(&debtor(), &creditor(), &gs(), 10000);
+        let result = ledger.transaction("debt-001").create_debt(1, &gs(), 10000);
         assert!(matches!(result, Err(Error::NoDebtStrategy)));
     }
 
@@ -159,15 +166,15 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .create_debt(1, &gs(), 10000)
             .unwrap()
             .build()
             .await
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance(&debtor(), "gs").await.unwrap(), -10000);
-        assert_eq!(ledger.balance(&creditor(), "gs").await.unwrap(), 10000);
+        assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), -10000);
+        assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 10000);
     }
 
     #[tokio::test]
@@ -176,7 +183,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .create_debt(1, &gs(), 10000)
             .unwrap()
             .build()
             .await
@@ -185,7 +192,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(&debtor(), &creditor(), &gs(), 10000)
+            .settle_debt(1, &gs(), 10000)
             .await
             .unwrap()
             .build()
@@ -193,8 +200,8 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance(&debtor(), "gs").await.unwrap(), 0);
-        assert_eq!(ledger.balance(&creditor(), "gs").await.unwrap(), 0);
+        assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), 0);
+        assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -203,7 +210,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .create_debt(1, &gs(), 10000)
             .unwrap()
             .build()
             .await
@@ -212,7 +219,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(&debtor(), &creditor(), &gs(), 6000)
+            .settle_debt(1, &gs(), 6000)
             .await
             .unwrap()
             .build()
@@ -220,8 +227,8 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance(&debtor(), "gs").await.unwrap(), -4000);
-        assert_eq!(ledger.balance(&creditor(), "gs").await.unwrap(), 4000);
+        assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), -4000);
+        assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 4000);
     }
 
     #[tokio::test]
@@ -240,18 +247,17 @@ mod tests {
             .transaction("sale-001")
             .debit("@store/inventory", "brush", "3")
             .credit("@customer/1", "brush", "3")
-            .create_debt(&debtor(), &creditor(), &gs(), 5000)
+            .create_debt(1, &gs(), 5000)
             .unwrap()
             .build()
             .await
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        let inv = AccountPath::new("@store/inventory").unwrap();
-        assert_eq!(ledger.balance(&inv, "brush").await.unwrap(), 7);
-        assert_eq!(ledger.balance(&debtor(), "brush").await.unwrap(), 3);
-        assert_eq!(ledger.balance(&debtor(), "gs").await.unwrap(), -5000);
-        assert_eq!(ledger.balance(&creditor(), "gs").await.unwrap(), 5000);
+        assert_eq!(ledger.balance("@store/inventory", "brush").await.unwrap(), 7);
+        assert_eq!(ledger.balance("@customer/1", "brush").await.unwrap(), 3);
+        assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), -5000);
+        assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 5000);
     }
 
     #[tokio::test]
@@ -260,7 +266,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .create_debt(1, &gs(), 10000)
             .unwrap()
             .build()
             .await
@@ -269,7 +275,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(&debtor(), &creditor(), &gs(), 5000)
+            .settle_debt(1, &gs(), 5000)
             .await
             .unwrap()
             .credit("@store/cash", "gs", "5000")
@@ -278,24 +284,19 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance(&debtor(), "gs").await.unwrap(), -5000);
-        assert_eq!(ledger.balance(&creditor(), "gs").await.unwrap(), 5000);
-        let cash = AccountPath::new("@store/cash").unwrap();
-        assert_eq!(ledger.balance(&cash, "gs").await.unwrap(), 5000);
+        assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), -5000);
+        assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 5000);
+        assert_eq!(ledger.balance("@store/cash", "gs").await.unwrap(), 5000);
     }
 
     #[tokio::test]
     async fn non_positive_amount_rejected() {
         let ledger = setup_ledger().await;
 
-        let result = ledger
-            .transaction("bad")
-            .create_debt(&debtor(), &creditor(), &gs(), 0);
+        let result = ledger.transaction("bad").create_debt(1, &gs(), 0);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
-        let result = ledger
-            .transaction("bad2")
-            .create_debt(&debtor(), &creditor(), &gs(), -100);
+        let result = ledger.transaction("bad2").create_debt(1, &gs(), -100);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }
 }

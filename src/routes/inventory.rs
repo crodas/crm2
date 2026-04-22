@@ -2,7 +2,6 @@ use axum::{
     extract::{Path, Query, State},
     Json,
 };
-use ledger::AccountPath;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -150,10 +149,9 @@ pub async fn get_stock(
     State(state): State<Arc<AppState>>,
     Query(params): Query<StockQuery>,
 ) -> Result<Json<Vec<StockLevel>>, AppError> {
-    let prefix = AccountPath::new("@store").map_err(|e| AppError::Internal(e.to_string()))?;
     let entries = state
         .ledger
-        .balances_by_prefix(&prefix)
+        .balances_by_prefix("@store")
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -247,10 +245,11 @@ pub async fn get_receipt(
 
     // Compute supplier balance from the ledger
     let payable_account = format!("@store/payables/{id}");
-    let outstanding = match AccountPath::new(&payable_account) {
-        Ok(acc) => state.ledger.balance(&acc, "gs").await.unwrap_or(0),
-        Err(_) => 0,
-    };
+    let outstanding = state
+        .ledger
+        .balance(&payable_account, "gs")
+        .await
+        .unwrap_or(0);
 
     let total_paid: i64 = ledger_entries
         .iter()
@@ -485,11 +484,9 @@ pub async fn transfer_inventory(
 pub async fn supplier_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SupplierBalance>, AppError> {
-    let prefix =
-        AccountPath::new("@store/payables").map_err(|e| AppError::Internal(e.to_string()))?;
     let tokens = state
         .ledger
-        .unspent_tokens_prefix(&prefix, "gs")
+        .unspent_tokens_prefix("@store/payables", "gs")
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -542,7 +539,9 @@ mod tests {
             .await
             .unwrap();
         let ledger =
-            ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(SignedPositionDebt);
+            ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
+                SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
+            );
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -606,8 +605,8 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         // Verify balances
-        let from_acc = ledger::AccountPath::new("@store/1/product/1").unwrap();
-        let to_acc = ledger::AccountPath::new("@store/2/product/1").unwrap();
+        let from_acc = "@store/1/product/1";
+        let to_acc = "@store/2/product/1";
         let from_bal = state.ledger.balance(&from_acc, "product:1").await.unwrap();
         let to_bal = state.ledger.balance(&to_acc, "product:1").await.unwrap();
 

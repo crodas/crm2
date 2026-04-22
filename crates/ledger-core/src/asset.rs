@@ -67,6 +67,23 @@ impl Asset {
         self.kind
     }
 
+    /// Create a validated [`Amount`] from a raw scaled integer.
+    ///
+    /// Returns `Err(NegativeUnsigned)` if the asset is unsigned and `raw < 0`.
+    ///
+    /// ```
+    /// # use ledger_core::{Asset, AssetKind};
+    /// let usd = Asset::new("usd", 2, AssetKind::Signed);
+    /// let amt = usd.try_amount(1050).unwrap();
+    /// assert_eq!(amt.raw(), 1050);
+    ///
+    /// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    /// assert!(brush.try_amount(-1).is_err());
+    /// ```
+    pub fn try_amount(&self, raw: i128) -> Result<crate::Amount, crate::LedgerError> {
+        crate::Amount::new(self.clone(), raw)
+    }
+
     /// Convert a scaled integer amount to its decimal string representation.
     ///
     /// Amounts are stored internally as integers scaled by `10^precision`

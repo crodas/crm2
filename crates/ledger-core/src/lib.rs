@@ -5,6 +5,7 @@
 //! and hierarchical account paths.
 
 mod account;
+mod amount;
 mod asset;
 mod error;
 mod ledger;
@@ -16,6 +17,7 @@ mod token;
 mod transaction;
 
 pub use account::AccountPath;
+pub use amount::Amount;
 pub use asset::{Asset, AssetKind};
 pub use error::LedgerError;
 pub use ledger::Ledger;

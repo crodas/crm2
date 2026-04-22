@@ -138,17 +138,16 @@ impl TransactionBuilder {
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
     pub fn create_debt(
         mut self,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: i64,
         asset: &Asset,
         amount: i128,
     ) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy.issue(self, debtor, creditor, asset, amount)?;
+        self = strategy.issue(self, &entity_id.to_string(), asset, amount)?;
         Ok(self)
     }
 
-    /// Settle debt: reduce `debtor`'s obligation to `creditor` by `amount`.
+    /// Settle debt: reduce the entity's obligation by `amount`.
     ///
     /// Adds settlement entries to the transaction using the configured
     /// [`DebtStrategy`]. The caller is responsible for adding the cash
@@ -157,13 +156,14 @@ impl TransactionBuilder {
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
     pub async fn settle_debt(
         mut self,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: i64,
         asset: &Asset,
         amount: i128,
     ) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy.settle(self, debtor, creditor, asset, amount).await?;
+        self = strategy
+            .settle(self, &entity_id.to_string(), asset, amount)
+            .await?;
         Ok(self)
     }
 
@@ -332,22 +332,8 @@ mod tests {
             .expect("build issuance tx");
         ledger.commit(tx).await.expect("commit issuance tx");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
-        assert_eq!(
-            ledger
-                .balance(&store, "brush")
-                .await
-                .expect("store brush balance"),
-            5
-        );
-        assert_eq!(
-            ledger
-                .balance(&cust, "brush")
-                .await
-                .expect("cust brush balance"),
-            5
-        );
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 5);
+        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 5);
     }
 
     #[tokio::test]
@@ -376,22 +362,8 @@ mod tests {
             .expect("build issuance tx");
         ledger.commit(tx).await.expect("commit issuance tx");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
-        assert_eq!(
-            ledger
-                .balance(&store, "brush")
-                .await
-                .expect("store brush balance"),
-            3
-        ); // 2 remaining + 1 change
-        assert_eq!(
-            ledger
-                .balance(&cust, "brush")
-                .await
-                .expect("cust brush balance"),
-            6
-        );
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 3);
+        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 6);
     }
 
     #[tokio::test]
@@ -414,14 +386,7 @@ mod tests {
 
         ledger.commit(tx).await.expect("commit tx");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        assert_eq!(
-            ledger
-                .balance(&store, "brush")
-                .await
-                .expect("store brush balance"),
-            0
-        );
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 0);
     }
 
     #[tokio::test]
@@ -454,14 +419,7 @@ mod tests {
         assert!(tx.debits.is_empty());
         ledger.commit(tx).await.expect("commit tx");
 
-        let store = AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        assert_eq!(
-            ledger
-                .balance(&store, "brush")
-                .await
-                .expect("store brush balance"),
-            10
-        );
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 10);
     }
 
     #[tokio::test]
@@ -482,38 +440,10 @@ mod tests {
             .expect("build issuance tx");
         ledger.commit(tx).await.expect("commit issuance tx");
 
-        let store_inv =
-            AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        let store_cash = AccountPath::new("@store1/cash").expect("valid path: @store1/cash");
-        let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
-        assert_eq!(
-            ledger
-                .balance(&store_inv, "brush")
-                .await
-                .expect("store_inv brush balance"),
-            7
-        );
-        assert_eq!(
-            ledger
-                .balance(&store_cash, "usd")
-                .await
-                .expect("store_cash usd balance"),
-            7500
-        );
-        assert_eq!(
-            ledger
-                .balance(&cust, "brush")
-                .await
-                .expect("cust brush balance"),
-            3
-        );
-        assert_eq!(
-            ledger
-                .balance(&cust, "usd")
-                .await
-                .expect("cust usd balance"),
-            2500
-        );
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 7);
+        assert_eq!(ledger.balance("@store1/cash", "usd").await.unwrap(), 7500);
+        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 3);
+        assert_eq!(ledger.balance("@customer1", "usd").await.unwrap(), 2500);
     }
 
     #[tokio::test]
@@ -533,29 +463,8 @@ mod tests {
             .expect("build issuance tx");
         ledger.commit(tx).await.expect("commit issuance tx");
 
-        let cust = AccountPath::new("@customer1").expect("valid path: @customer1");
-        let store_inv =
-            AccountPath::new("@store1/inventory").expect("valid path: @store1/inventory");
-        assert_eq!(
-            ledger
-                .balance(&cust, "brush")
-                .await
-                .expect("cust brush balance"),
-            2
-        );
-        assert_eq!(
-            ledger
-                .balance(&cust, "usd")
-                .await
-                .expect("cust usd balance"),
-            -1000
-        );
-        assert_eq!(
-            ledger
-                .balance(&store_inv, "brush")
-                .await
-                .expect("store_inv brush balance"),
-            3
-        );
+        assert_eq!(ledger.balance("@customer1", "brush").await.unwrap(), 2);
+        assert_eq!(ledger.balance("@customer1", "usd").await.unwrap(), -1000);
+        assert_eq!(ledger.balance("@store1/inventory", "brush").await.unwrap(), 3);
     }
 }

@@ -5,7 +5,6 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 
-use ledger::AccountPath;
 
 use crate::amount::Amount;
 use crate::error::AppError;
@@ -50,10 +49,6 @@ pub async fn record_payment(
     let amount: i128 = body.amount.cents().into();
     let customer_id = quote.customer_id;
 
-    let debtor = AccountPath::new(&format!("@customer/{customer_id}/debt"))
-        .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
-    let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
-        .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
     let gs = state
         .ledger
         .asset("gs")
@@ -63,7 +58,7 @@ pub async fn record_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("customer-payment-{}", payment.id))
-        .settle_debt(&debtor, &creditor, &gs, amount)
+        .settle_debt(customer_id, &gs, amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
         .credit("@store/cash", "gs", &amount_str)

@@ -130,7 +130,7 @@ Debt strategies use the builder's `debit_raw()` and `credit()` methods to inject
 let tx = ledger.transaction("credit-sale")
     .debit("@store/inventory", "brush", 5)
     .credit("@customer/goods", "brush", "5")
-    .create_debt(&debtor, &creditor, &usd, 5000)?
+    .create_debt(customer_id, &usd, 5000)?
     .build().await?;
 ```
 

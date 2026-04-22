@@ -35,8 +35,11 @@ use ledger::debt::SignedPositionDebt;
 use std::sync::Arc;
 
 let storage = Arc::new(MemoryStorage::new());
-let mut ledger = Ledger::new(storage);
-ledger.with_debt_strategy(SignedPositionDebt);
+let ledger = Ledger::new(storage)
+    .with_debt_strategy(SignedPositionDebt::new(
+        "@customer/{id}/debt",
+        "@store/receivables/{id}",
+    ));
 
 // Register assets
 ledger.register_asset(Asset::new("usd", 2, AssetKind::Signed)).await?;
@@ -51,7 +54,7 @@ ledger.commit(tx).await?;
 
 // Issue and settle debt as part of the builder flow
 let tx = ledger.transaction("credit-sale-001")
-    .create_debt(&debtor, &creditor, &usd_asset, 5000)?
+    .create_debt(customer_id, &usd_asset, 5000)?
     .build().await?;
 ledger.commit(tx).await?;
 ```

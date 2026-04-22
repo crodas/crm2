@@ -12,8 +12,7 @@ pub trait DebtStrategy: Send + Sync {
     fn issue(
         &self,
         builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: &str,
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error>;
@@ -21,13 +20,14 @@ pub trait DebtStrategy: Send + Sync {
     async fn settle(
         &self,
         builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
+        entity_id: &str,
         asset: &Asset,
         amount: i128,
     ) -> Result<TransactionBuilder, Error>;
 }
 ```
+
+Strategies are constructed with debtor/creditor path templates containing `{id}`, which is replaced with the entity identifier at call time.
 
 ### Design Philosophy
 
@@ -44,6 +44,19 @@ As long as the resulting transaction satisfies the core conservation invariant, 
 ### Why `issue` is Sync and `settle` is Async
 
 Issuing debt only adds credits to the builder -- no storage queries needed. Settlement, however, may need to query unspent tokens (e.g., `SplitAssetDebt` must find and select debt tokens to consume). Hence `settle` is async.
+
+### Path Templates
+
+Each strategy is constructed with debtor/creditor path templates:
+
+```rust
+let strategy = SignedPositionDebt::new(
+    "@customer/{id}/debt",        // debtor template
+    "@store/receivables/{id}",    // creditor template
+);
+```
+
+The `{id}` placeholder is replaced with the entity identifier when `create_debt(entity_id, ...)` or `settle_debt(entity_id, ...)` is called. This keeps account path conventions in one place (strategy configuration) rather than scattered across route handlers.
 
 ## SignedPositionDebt
 
@@ -173,11 +186,11 @@ Both sides generate change credits if the selected tokens exceed the settlement 
 ### Query Helpers
 
 ```rust
-// How much does the debtor owe? (absolute value of negative balance)
-let owed = SplitAssetDebt::owed_by(&ledger, &debtor, &usd_asset).await?;
+// How much does entity 1 owe? (absolute value of negative balance)
+let owed = strategy.owed_by(&ledger, 1, &usd_asset).await?;
 
-// How much is owed to the creditor? (positive balance)
-let receivable = SplitAssetDebt::owed_to(&ledger, &creditor, &usd_asset).await?;
+// How much is owed to entity 1? (positive balance)
+let receivable = strategy.owed_to(&ledger, 1, &usd_asset).await?;
 ```
 
 ### Advantages
