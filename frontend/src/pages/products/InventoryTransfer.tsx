@@ -55,13 +55,14 @@ export default function InventoryTransfer() {
   const sameWarehouse = fromWarehouseId === toWarehouseId && fromWarehouseId !== 0
 
   const mutation = useMutation({
-    mutationFn: () => api.post('/inventory/transfer', {
+    mutationFn: () => api.post('/inventory/transfers', {
       from_warehouse_id: fromWarehouseId,
       to_warehouse_id: toWarehouseId,
       lines,
     }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['stock'] })
+      qc.invalidateQueries({ queryKey: ['transfers'] })
       nav('/inventory')
     },
   })

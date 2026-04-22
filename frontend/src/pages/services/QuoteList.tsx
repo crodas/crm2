@@ -35,7 +35,7 @@ export default function QuoteList() {
                 </td>
                 <td><span className={`badge badge-${q.status}`}>{q.status}</span></td>
                 <td>{q.total_amount.toLocaleString()}</td>
-                <td>{new Date(q.created_at).toLocaleDateString()}</td>
+                <td>{new Date(q.created_at).toLocaleString()}</td>
               </tr>
             ))}
           </tbody>

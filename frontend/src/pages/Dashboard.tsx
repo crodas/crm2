@@ -64,7 +64,7 @@ export default function Dashboard() {
               {bookings.slice(0, 5).map((b: any) => (
                 <tr key={b.id}>
                   <td><Link to={`/bookings/${b.id}`}>{b.title}</Link></td>
-                  <td>{new Date(b.start_at).toLocaleDateString()}</td>
+                  <td>{new Date(b.start_at).toLocaleString()}</td>
                   <td><span className={`badge badge-${b.status}`}>{b.status}</span></td>
                 </tr>
               ))}

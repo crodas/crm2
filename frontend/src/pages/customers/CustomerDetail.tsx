@@ -66,7 +66,7 @@ export default function CustomerDetail() {
               {e.amount != null && <span style={{ marginLeft: '0.5rem', color: 'var(--text-muted)' }}>{e.amount.toLocaleString()}</span>}
             </div>
             <div style={{ color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              {new Date(e.date).toLocaleDateString()}
+              {new Date(e.date).toLocaleString()}
             </div>
           </div>
         )) : <p>{t('customers.noActivity')}</p>}

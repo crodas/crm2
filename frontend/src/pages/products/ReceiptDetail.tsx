@@ -60,7 +60,7 @@ export default function ReceiptDetail() {
           <p><strong>{t('inventory.debt')}</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
             {balance.toLocaleString()}
           </span></p>
-          <p><strong>{t('inventory.received_label')}</strong> {new Date(receipt.received_at).toLocaleDateString()}</p>
+          <p><strong>{t('inventory.received_label')}</strong> {new Date(receipt.received_at).toLocaleString()}</p>
         </div>
 
         {hasDebt && (
@@ -120,7 +120,7 @@ export default function ReceiptDetail() {
             <tbody>
               {ledger.map((e: any) => (
                 <tr key={e.id}>
-                  <td>{new Date(e.created_at).toLocaleDateString()}</td>
+                  <td>{new Date(e.created_at).toLocaleString()}</td>
                   <td style={{ color: e.amount < 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
                     {e.amount.toLocaleString()}
                   </td>

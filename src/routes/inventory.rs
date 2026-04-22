@@ -364,6 +364,57 @@ pub async fn record_supplier_payment(
     Ok(Json(entry))
 }
 
+pub async fn list_transfers(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    let txs = state
+        .ledger
+        .transactions()
+        .await
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+
+    let transfers: Vec<serde_json::Value> = txs
+        .iter()
+        .filter(|tx| tx.idempotency_key.starts_with("transfer-"))
+        .map(|tx| {
+            // Parse idempotency_key: "transfer-{from}-{to}-{timestamp_ms}"
+            let parts: Vec<&str> = tx.idempotency_key.splitn(4, '-').collect();
+            let from_warehouse_id: i64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let to_warehouse_id: i64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+            let timestamp_ms: i64 = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(0);
+
+            // Extract product lines from credits (positive qty = destination credits)
+            let lines: Vec<serde_json::Value> = tx
+                .credits
+                .iter()
+                .filter(|c| {
+                    c.asset_name.starts_with("product:")
+                        && c.to.contains(&format!("/{to_warehouse_id}/"))
+                })
+                .filter_map(|c| {
+                    let product_id: i64 = c.asset_name.strip_prefix("product:")?.parse().ok()?;
+                    let qty: f64 = c.qty.parse().ok()?;
+                    Some(serde_json::json!({
+                        "product_id": product_id,
+                        "quantity": qty,
+                    }))
+                })
+                .collect();
+
+            serde_json::json!({
+                "tx_id": tx.tx_id,
+                "from_warehouse_id": from_warehouse_id,
+                "to_warehouse_id": to_warehouse_id,
+                "timestamp_ms": timestamp_ms,
+                "lines": lines,
+            })
+        })
+        .rev() // newest first
+        .collect();
+
+    Ok(Json(transfers))
+}
+
 pub async fn transfer_inventory(
     State(state): State<Arc<AppState>>,
     Json(body): Json<TransferInventoryRequest>,
@@ -464,7 +515,7 @@ pub async fn supplier_balance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request, routing::post, Router};
+    use axum::{body::Body, http::Request, routing::{get, post}, Router};
     use http_body_util::BodyExt;
     use ledger::debt::SignedPositionDebt;
     use ledger::{Asset, AssetKind};
@@ -504,7 +555,10 @@ mod tests {
         let state = Arc::new(AppState { pool, ledger });
 
         let app = Router::new()
-            .route("/inventory/transfer", post(transfer_inventory))
+            .route(
+                "/inventory/transfers",
+                get(list_transfers).post(transfer_inventory),
+            )
             .with_state(state.clone());
 
         (app, state)
@@ -527,7 +581,7 @@ mod tests {
     fn transfer_request(from: i64, to: i64, product_id: i64, qty: f64) -> Request<Body> {
         Request::builder()
             .method("POST")
-            .uri("/inventory/transfer")
+            .uri("/inventory/transfers")
             .header("content-type", "application/json")
             .body(Body::from(
                 serde_json::json!({
@@ -583,7 +637,7 @@ mod tests {
 
         let req = Request::builder()
             .method("POST")
-            .uri("/inventory/transfer")
+            .uri("/inventory/transfers")
             .header("content-type", "application/json")
             .body(Body::from(
                 serde_json::json!({
@@ -619,5 +673,54 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn list_transfers_returns_completed_transfers() {
+        let (app, state) = setup().await;
+        seed_stock(&state, 1, 1, 10.0).await;
+
+        // Do a transfer
+        let resp = app
+            .clone()
+            .oneshot(transfer_request(1, 2, 1, 3.0))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // List transfers
+        let req = Request::builder()
+            .method("GET")
+            .uri("/inventory/transfers")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(json.len(), 1);
+        assert_eq!(json[0]["from_warehouse_id"], 1);
+        assert_eq!(json[0]["to_warehouse_id"], 2);
+        assert_eq!(json[0]["lines"][0]["product_id"], 1);
+        assert_eq!(json[0]["lines"][0]["quantity"], 3.0);
+    }
+
+    #[tokio::test]
+    async fn list_transfers_empty_when_no_transfers() {
+        let (app, _state) = setup().await;
+
+        let req = Request::builder()
+            .method("GET")
+            .uri("/inventory/transfers")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 200);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(json.is_empty());
     }
 }

@@ -153,6 +153,11 @@
   "inventory.toWarehouse": "To Warehouse",
   "inventory.sameWarehouseError": "Source and destination must be different",
   "inventory.transferSuccess": "Transfer completed",
+  "inventory.recentTransfers": "Recent Transfers",
+  "inventory.noTransfers": "No transfers yet",
+  "inventory.from": "From",
+  "inventory.to": "To",
+  "inventory.items": "Items",
 
   "quotes.title": "Quotes",
   "quotes.quickDebt": "Quick Debt",

@@ -68,7 +68,7 @@ export default function QuoteDetail() {
           <p><strong>{t('quotes.balance_label')}</strong> <span style={{ color: balance > 0 ? 'var(--status-danger)' : 'var(--status-success)' }}>
             {balance.toLocaleString()}
           </span></p>
-          <p><strong>{t('quotes.created_label')}</strong> {new Date(quote.created_at).toLocaleDateString()}</p>
+          <p><strong>{t('quotes.created_label')}</strong> {new Date(quote.created_at).toLocaleString()}</p>
           <p><strong>{t('common.versionId')}</strong> <code title={quote.version_id}>{quote.version_id?.slice(0, 8)}</code></p>
 
           <h2 className="mt-2">{t('quotes.status')}</h2>
@@ -141,7 +141,7 @@ export default function QuoteDetail() {
             <tbody>
               {payments.map((p: any) => (
                 <tr key={p.id}>
-                  <td>{new Date(p.paid_at).toLocaleDateString()}</td>
+                  <td>{new Date(p.paid_at).toLocaleString()}</td>
                   <td>{p.amount.toLocaleString()}</td>
                   <td>{p.method}</td>
                   <td>{p.notes || '—'}</td>

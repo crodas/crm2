@@ -25,7 +25,7 @@ export default function SaleList() {
             {sales?.map((s: any) => (
               <tr key={s.id}>
                 <td><Link to={`/sales/${s.id}`}>#{s.id}</Link></td>
-                <td>{new Date(s.sold_at).toLocaleDateString()}</td>
+                <td>{new Date(s.sold_at).toLocaleString()}</td>
                 <td><strong>{s.total_amount.toLocaleString()}</strong></td>
                 <td>{s.notes || '—'}</td>
               </tr>

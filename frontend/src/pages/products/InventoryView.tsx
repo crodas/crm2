@@ -21,6 +21,10 @@ export default function InventoryView() {
     queryKey: ['receipts'],
     queryFn: () => api.get<any[]>('/inventory/receipts'),
   })
+  const { data: transfers } = useQuery({
+    queryKey: ['transfers'],
+    queryFn: () => api.get<any[]>('/inventory/transfers'),
+  })
 
   const productName = (id: number) => products?.find((p: any) => p.id === id)?.name ?? `#${id}`
   const warehouseName = (id: number) => warehouses?.find((w: any) => w.id === id)?.name ?? `#${id}`
@@ -68,13 +72,43 @@ export default function InventoryView() {
                   <td><Link to={`/inventory/receipts/${r.id}`}>{r.reference || `#${r.id}`}</Link></td>
                   <td>{r.supplier_name || '—'}</td>
                   <td>{r.total_cost.toLocaleString()}</td>
-                  <td>{new Date(r.received_at).toLocaleDateString()}</td>
+                  <td>{new Date(r.received_at).toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       ) : <p className="text-muted">{t('inventory.noReceipts')}</p>}
+
+      <h2 className="mt-2">{t('inventory.recentTransfers')}</h2>
+      {transfers && transfers.length > 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>{t('inventory.from')}</th>
+                <th>{t('inventory.to')}</th>
+                <th>{t('inventory.items')}</th>
+                <th>{t('common.date')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transfers.map((tr: any) => (
+                <tr key={tr.tx_id}>
+                  <td>{warehouseName(tr.from_warehouse_id)}</td>
+                  <td>{warehouseName(tr.to_warehouse_id)}</td>
+                  <td>
+                    {tr.lines.map((l: any, i: number) => (
+                      <div key={i}>{productName(l.product_id)} &times; {l.quantity}</div>
+                    ))}
+                  </td>
+                  <td>{tr.timestamp_ms ? new Date(tr.timestamp_ms).toLocaleString() : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="text-muted">{t('inventory.noTransfers')}</p>}
     </div>
   )
 }
