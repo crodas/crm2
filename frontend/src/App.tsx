@@ -11,6 +11,7 @@ import ProductForm from './pages/products/ProductForm'
 import InventoryView from './pages/products/InventoryView'
 import InventoryReceive from './pages/products/InventoryReceive'
 import ReceiptDetail from './pages/products/ReceiptDetail'
+import InventoryTransfer from './pages/products/InventoryTransfer'
 import SaleList from './pages/products/SaleList'
 import SaleForm from './pages/products/SaleForm'
 import SaleDetail from './pages/products/SaleDetail'
@@ -176,6 +177,7 @@ export default function App() {
           <Route path="/products/new" element={<ProductForm />} />
           <Route path="/inventory" element={<InventoryView />} />
           <Route path="/inventory/receive" element={<InventoryReceive />} />
+          <Route path="/inventory/transfer" element={<InventoryTransfer />} />
           <Route path="/inventory/receipts/:id" element={<ReceiptDetail />} />
           <Route path="/sales" element={<SaleList />} />
           <Route path="/sales/new" element={<SaleForm />} />

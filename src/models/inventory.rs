@@ -95,6 +95,19 @@ pub struct CreateSupplierPayment {
     pub notes: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TransferInventoryRequest {
+    pub from_warehouse_id: i64,
+    pub to_warehouse_id: i64,
+    pub lines: Vec<TransferLine>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TransferLine {
+    pub product_id: i64,
+    pub quantity: f64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SupplierBalance {
     pub total_owed: Amount,

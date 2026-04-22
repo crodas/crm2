@@ -364,6 +364,73 @@ pub async fn record_supplier_payment(
     Ok(Json(entry))
 }
 
+pub async fn transfer_inventory(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<TransferInventoryRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if body.from_warehouse_id == body.to_warehouse_id {
+        return Err(AppError::BadRequest(
+            "Source and destination warehouse must be different".into(),
+        ));
+    }
+    if body.lines.is_empty() {
+        return Err(AppError::BadRequest("At least one line is required".into()));
+    }
+
+    // Verify warehouses exist
+    let from_wh = sqlx::query_scalar::<_, i64>("SELECT id FROM warehouses WHERE id = ?")
+        .bind(body.from_warehouse_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Source warehouse not found".into()))?;
+
+    let to_wh = sqlx::query_scalar::<_, i64>("SELECT id FROM warehouses WHERE id = ?")
+        .bind(body.to_warehouse_id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Destination warehouse not found".into()))?;
+
+    let tx_id = format!(
+        "transfer-{}-{}-{}",
+        from_wh,
+        to_wh,
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+    );
+    let mut builder = state.ledger.transaction(&tx_id);
+
+    for line in &body.lines {
+        if line.quantity <= 0.0 {
+            return Err(AppError::BadRequest("Quantity must be positive".into()));
+        }
+
+        let asset = format!("product:{}", line.product_id);
+        let qty = format!("{:.3}", line.quantity);
+
+        let from_account = format!("@store/{}/product/{}", from_wh, line.product_id);
+        let to_account = format!("@store/{}/product/{}", to_wh, line.product_id);
+
+        // Debit source (spend UTXO via FIFO), credit destination
+        builder = builder
+            .debit(&from_account, &asset, &qty)
+            .credit(&to_account, &asset, &qty);
+    }
+
+    let ledger_tx = builder
+        .build()
+        .await
+        .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
+    state
+        .ledger
+        .commit(ledger_tx)
+        .await
+        .map_err(|e| AppError::Internal(format!("ledger commit: {e}")))?;
+
+    Ok(Json(serde_json::json!({ "ok": true, "tx_id": tx_id })))
+}
+
 pub async fn supplier_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SupplierBalance>, AppError> {
@@ -392,4 +459,165 @@ pub async fn supplier_balance(
         total_paid: Amount(-total_paid_offset),
         outstanding: Amount(outstanding),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::{body::Body, http::Request, routing::post, Router};
+    use http_body_util::BodyExt;
+    use ledger::debt::SignedPositionDebt;
+    use ledger::{Asset, AssetKind};
+    use sqlx::SqlitePool;
+    use tower::ServiceExt;
+
+    async fn setup() -> (Router, Arc<AppState>) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_pool_with(&pool).await.unwrap();
+
+        // Create warehouses
+        sqlx::query("INSERT INTO warehouses (id, name) VALUES (1, 'Warehouse A'), (2, 'Warehouse B')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Create a product
+        sqlx::query("INSERT INTO products (id, name, product_type) VALUES (1, 'Widget', 'product')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone())
+            .await
+            .unwrap();
+        let ledger =
+            ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(SignedPositionDebt);
+        ledger
+            .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+            .await
+            .unwrap();
+        ledger
+            .register_asset(Asset::new("product:1", 3, AssetKind::Unsigned))
+            .await
+            .unwrap();
+
+        let state = Arc::new(AppState { pool, ledger });
+
+        let app = Router::new()
+            .route("/inventory/transfer", post(transfer_inventory))
+            .with_state(state.clone());
+
+        (app, state)
+    }
+
+    async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
+        let account = format!("@store/{warehouse_id}/product/{product_id}");
+        let asset = format!("product:{product_id}");
+        let qty_str = format!("{qty:.3}");
+        let tx = state
+            .ledger
+            .transaction(format!("seed-{warehouse_id}-{product_id}"))
+            .credit(&account, &asset, &qty_str)
+            .build()
+            .await
+            .unwrap();
+        state.ledger.commit(tx).await.unwrap();
+    }
+
+    fn transfer_request(from: i64, to: i64, product_id: i64, qty: f64) -> Request<Body> {
+        Request::builder()
+            .method("POST")
+            .uri("/inventory/transfer")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "from_warehouse_id": from,
+                    "to_warehouse_id": to,
+                    "lines": [{ "product_id": product_id, "quantity": qty }]
+                })
+                .to_string(),
+            ))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn transfer_moves_stock_between_warehouses() {
+        let (app, state) = setup().await;
+        seed_stock(&state, 1, 1, 10.0).await;
+
+        let resp = app
+            .oneshot(transfer_request(1, 2, 1, 4.0))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+
+        // Verify balances
+        let from_acc = ledger::AccountPath::new("@store/1/product/1").unwrap();
+        let to_acc = ledger::AccountPath::new("@store/2/product/1").unwrap();
+        let from_bal = state.ledger.balance(&from_acc, "product:1").await.unwrap();
+        let to_bal = state.ledger.balance(&to_acc, "product:1").await.unwrap();
+
+        // precision 3 → 6000 = 6.000, 4000 = 4.000
+        assert_eq!(from_bal, 6000);
+        assert_eq!(to_bal, 4000);
+    }
+
+    #[tokio::test]
+    async fn transfer_rejects_same_warehouse() {
+        let (app, _state) = setup().await;
+
+        let resp = app
+            .oneshot(transfer_request(1, 1, 1, 1.0))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400);
+
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["error"].as_str().unwrap().contains("different"));
+    }
+
+    #[tokio::test]
+    async fn transfer_rejects_empty_lines() {
+        let (app, _state) = setup().await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/inventory/transfer")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "from_warehouse_id": 1,
+                    "to_warehouse_id": 2,
+                    "lines": []
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn transfer_rejects_zero_quantity() {
+        let (app, _state) = setup().await;
+
+        let resp = app
+            .oneshot(transfer_request(1, 2, 1, 0.0))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400);
+    }
+
+    #[tokio::test]
+    async fn transfer_rejects_negative_quantity() {
+        let (app, _state) = setup().await;
+
+        let resp = app
+            .oneshot(transfer_request(1, 2, 1, -5.0))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 400);
+    }
 }

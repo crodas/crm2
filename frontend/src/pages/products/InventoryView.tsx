@@ -29,7 +29,10 @@ export default function InventoryView() {
     <div>
       <div className="flex-between mb-2">
         <h1>{t('inventory.currentStock')}</h1>
-        <Link to="/inventory/receive" className="btn btn-primary">{t('inventory.receiveInventory')}</Link>
+        <div className="flex gap-1">
+          <Link to="/inventory/transfer" className="btn">{t('inventory.transfer')}</Link>
+          <Link to="/inventory/receive" className="btn btn-primary">{t('inventory.receiveInventory')}</Link>
+        </div>
       </div>
 
       <div className="table-wrap">

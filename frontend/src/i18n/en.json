@@ -147,6 +147,12 @@
   "inventory.noReceipts": "No receipts yet",
   "inventory.debt": "debt",
   "inventory.paymentType": "Payment Type",
+  "inventory.transfer": "Transfer Stock",
+  "inventory.transferInventory": "Transfer Inventory",
+  "inventory.fromWarehouse": "From Warehouse",
+  "inventory.toWarehouse": "To Warehouse",
+  "inventory.sameWarehouseError": "Source and destination must be different",
+  "inventory.transferSuccess": "Transfer completed",
 
   "quotes.title": "Quotes",
   "quotes.quickDebt": "Quick Debt",
