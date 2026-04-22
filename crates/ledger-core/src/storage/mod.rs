@@ -191,7 +191,7 @@ impl Storage for MemoryStorage {
             .filter(|t| {
                 t.status == TokenStatus::Unspent
                     && t.owner == *account
-                    && t.asset_name == asset_name
+                    && t.amount.asset_name() == asset_name
             })
             .cloned()
             .collect())
@@ -209,7 +209,7 @@ impl Storage for MemoryStorage {
             .filter(|t| {
                 t.status == TokenStatus::Unspent
                     && prefix.is_prefix_of(&t.owner)
-                    && t.asset_name == asset_name
+                    && t.amount.asset_name() == asset_name
             })
             .cloned()
             .collect())
@@ -233,27 +233,34 @@ impl Storage for MemoryStorage {
         prefix: &AccountPath,
     ) -> Result<Vec<BalanceEntry>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
-        let mut map: HashMap<(String, String), i128> = HashMap::new();
+        use crate::amount::Amount;
+
+        let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
         for t in state.tokens.values() {
             if t.status == TokenStatus::Unspent && prefix.is_prefix_of(&t.owner) {
-                let key = (t.owner.as_str().to_string(), t.asset_name.clone());
-                *map.entry(key).or_default() += t.qty;
+                let key = (
+                    t.owner.as_str().to_string(),
+                    t.amount.asset_name().to_string(),
+                );
+                let entry = map
+                    .entry(key)
+                    .or_insert_with(|| (t.amount.asset().clone(), 0));
+                entry.1 += t.amount.raw();
             }
         }
         let mut entries: Vec<BalanceEntry> = map
             .into_iter()
-            .filter(|(_, balance)| *balance != 0)
-            .map(|((account, asset_name), balance)| BalanceEntry {
+            .filter(|(_, (_, balance))| *balance != 0)
+            .map(|((account, _asset_name), (asset, balance))| BalanceEntry {
                 account: AccountPath::new(account).expect("stored account is valid"),
-                asset_name,
-                balance,
+                amount: Amount::new_unchecked(asset, balance),
             })
             .collect();
         entries.sort_by(|a, b| {
             a.account
                 .as_str()
                 .cmp(b.account.as_str())
-                .then(a.asset_name.cmp(&b.asset_name))
+                .then(a.amount.asset_name().cmp(b.amount.asset_name()))
         });
         Ok(entries)
     }

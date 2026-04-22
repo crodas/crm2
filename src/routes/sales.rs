@@ -4,7 +4,6 @@ use axum::{
 };
 use std::sync::Arc;
 
-
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::sale::*;
@@ -68,22 +67,31 @@ pub async fn create_sale_tx(
 
     for &(product_id, warehouse_id, quantity, _price_cents) in lines {
         let account = format!("@store/{warehouse_id}/product/{product_id}");
-        let asset = format!("product:{product_id}");
-        let qty = format!("{quantity:.3}");
+        let asset = state
+            .ledger
+            .asset(&format!("product:{product_id}"))
+            .ok_or_else(|| {
+                AppError::Internal(format!("asset product:{product_id} not registered"))
+            })?;
+        let amount = asset
+            .parse_amount(&format!("{quantity:.3}"))
+            .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
-        builder = builder
-            .debit(&account, &asset, &qty)
-            .credit("@sold", &asset, &qty);
+        builder = builder.debit(&account, &amount).credit("@sold", &amount);
     }
+
+    let gs = state
+        .ledger
+        .asset("gs")
+        .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
     if payment_method.is_none() {
         // Deferred (credit): issue debt via configured DebtStrategy
-        let gs = state
-            .ledger
-            .asset("gs")
-            .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
+        let debt_amount = gs
+            .try_amount(total.cents().into())
+            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
         builder = builder
-            .create_debt(customer_id, &gs, total.cents().into())
+            .create_debt(customer_id, &debt_amount)
             .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
     }
 
@@ -121,11 +129,13 @@ pub async fn create_sale_tx(
 
     // If paid immediately: credit cash in a separate ledger tx + record payment
     if let Some(method) = payment_method {
-        let amount_str = format!("{}", total.cents());
+        let cash_amount = gs
+            .try_amount(total.cents().into())
+            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
         let cash_tx = state
             .ledger
             .transaction(format!("sale-{}-cash", sale.id))
-            .credit("@store/cash", "gs", &amount_str)
+            .credit("@store/cash", &cash_amount)
             .build()
             .await
             .map_err(|e| AppError::Internal(format!("cash ledger build: {e}")))?;
@@ -250,14 +260,16 @@ pub async fn record_sale_payment(
         .asset("gs")
         .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
-    let amount_str = format!("{amount}");
+    let gs_amount = gs
+        .try_amount(amount)
+        .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
     let ledger_tx = state
         .ledger
         .transaction(format!("sale-payment-{}", payment.id))
-        .settle_debt(customer_id, &gs, amount)
+        .settle_debt(customer_id, &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .credit("@store/cash", "gs", &amount_str)
+        .credit("@store/cash", &gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -337,10 +349,12 @@ mod tests {
         let state = Arc::new(AppState { pool, ledger });
 
         // Seed stock: 100 units in warehouse 1 (precision=3, so "100.000")
+        let product_asset = state.ledger.asset("product:1").unwrap();
+        let seed_amount = product_asset.parse_amount("100.000").unwrap();
         let tx = state
             .ledger
             .transaction("seed-stock")
-            .credit("@store/1/product/1", "product:1", "100.000")
+            .credit("@store/1/product/1", &seed_amount)
             .build()
             .await
             .unwrap();
@@ -393,7 +407,11 @@ mod tests {
         assert_eq!(sale["total_amount"], 100.0);
 
         // Customer should have debt in the ledger (10000 cents)
-        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
+        let bal = state
+            .ledger
+            .balance("@customer/1/debt", "gs")
+            .await
+            .unwrap();
         assert_eq!(bal, -10000);
     }
 
@@ -409,7 +427,11 @@ mod tests {
         assert_eq!(sale["payment_status"], "paid");
 
         // No debt issued for paid sales
-        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
+        let bal = state
+            .ledger
+            .balance("@customer/1/debt", "gs")
+            .await
+            .unwrap();
         assert_eq!(bal, 0);
 
         // Cash account should be credited (10000 cents)
@@ -486,7 +508,11 @@ mod tests {
         assert_eq!(detail["sale"]["payment_status"], "paid");
 
         // Ledger should show zero debt (fully settled)
-        let bal = state.ledger.balance("@customer/1/debt", "gs").await.unwrap();
+        let bal = state
+            .ledger
+            .balance("@customer/1/debt", "gs")
+            .await
+            .unwrap();
         assert_eq!(bal, 0);
 
         // Cash should have full amount (10000 cents)

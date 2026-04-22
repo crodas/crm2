@@ -5,7 +5,6 @@ use axum::{
 use serde::Serialize;
 use std::sync::Arc;
 
-
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
@@ -54,14 +53,16 @@ pub async fn record_payment(
         .asset("gs")
         .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
-    let amount_str = format!("{amount}");
+    let gs_amount = gs
+        .try_amount(amount)
+        .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
     let ledger_tx = state
         .ledger
         .transaction(format!("customer-payment-{}", payment.id))
-        .settle_debt(customer_id, &gs, amount)
+        .settle_debt(customer_id, &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .credit("@store/cash", "gs", &amount_str)
+        .credit("@store/cash", &gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -84,11 +85,12 @@ pub async fn customer_balance(
             .bind(customer_id)
             .fetch_one(&state.pool)
             .await?;
-    let sale_owed: Amount =
-        sqlx::query_scalar("SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE customer_id = ?")
-            .bind(customer_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let sale_owed: Amount = sqlx::query_scalar(
+        "SELECT COALESCE(SUM(total_amount), 0) FROM sales WHERE customer_id = ?",
+    )
+    .bind(customer_id)
+    .fetch_one(&state.pool)
+    .await?;
     let total_owed = quote_owed + sale_owed;
 
     // Total paid from payment_utxos (quotes) + sale_payments

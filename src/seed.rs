@@ -204,9 +204,14 @@ async fn seed_receipt(
 
         // Credit inventory to the store warehouse
         let account = format!("@store/{warehouse_id}/product/{product_id}");
-        let asset = format!("product:{product_id}");
-        let qty_str = format!("{qty:.3}");
-        builder = builder.credit(&account, &asset, &qty_str);
+        let asset = state
+            .ledger
+            .asset(&format!("product:{product_id}"))
+            .ok_or_else(|| -> Box<dyn std::error::Error> {
+                format!("asset product:{product_id} not registered").into()
+            })?;
+        let amount = asset.parse_amount(&format!("{qty:.3}"))?;
+        builder = builder.credit(&account, &amount);
     }
 
     // Commit ledger transaction

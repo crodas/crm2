@@ -1,44 +1,13 @@
 //! Signed-position debt: debt on the same asset using negative amounts.
 //!
-//! # How it works
-//!
 //! Debt is represented as paired credits on the *same* monetary asset:
 //! - Debtor receives a **negative** credit (they owe money).
 //! - Creditor receives a **positive** credit (they are owed money).
 //!
-//! Settlement is another pair of credits with reversed signs. No UTXO
-//! consumption is needed — the balance simply shifts via new issuance entries.
-//!
-//! # Positives
-//!
-//! - **Simple**: no extra assets to register, no token selection for settlement.
-//!   Issue and settle are both pure issuance (credit-only) transactions.
-//! - **Single balance query**: `balance_prefix(@customer/{id}, "gs")` gives
-//!   the net position directly — negative means they owe, positive means
-//!   overpaid.
-//! - **Mixed transactions**: debt entries can be added to any transaction
-//!   alongside product debits/credits without extra complexity.
-//! - **No UTXO fragmentation**: settlement doesn't consume tokens, so there
-//!   are no change outputs or growing token counts.
-//!
-//! # Negatives
-//!
-//! - **Unbounded token accumulation**: every issue and settle creates new
-//!   tokens that are never spent. Over time, balance queries must scan more
-//!   tokens. For high-volume systems this can degrade performance.
-//! - **No double-spend protection on debt**: since tokens are never consumed,
-//!   there is no mechanism to prevent settling more than owed — the caller
-//!   must enforce this externally.
-//! - **Mixes debt with real money**: the same asset (`gs`) represents both
-//!   actual cash and obligations. A positive balance on a creditor account
-//!   could be either real funds or an uncollected receivable — the ledger
-//!   can't distinguish them.
-//! - **Audit complexity**: reconstructing who owes what requires summing all
-//!   tokens, since individual issue/settle events are independent entries
-//!   rather than linked UTXO chains.
+//! Settlement is another pair of credits with reversed signs.
 
 use async_trait::async_trait;
-use ledger_core::Asset;
+use ledger_core::Amount;
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
@@ -48,21 +17,13 @@ use super::{resolve_template, DebtStrategy};
 /// Debt on the same asset using the signed-position model.
 ///
 /// Configured with debtor/creditor path templates containing `{id}`.
-///
-/// - `issue`: credits debtor with `-amount` and creditor with `+amount`
-///   on the *same* asset (issuance — no debits needed).
-/// - `settle`: credits debtor with `+amount` and creditor with `-amount`
-///   (issuance that offsets the original position).
 pub struct SignedPositionDebt {
     debtor_template: String,
     creditor_template: String,
 }
 
 impl SignedPositionDebt {
-    pub fn new(
-        debtor_template: impl Into<String>,
-        creditor_template: impl Into<String>,
-    ) -> Self {
+    pub fn new(debtor_template: impl Into<String>, creditor_template: impl Into<String>) -> Self {
         Self {
             debtor_template: debtor_template.into(),
             creditor_template: creditor_template.into(),
@@ -76,42 +37,36 @@ impl DebtStrategy for SignedPositionDebt {
         &self,
         builder: TransactionBuilder,
         entity_id: &str,
-        asset: &Asset,
-        amount: i128,
+        amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
-        if amount <= 0 {
+        if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
         let debtor = resolve_template(&self.debtor_template, entity_id)?;
         let creditor = resolve_template(&self.creditor_template, entity_id)?;
-        let neg = asset.from_cents(-amount);
-        let pos = asset.from_cents(amount);
-        let asset_name = asset.name();
+        let neg = amount.negate().map_err(|e| Error::Ledger(e))?;
 
         Ok(builder
-            .credit(debtor.as_str(), asset_name, &neg)
-            .credit(creditor.as_str(), asset_name, &pos))
+            .credit(debtor.as_str(), &neg)
+            .credit(creditor.as_str(), amount))
     }
 
     async fn settle(
         &self,
         builder: TransactionBuilder,
         entity_id: &str,
-        asset: &Asset,
-        amount: i128,
+        amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
-        if amount <= 0 {
+        if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
         let debtor = resolve_template(&self.debtor_template, entity_id)?;
         let creditor = resolve_template(&self.creditor_template, entity_id)?;
-        let pos = asset.from_cents(amount);
-        let neg = asset.from_cents(-amount);
-        let asset_name = asset.name();
+        let neg = amount.negate().map_err(|e| Error::Ledger(e))?;
 
         Ok(builder
-            .credit(debtor.as_str(), asset_name, &pos)
-            .credit(creditor.as_str(), asset_name, &neg))
+            .credit(debtor.as_str(), amount)
+            .credit(creditor.as_str(), &neg))
     }
 }
 
@@ -119,7 +74,7 @@ impl DebtStrategy for SignedPositionDebt {
 mod tests {
     use std::sync::Arc;
 
-    use ledger_core::{Asset, AssetKind, MemoryStorage};
+    use ledger_core::{Amount, Asset, AssetKind, MemoryStorage};
 
     use crate::error::Error;
     use crate::Ledger;
@@ -128,10 +83,8 @@ mod tests {
 
     async fn setup_ledger() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
-        let ledger = Ledger::new(storage).with_debt_strategy(SignedPositionDebt::new(
-            "@customer/{id}",
-            "@store/{id}",
-        ));
+        let ledger = Ledger::new(storage)
+            .with_debt_strategy(SignedPositionDebt::new("@customer/{id}", "@store/{id}"));
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -143,8 +96,10 @@ mod tests {
         ledger
     }
 
-    fn gs() -> Asset {
+    fn gs_amount(raw: i128) -> Amount {
         Asset::new("gs", 0, AssetKind::Signed)
+            .try_amount(raw)
+            .unwrap()
     }
 
     #[tokio::test]
@@ -156,7 +111,9 @@ mod tests {
             .await
             .unwrap();
 
-        let result = ledger.transaction("debt-001").create_debt(1, &gs(), 10000);
+        let result = ledger
+            .transaction("debt-001")
+            .create_debt(1, &gs_amount(10000));
         assert!(matches!(result, Err(Error::NoDebtStrategy)));
     }
 
@@ -166,7 +123,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(1, &gs(), 10000)
+            .create_debt(1, &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -183,7 +140,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(1, &gs(), 10000)
+            .create_debt(1, &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -192,7 +149,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(1, &gs(), 10000)
+            .settle_debt(1, &gs_amount(10000))
             .await
             .unwrap()
             .build()
@@ -210,7 +167,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(1, &gs(), 10000)
+            .create_debt(1, &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -219,7 +176,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(1, &gs(), 6000)
+            .settle_debt(1, &gs_amount(6000))
             .await
             .unwrap()
             .build()
@@ -234,10 +191,13 @@ mod tests {
     #[tokio::test]
     async fn mixed_tx_with_product_debits() {
         let ledger = setup_ledger().await;
+        let brush = ledger.asset("brush").unwrap();
+        let b10 = brush.try_amount(10).unwrap();
+        let b3 = brush.try_amount(3).unwrap();
 
         let tx = ledger
             .transaction("issue-inv")
-            .credit("@store/inventory", "brush", "10")
+            .credit("@store/inventory", &b10)
             .build()
             .await
             .unwrap();
@@ -245,16 +205,19 @@ mod tests {
 
         let tx = ledger
             .transaction("sale-001")
-            .debit("@store/inventory", "brush", "3")
-            .credit("@customer/1", "brush", "3")
-            .create_debt(1, &gs(), 5000)
+            .debit("@store/inventory", &b3)
+            .credit("@customer/1", &b3)
+            .create_debt(1, &gs_amount(5000))
             .unwrap()
             .build()
             .await
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("@store/inventory", "brush").await.unwrap(), 7);
+        assert_eq!(
+            ledger.balance("@store/inventory", "brush").await.unwrap(),
+            7
+        );
         assert_eq!(ledger.balance("@customer/1", "brush").await.unwrap(), 3);
         assert_eq!(ledger.balance("@customer/1", "gs").await.unwrap(), -5000);
         assert_eq!(ledger.balance("@store/1", "gs").await.unwrap(), 5000);
@@ -263,10 +226,12 @@ mod tests {
     #[tokio::test]
     async fn settle_with_cash_credit() {
         let ledger = setup_ledger().await;
+        let gs = ledger.asset("gs").unwrap();
+        let gs5000 = gs.try_amount(5000).unwrap();
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt(1, &gs(), 10000)
+            .create_debt(1, &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -275,10 +240,10 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt(1, &gs(), 5000)
+            .settle_debt(1, &gs_amount(5000))
             .await
             .unwrap()
-            .credit("@store/cash", "gs", "5000")
+            .credit("@store/cash", &gs5000)
             .build()
             .await
             .unwrap();
@@ -293,10 +258,13 @@ mod tests {
     async fn non_positive_amount_rejected() {
         let ledger = setup_ledger().await;
 
-        let result = ledger.transaction("bad").create_debt(1, &gs(), 0);
+        let result = ledger.transaction("bad").create_debt(1, &gs_amount(0));
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
-        let result = ledger.transaction("bad2").create_debt(1, &gs(), -100);
+        let neg = Asset::new("gs", 0, AssetKind::Signed)
+            .try_amount(-100)
+            .unwrap();
+        let result = ledger.transaction("bad2").create_debt(1, &neg);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }
 }

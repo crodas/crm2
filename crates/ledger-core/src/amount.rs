@@ -6,25 +6,27 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::asset::{Asset, AssetKind};
 use crate::error::LedgerError;
 
 /// A quantity of a specific asset, stored as a scaled `i128`.
 ///
-/// Created via [`Amount::new`] (from raw scaled integer) or [`Amount::parse`]
-/// (from a decimal string like `"10.50"`). Construction validates that
-/// unsigned assets never carry negative values.
+/// Created via [`Asset::try_amount`] (from raw scaled integer) or
+/// [`Asset::parse_amount`] (from a decimal string like `"10.50"`).
+/// Construction validates that unsigned assets never carry negative values.
 ///
 /// ```
-/// # use ledger_core::{Amount, Asset, AssetKind};
+/// # use ledger_core::{Asset, AssetKind};
 /// let usd = Asset::new("usd", 2, AssetKind::Signed);
-/// let ten_bucks = Amount::new(usd.clone(), 1050).unwrap();
+/// let ten_bucks = usd.try_amount(1050).unwrap();
 /// assert_eq!(ten_bucks.to_decimal_string(), "10.50");
 /// assert_eq!(ten_bucks.raw(), 1050);
 /// assert_eq!(ten_bucks.asset_name(), "usd");
 ///
 /// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-/// assert!(Amount::new(brush, -1).is_err()); // unsigned rejects negative
+/// assert!(brush.try_amount(-1).is_err()); // unsigned rejects negative
 /// ```
 #[derive(Debug, Clone)]
 pub struct Amount {
@@ -36,7 +38,9 @@ impl Amount {
     /// Create a new amount for the given asset.
     ///
     /// Returns `Err(NegativeUnsigned)` if the asset is unsigned and `raw < 0`.
-    pub fn new(asset: Asset, raw: i128) -> Result<Self, LedgerError> {
+    ///
+    /// Prefer using [`Asset::try_amount`] or [`Asset::amount`] instead.
+    pub(crate) fn new(asset: Asset, raw: i128) -> Result<Self, LedgerError> {
         if asset.kind() == AssetKind::Unsigned && raw < 0 {
             return Err(LedgerError::NegativeUnsigned {
                 asset: asset.name().to_string(),
@@ -49,19 +53,14 @@ impl Amount {
     /// Create without sign validation.
     ///
     /// Use when the value is already known to be valid (e.g. read from storage).
-    pub fn new_unchecked(asset: Asset, raw: i128) -> Self {
+    pub(crate) fn new_unchecked(asset: Asset, raw: i128) -> Self {
         Self { asset, raw }
     }
 
     /// Parse a decimal string into an Amount.
     ///
-    /// ```
-    /// # use ledger_core::{Amount, Asset, AssetKind};
-    /// let usd = Asset::new("usd", 2, AssetKind::Signed);
-    /// let amt = Amount::parse(usd, "10.50").unwrap();
-    /// assert_eq!(amt.raw(), 1050);
-    /// ```
-    pub fn parse(asset: Asset, s: &str) -> Result<Self, LedgerError> {
+    /// Prefer using [`Asset::parse_amount`] instead.
+    pub(crate) fn parse(asset: Asset, s: &str) -> Result<Self, LedgerError> {
         let raw = asset
             .parse_qty(s)
             .map_err(|_| LedgerError::InvalidQty(s.to_string()))?;
@@ -101,6 +100,46 @@ impl fmt::Display for Amount {
         write!(f, "{} {}", self.to_decimal_string(), self.asset.name())
     }
 }
+
+/// Wire format for Amount serialization.
+///
+/// Includes full asset metadata so Amount can be reconstructed
+/// without access to the asset registry.
+#[derive(Serialize, Deserialize)]
+struct AmountWire {
+    asset_name: String,
+    precision: u8,
+    kind: AssetKind,
+    raw: i128,
+}
+
+impl Serialize for Amount {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let wire = AmountWire {
+            asset_name: self.asset.name().to_string(),
+            precision: self.asset.precision(),
+            kind: self.asset.kind(),
+            raw: self.raw,
+        };
+        wire.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Amount {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = AmountWire::deserialize(deserializer)?;
+        let asset = Asset::new(wire.asset_name, wire.precision, wire.kind);
+        Ok(Amount::new_unchecked(asset, wire.raw))
+    }
+}
+
+impl PartialEq for Amount {
+    fn eq(&self, other: &Self) -> bool {
+        self.asset.name() == other.asset.name() && self.raw == other.raw
+    }
+}
+
+impl Eq for Amount {}
 
 #[cfg(test)]
 mod tests {
@@ -162,5 +201,16 @@ mod tests {
     fn display_format() {
         let amt = Amount::new(usd(), 1050).unwrap();
         assert_eq!(format!("{amt}"), "10.50 usd");
+    }
+
+    #[test]
+    fn serde_roundtrip() {
+        let amt = Amount::new(usd(), 1050).unwrap();
+        let json = serde_json::to_string(&amt).unwrap();
+        let restored: Amount = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.raw(), 1050);
+        assert_eq!(restored.asset_name(), "usd");
+        assert_eq!(restored.asset().precision(), 2);
+        assert_eq!(restored.asset().kind(), AssetKind::Signed);
     }
 }

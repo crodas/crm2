@@ -77,7 +77,6 @@ impl Ledger {
         TransactionBuilder::new(
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
-            (*self.inner.assets()).clone(),
             self.debt_strategy.clone(),
         )
     }
@@ -114,11 +113,7 @@ impl Ledger {
     // ── Queries ──────────────────────────────────────────────────────
 
     /// Return the balance of a specific account for a given asset.
-    pub async fn balance(
-        &self,
-        account: &str,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
+    pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
         let path = parse_path(account)?;
         self.inner.balance(&path, asset_name).await
     }
@@ -164,10 +159,7 @@ impl Ledger {
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under a prefix.
-    pub async fn balances_by_prefix(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<BalanceEntry>, LedgerError> {
+    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         let path = parse_path(prefix)?;
         self.inner.balances_by_prefix(&path).await
     }

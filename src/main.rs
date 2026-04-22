@@ -202,8 +202,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/inventory/prices", get(routes::inventory::latest_prices))
         .route(
             "/inventory/transfers",
-            get(routes::inventory::list_transfers)
-                .post(routes::inventory::transfer_inventory),
+            get(routes::inventory::list_transfers).post(routes::inventory::transfer_inventory),
         )
         // Sales
         .route(

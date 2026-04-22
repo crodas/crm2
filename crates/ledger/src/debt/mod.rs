@@ -27,7 +27,7 @@ pub use signed_position::SignedPositionDebt;
 pub use split_asset::SplitAssetDebt;
 
 use async_trait::async_trait;
-use ledger_core::{AccountPath, Asset};
+use ledger_core::{AccountPath, Amount};
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
@@ -60,8 +60,7 @@ pub trait DebtStrategy: Send + Sync {
         &self,
         builder: TransactionBuilder,
         entity_id: &str,
-        asset: &Asset,
-        amount: i128,
+        amount: &Amount,
     ) -> Result<TransactionBuilder, Error>;
 
     /// Add debt settlement entries to the transaction.
@@ -74,7 +73,6 @@ pub trait DebtStrategy: Send + Sync {
         &self,
         builder: TransactionBuilder,
         entity_id: &str,
-        asset: &Asset,
-        amount: i128,
+        amount: &Amount,
     ) -> Result<TransactionBuilder, Error>;
 }

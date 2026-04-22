@@ -63,9 +63,16 @@ pub async fn receive_inventory(
 
         // Credit inventory to the store warehouse
         let account = format!("@store/{}/product/{}", line.warehouse_id, line.product_id);
-        let asset = format!("product:{}", line.product_id);
-        let qty = format!("{:.3}", line.quantity);
-        builder = builder.credit(&account, &asset, &qty);
+        let asset = state
+            .ledger
+            .asset(&format!("product:{}", line.product_id))
+            .ok_or_else(|| {
+                AppError::Internal(format!("asset product:{} not registered", line.product_id))
+            })?;
+        let amount = asset
+            .parse_amount(&format!("{:.3}", line.quantity))
+            .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
+        builder = builder.credit(&account, &amount);
 
         // Store prices for each customer group
         for price in &line.prices {
@@ -87,13 +94,21 @@ pub async fn receive_inventory(
     let paid_cash = body.paid_cash.unwrap_or(false);
 
     if is_credit || paid_cash {
-        let total_str = format!("{total_cost}");
-        let neg_total_str = format!("-{total_cost}");
+        let gs = state
+            .ledger
+            .asset("gs")
+            .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
+        let gs_amount = gs
+            .try_amount(total_cost as i128)
+            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+        let neg_gs_amount = gs
+            .try_amount(-(total_cost as i128))
+            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
 
         // Debt: supplier is owed, store has payable
         builder = builder
-            .credit(&format!("@supplier/{}", receipt.id), "gs", &neg_total_str)
-            .credit(&format!("@store/payables/{}", receipt.id), "gs", &total_str);
+            .credit(&format!("@supplier/{}", receipt.id), &neg_gs_amount)
+            .credit(&format!("@store/payables/{}", receipt.id), &gs_amount);
 
         // Record metadata for the debt entry
         sqlx::query(
@@ -109,12 +124,8 @@ pub async fn receive_inventory(
         if paid_cash {
             // Settle immediately: cancel the debt
             builder = builder
-                .credit(&format!("@supplier/{}", receipt.id), "gs", &total_str)
-                .credit(
-                    &format!("@store/payables/{}", receipt.id),
-                    "gs",
-                    &neg_total_str,
-                );
+                .credit(&format!("@supplier/{}", receipt.id), &gs_amount)
+                .credit(&format!("@store/payables/{}", receipt.id), &neg_gs_amount);
 
             // Record metadata for the payment entry
             sqlx::query(
@@ -159,7 +170,7 @@ pub async fn get_stock(
     // and filter to product assets only
     let stock: Vec<StockLevel> = entries
         .iter()
-        .filter(|e| e.asset_name.starts_with("product:"))
+        .filter(|e| e.amount.asset_name().starts_with("product:"))
         .filter_map(|e| {
             let path = e.account.as_str();
             let parts: Vec<&str> = path.split('/').collect();
@@ -183,10 +194,9 @@ pub async fn get_stock(
             }
 
             // Get the asset's precision to convert i128 back to f64
-            let asset = state.ledger.asset(&e.asset_name)?;
-            let precision = asset.precision() as u32;
+            let precision = e.amount.asset().precision() as u32;
             let divisor = 10_f64.powi(precision as i32);
-            let total_quantity = e.balance as f64 / divisor;
+            let total_quantity = e.amount.raw() as f64 / divisor;
 
             Some(StockLevel {
                 product_id,
@@ -326,9 +336,7 @@ pub async fn record_supplier_payment(
         return Err(AppError::BadRequest("Amount must be positive".into()));
     }
 
-    let amount = body.amount.cents();
-    let amount_str = format!("{amount}");
-    let neg_amount_str = format!("-{amount}");
+    let amount_cents = body.amount.cents();
 
     // Record metadata
     let entry = sqlx::query_as::<_, SupplierLedgerUtxo>(
@@ -341,16 +349,23 @@ pub async fn record_supplier_payment(
     .fetch_one(&state.pool)
     .await?;
 
+    let gs = state
+        .ledger
+        .asset("gs")
+        .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
+    let gs_amount = gs
+        .try_amount(amount_cents as i128)
+        .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+    let neg_gs_amount = gs
+        .try_amount(-(amount_cents as i128))
+        .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+
     // Record in ledger: reduce supplier debt and our payable
     let ledger_tx = state
         .ledger
         .transaction(format!("supplier-payment-{}", entry.id))
-        .credit(&format!("@supplier/{receipt_id}"), "gs", &amount_str)
-        .credit(
-            &format!("@store/payables/{receipt_id}"),
-            "gs",
-            &neg_amount_str,
-        )
+        .credit(&format!("@supplier/{receipt_id}"), &gs_amount)
+        .credit(&format!("@store/payables/{receipt_id}"), &neg_gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -387,12 +402,17 @@ pub async fn list_transfers(
                 .credits
                 .iter()
                 .filter(|c| {
-                    c.asset_name.starts_with("product:")
-                        && c.to.contains(&format!("/{to_warehouse_id}/"))
+                    c.amount.asset_name().starts_with("product:")
+                        && c.to.as_str().contains(&format!("/{to_warehouse_id}/"))
                 })
                 .filter_map(|c| {
-                    let product_id: i64 = c.asset_name.strip_prefix("product:")?.parse().ok()?;
-                    let qty: f64 = c.qty.parse().ok()?;
+                    let product_id: i64 = c
+                        .amount
+                        .asset_name()
+                        .strip_prefix("product:")?
+                        .parse()
+                        .ok()?;
+                    let qty: f64 = c.amount.to_decimal_string().parse().ok()?;
                     Some(serde_json::json!({
                         "product_id": product_id,
                         "quantity": qty,
@@ -456,16 +476,23 @@ pub async fn transfer_inventory(
             return Err(AppError::BadRequest("Quantity must be positive".into()));
         }
 
-        let asset = format!("product:{}", line.product_id);
-        let qty = format!("{:.3}", line.quantity);
+        let asset = state
+            .ledger
+            .asset(&format!("product:{}", line.product_id))
+            .ok_or_else(|| {
+                AppError::Internal(format!("asset product:{} not registered", line.product_id))
+            })?;
+        let amount = asset
+            .parse_amount(&format!("{:.3}", line.quantity))
+            .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
         let from_account = format!("@store/{}/product/{}", from_wh, line.product_id);
         let to_account = format!("@store/{}/product/{}", to_wh, line.product_id);
 
         // Debit source (spend UTXO via FIFO), credit destination
         builder = builder
-            .debit(&from_account, &asset, &qty)
-            .credit(&to_account, &asset, &qty);
+            .debit(&from_account, &amount)
+            .credit(&to_account, &amount);
     }
 
     let ledger_tx = builder
@@ -492,13 +519,13 @@ pub async fn supplier_balance(
 
     let total_owed: i64 = tokens
         .iter()
-        .filter(|t| t.qty > 0)
-        .map(|t| t.qty as i64)
+        .filter(|t| t.amount.raw() > 0)
+        .map(|t| t.amount.raw() as i64)
         .sum();
     let total_paid_offset: i64 = tokens
         .iter()
-        .filter(|t| t.qty < 0)
-        .map(|t| t.qty as i64)
+        .filter(|t| t.amount.raw() < 0)
+        .map(|t| t.amount.raw() as i64)
         .sum();
     let outstanding = total_owed + total_paid_offset;
 
@@ -512,7 +539,12 @@ pub async fn supplier_balance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{body::Body, http::Request, routing::{get, post}, Router};
+    use axum::{
+        body::Body,
+        http::Request,
+        routing::{get, post},
+        Router,
+    };
     use http_body_util::BodyExt;
     use ledger::debt::SignedPositionDebt;
     use ledger::{Asset, AssetKind};
@@ -524,24 +556,27 @@ mod tests {
         crate::db::init_pool_with(&pool).await.unwrap();
 
         // Create warehouses
-        sqlx::query("INSERT INTO warehouses (id, name) VALUES (1, 'Warehouse A'), (2, 'Warehouse B')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO warehouses (id, name) VALUES (1, 'Warehouse A'), (2, 'Warehouse B')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         // Create a product
-        sqlx::query("INSERT INTO products (id, name, product_type) VALUES (1, 'Widget', 'product')")
-            .execute(&pool)
-            .await
-            .unwrap();
+        sqlx::query(
+            "INSERT INTO products (id, name, product_type) VALUES (1, 'Widget', 'product')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
         let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone())
             .await
             .unwrap();
-        let ledger =
-            ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-                SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
-            );
+        let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
+            SignedPositionDebt::new("@customer/{id}/debt", "@store/receivables/{id}"),
+        );
         ledger
             .register_asset(Asset::new("gs", 0, AssetKind::Signed))
             .await
@@ -565,12 +600,15 @@ mod tests {
 
     async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
         let account = format!("@store/{warehouse_id}/product/{product_id}");
-        let asset = format!("product:{product_id}");
-        let qty_str = format!("{qty:.3}");
+        let asset = state
+            .ledger
+            .asset(&format!("product:{product_id}"))
+            .unwrap();
+        let amount = asset.parse_amount(&format!("{qty:.3}")).unwrap();
         let tx = state
             .ledger
             .transaction(format!("seed-{warehouse_id}-{product_id}"))
-            .credit(&account, &asset, &qty_str)
+            .credit(&account, &amount)
             .build()
             .await
             .unwrap();
@@ -598,10 +636,7 @@ mod tests {
         let (app, state) = setup().await;
         seed_stock(&state, 1, 1, 10.0).await;
 
-        let resp = app
-            .oneshot(transfer_request(1, 2, 1, 4.0))
-            .await
-            .unwrap();
+        let resp = app.oneshot(transfer_request(1, 2, 1, 4.0)).await.unwrap();
         assert_eq!(resp.status(), 200);
 
         // Verify balances
@@ -619,10 +654,7 @@ mod tests {
     async fn transfer_rejects_same_warehouse() {
         let (app, _state) = setup().await;
 
-        let resp = app
-            .oneshot(transfer_request(1, 1, 1, 1.0))
-            .await
-            .unwrap();
+        let resp = app.oneshot(transfer_request(1, 1, 1, 1.0)).await.unwrap();
         assert_eq!(resp.status(), 400);
 
         let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -656,10 +688,7 @@ mod tests {
     async fn transfer_rejects_zero_quantity() {
         let (app, _state) = setup().await;
 
-        let resp = app
-            .oneshot(transfer_request(1, 2, 1, 0.0))
-            .await
-            .unwrap();
+        let resp = app.oneshot(transfer_request(1, 2, 1, 0.0)).await.unwrap();
         assert_eq!(resp.status(), 400);
     }
 
@@ -667,10 +696,7 @@ mod tests {
     async fn transfer_rejects_negative_quantity() {
         let (app, _state) = setup().await;
 
-        let resp = app
-            .oneshot(transfer_request(1, 2, 1, -5.0))
-            .await
-            .unwrap();
+        let resp = app.oneshot(transfer_request(1, 2, 1, -5.0)).await.unwrap();
         assert_eq!(resp.status(), 400);
     }
 

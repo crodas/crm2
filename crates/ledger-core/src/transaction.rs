@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::account::AccountPath;
-use crate::asset::{Asset, AssetKind};
+use crate::amount::Amount;
 use crate::error::LedgerError;
 
 /// A reference to a prior credit being consumed as a debit.
@@ -38,23 +38,18 @@ pub struct DebitRef {
     /// Position within that transaction's credits.
     pub entry_index: u32,
     /// Expected owner of the token (verified at commit time).
-    pub owner: String,
-    /// Expected asset name (verified at commit time).
-    pub asset_name: String,
-    /// Expected quantity as a decimal string (verified at commit time).
-    pub qty: String,
+    pub from: AccountPath,
+    /// Expected amount (verified at commit time).
+    pub amount: Amount,
 }
 
 /// A new credit to be created by the transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Credit {
     /// Destination account path.
-    pub to: String,
-    /// Asset name.
-    pub asset_name: String,
-    /// Quantity as a decimal string with exact precision.
-    /// May be negative for signed (monetary) assets.
-    pub qty: String,
+    pub to: AccountPath,
+    /// Amount to credit.
+    pub amount: Amount,
 }
 
 /// A committed transaction in the ledger.
@@ -80,12 +75,12 @@ pub struct Transaction {
 ///
 /// ```
 /// # use ledger_core::*;
-/// # use std::collections::HashMap;
-/// # let mut assets = HashMap::new();
-/// # assets.insert("brush".to_string(), Asset::new("brush", 0, AssetKind::Unsigned));
+/// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+/// let five = brush.try_amount(5).unwrap();
+///
 /// let tx = TransactionBuilder::new("issue-brush-001")
-///     .credit("@store1/inventory", "brush", "5")
-///     .build(&assets)
+///     .credit("@store1/inventory", &five).unwrap()
+///     .build()
 ///     .unwrap();
 ///
 /// assert!(tx.debits.is_empty()); // issuance from @world
@@ -112,96 +107,62 @@ impl TransactionBuilder {
         mut self,
         tx_id: impl Into<String>,
         entry_index: u32,
-        owner: impl Into<String>,
-        asset_name: impl Into<String>,
-        qty: impl Into<String>,
-    ) -> Self {
+        from: impl Into<String>,
+        amount: &Amount,
+    ) -> Result<Self, LedgerError> {
+        let from_str: String = from.into();
+        let from = AccountPath::new(from_str.clone())
+            .map_err(|_| LedgerError::InvalidAccount(from_str))?;
         self.debits.push(DebitRef {
             tx_id: tx_id.into(),
             entry_index,
-            owner: owner.into(),
-            asset_name: asset_name.into(),
-            qty: qty.into(),
+            from,
+            amount: amount.clone(),
         });
-        self
+        Ok(self)
     }
 
     /// Add a credit (a new spending token to create).
-    pub fn credit(
-        mut self,
-        to: impl Into<String>,
-        asset_name: impl Into<String>,
-        qty: impl Into<String>,
-    ) -> Self {
+    pub fn credit(mut self, to: impl Into<String>, amount: &Amount) -> Result<Self, LedgerError> {
+        let to_str: String = to.into();
+        if to_str == "@world" {
+            return Err(LedgerError::WorldAsOwner);
+        }
+        let to =
+            AccountPath::new(to_str.clone()).map_err(|_| LedgerError::InvalidAccount(to_str))?;
         self.credits.push(Credit {
-            to: to.into(),
-            asset_name: asset_name.into(),
-            qty: qty.into(),
+            to,
+            amount: amount.clone(),
         });
-        self
+        Ok(self)
     }
 
     /// Build the transaction, validating balance invariants.
     ///
     /// Checks performed:
-    /// - `@world` cannot be a credit owner
-    /// - All account paths are valid
-    /// - All asset names are registered
-    /// - Unsigned assets cannot have negative quantities
+    /// - Unsigned assets cannot have negative quantities (enforced at Amount creation)
     /// - Conservation: per-asset debit sums == credit sums (non-issuance)
     /// - Dual-sided debt: negative credits balanced by positive credits
     ///
     /// On success returns a [`Transaction`] with a deterministic `tx_id`.
     /// Call [`Ledger::commit`] to validate against ledger state and append.
-    pub fn build(self, assets: &HashMap<String, Asset>) -> Result<Transaction, LedgerError> {
+    pub fn build(self) -> Result<Transaction, LedgerError> {
         let tx_id = compute_tx_id(&self.debits, &self.credits, &self.idempotency_key);
 
-        // @world is never a credit owner.
+        // Collect credit sums per asset.
+        let mut asset_credit_sums: std::collections::HashMap<&str, i128> = HashMap::new();
         for credit in &self.credits {
-            if credit.to == "@world" {
-                return Err(LedgerError::WorldAsOwner);
-            }
+            *asset_credit_sums
+                .entry(credit.amount.asset_name())
+                .or_default() += credit.amount.raw();
         }
 
-        // Validate credits: account paths, assets, quantities.
-        let mut asset_credit_sums: HashMap<&str, i128> = HashMap::new();
-        let mut credit_parsed: Vec<(&str, i128)> = Vec::new();
-
-        for credit in &self.credits {
-            let asset = assets
-                .get(&credit.asset_name)
-                .ok_or_else(|| LedgerError::UnknownAsset(credit.asset_name.clone()))?;
-
-            let qty = asset
-                .parse_qty(&credit.qty)
-                .map_err(|_| LedgerError::UnknownAsset(credit.asset_name.clone()))?;
-
-            if asset.kind() == AssetKind::Unsigned && qty < 0 {
-                return Err(LedgerError::NegativeUnsigned {
-                    asset: credit.asset_name.clone(),
-                    qty,
-                });
-            }
-
-            AccountPath::new(&credit.to).map_err(|_| LedgerError::WorldAsOwner)?;
-
-            *asset_credit_sums.entry(&credit.asset_name).or_default() += qty;
-            credit_parsed.push((&credit.asset_name, qty));
-        }
-
-        // Parse debit quantities and collect sums.
-        let mut asset_debit_sums: HashMap<&str, i128> = HashMap::new();
-
+        // Collect debit sums per asset.
+        let mut asset_debit_sums: std::collections::HashMap<&str, i128> = HashMap::new();
         for debit in &self.debits {
-            let asset = assets
-                .get(&debit.asset_name)
-                .ok_or_else(|| LedgerError::UnknownAsset(debit.asset_name.clone()))?;
-
-            let qty = asset
-                .parse_qty(&debit.qty)
-                .map_err(|_| LedgerError::UnknownAsset(debit.asset_name.clone()))?;
-
-            *asset_debit_sums.entry(&debit.asset_name).or_default() += qty;
+            *asset_debit_sums
+                .entry(debit.amount.asset_name())
+                .or_default() += debit.amount.raw();
         }
 
         // Conservation: per-asset debit sum == credit sum (skip for issuance).
@@ -226,17 +187,16 @@ impl TransactionBuilder {
         }
 
         // Dual-sided debt: negative credits must be balanced by positive credits.
-        let mut neg_debt_by_asset: HashMap<&str, i128> = HashMap::new();
-        let mut pos_debt_by_asset: HashMap<&str, i128> = HashMap::new();
+        let mut neg_debt_by_asset: std::collections::HashMap<&str, i128> = HashMap::new();
+        let mut pos_debt_by_asset: std::collections::HashMap<&str, i128> = HashMap::new();
 
-        for (asset_name, qty) in &credit_parsed {
-            let asset = &assets[*asset_name];
-            if asset.kind() == AssetKind::Signed {
-                if *qty < 0 {
-                    *neg_debt_by_asset.entry(asset_name).or_default() += qty;
-                } else if *qty > 0 {
-                    *pos_debt_by_asset.entry(asset_name).or_default() += qty;
-                }
+        for credit in &self.credits {
+            let qty = credit.amount.raw();
+            let asset_name = credit.amount.asset_name();
+            if qty < 0 {
+                *neg_debt_by_asset.entry(asset_name).or_default() += qty;
+            } else if qty > 0 {
+                *pos_debt_by_asset.entry(asset_name).or_default() += qty;
             }
         }
 
@@ -296,21 +256,21 @@ fn canonical_preimage(debits: &[DebitRef], credits: &[Credit], idempotency_key: 
         out.push('\0');
         out.push_str(&d.entry_index.to_string());
         out.push('\0');
-        out.push_str(&d.owner);
+        out.push_str(d.from.as_str());
         out.push('\0');
-        out.push_str(&d.asset_name);
+        out.push_str(d.amount.asset_name());
         out.push('\0');
-        out.push_str(&d.qty);
+        out.push_str(&d.amount.to_decimal_string());
         out.push('\0');
     }
 
     for c in credits {
         out.push_str("C\0");
-        out.push_str(&c.to);
+        out.push_str(c.to.as_str());
         out.push('\0');
-        out.push_str(&c.asset_name);
+        out.push_str(c.amount.asset_name());
         out.push('\0');
-        out.push_str(&c.qty);
+        out.push_str(&c.amount.to_decimal_string());
         out.push('\0');
     }
 
@@ -330,62 +290,66 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::asset::{Asset, AssetKind};
 
-    fn test_assets() -> HashMap<String, Asset> {
-        let mut assets = HashMap::new();
-        assets.insert(
-            "brush".to_string(),
-            Asset::new("brush", 0, AssetKind::Unsigned),
-        );
-        assets.insert("usd".to_string(), Asset::new("usd", 2, AssetKind::Signed));
-        assets
+    fn brush() -> Asset {
+        Asset::new("brush", 0, AssetKind::Unsigned)
+    }
+
+    fn usd() -> Asset {
+        Asset::new("usd", 2, AssetKind::Signed)
     }
 
     #[test]
-    fn issuance_tx_id_is_deterministic() {
-        let assets = test_assets();
+    fn issuance_tx_id_is_deterministic() -> Result<(), LedgerError> {
+        let five_brush = brush().try_amount(5).unwrap();
         let tx1 = TransactionBuilder::new("test-key")
-            .credit("@store1/inventory", "brush", "5")
-            .build(&assets)
+            .credit("@store1/inventory", &five_brush)?
+            .build()
             .expect("build issuance tx1");
         let tx2 = TransactionBuilder::new("test-key")
-            .credit("@store1/inventory", "brush", "5")
-            .build(&assets)
+            .credit("@store1/inventory", &five_brush)?
+            .build()
             .expect("build issuance tx2");
         assert_eq!(tx1.tx_id, tx2.tx_id);
         assert_eq!(tx1.tx_id.len(), 64);
+        Ok(())
     }
 
     #[test]
-    fn different_keys_produce_different_ids() {
-        let assets = test_assets();
+    fn different_keys_produce_different_ids() -> Result<(), LedgerError> {
+        let five_brush = brush().try_amount(5).unwrap();
         let tx1 = TransactionBuilder::new("key-a")
-            .credit("@store1/inventory", "brush", "5")
-            .build(&assets)
+            .credit("@store1/inventory", &five_brush)?
+            .build()
             .expect("build tx with key-a");
         let tx2 = TransactionBuilder::new("key-b")
-            .credit("@store1/inventory", "brush", "5")
-            .build(&assets)
+            .credit("@store1/inventory", &five_brush)?
+            .build()
             .expect("build tx with key-b");
         assert_ne!(tx1.tx_id, tx2.tx_id);
+        Ok(())
     }
 
     #[test]
-    fn debit_order_matters_for_tx_id() {
-        let assets = test_assets();
+    fn debit_order_matters_for_tx_id() -> Result<(), LedgerError> {
+        let usd1 = usd().try_amount(100).unwrap();
+        let usd2 = usd().try_amount(200).unwrap();
+        let usd3 = usd().try_amount(300).unwrap();
         let tx1 = TransactionBuilder::new("k")
-            .debit("aaa", 0, "@x", "usd", "1.00")
-            .debit("bbb", 0, "@y", "usd", "2.00")
-            .credit("@z", "usd", "3.00")
-            .build(&assets)
+            .debit("aaa", 0, "@x", &usd1)?
+            .debit("bbb", 0, "@y", &usd2)?
+            .credit("@z", &usd3)?
+            .build()
             .expect("build tx with debit order a,b");
         let tx2 = TransactionBuilder::new("k")
-            .debit("bbb", 0, "@y", "usd", "2.00")
-            .debit("aaa", 0, "@x", "usd", "1.00")
-            .credit("@z", "usd", "3.00")
-            .build(&assets)
+            .debit("bbb", 0, "@y", &usd2)?
+            .debit("aaa", 0, "@x", &usd1)?
+            .credit("@z", &usd3)?
+            .build()
             .expect("build tx with debit order b,a");
         assert_ne!(tx1.tx_id, tx2.tx_id);
+        Ok(())
     }
 
     #[test]
@@ -395,42 +359,40 @@ mod tests {
     }
 
     #[test]
-    fn conservation_rejected_at_build() {
-        let assets = test_assets();
+    fn conservation_rejected_at_build() -> Result<(), LedgerError> {
+        let five_brush = brush().try_amount(5).unwrap();
+        let ten_brush = brush().try_amount(10).unwrap();
         let result = TransactionBuilder::new("bad")
-            .debit("aaa", 0, "@x", "brush", "5")
-            .credit("@y", "brush", "10")
-            .build(&assets);
+            .debit("aaa", 0, "@x", &five_brush)?
+            .credit("@y", &ten_brush)?
+            .build();
         assert!(matches!(
             result,
             Err(LedgerError::ConservationViolated { .. })
         ));
+        Ok(())
     }
 
     #[test]
-    fn dangling_debt_rejected_at_build() {
-        let assets = test_assets();
+    fn dangling_debt_rejected_at_build() -> Result<(), LedgerError> {
+        let neg_usd = usd().try_amount(-1000).unwrap();
         let result = TransactionBuilder::new("bad")
-            .credit("@x", "usd", "-10.00")
-            .build(&assets);
+            .credit("@x", &neg_usd)?
+            .build();
         assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
+        Ok(())
     }
 
     #[test]
-    fn negative_unsigned_rejected_at_build() {
-        let assets = test_assets();
-        let result = TransactionBuilder::new("bad")
-            .credit("@x", "brush", "-5")
-            .build(&assets);
-        assert!(matches!(result, Err(LedgerError::NegativeUnsigned { .. })));
+    fn negative_unsigned_rejected_at_amount_creation() {
+        // This now fails at Amount creation, not at build time.
+        assert!(brush().try_amount(-5).is_err());
     }
 
     #[test]
-    fn world_as_owner_rejected_at_build() {
-        let assets = test_assets();
-        let result = TransactionBuilder::new("bad")
-            .credit("@world", "brush", "5")
-            .build(&assets);
+    fn world_as_owner_rejected() {
+        let five_brush = brush().try_amount(5).unwrap();
+        let result = TransactionBuilder::new("bad").credit("@world", &five_brush);
         assert!(matches!(result, Err(LedgerError::WorldAsOwner)));
     }
 }
