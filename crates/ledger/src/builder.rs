@@ -1,4 +1,5 @@
-//! High-level transaction builder with automatic token selection.
+//! High-level transaction builder with automatic token selection and
+//! optional debt operations.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -8,6 +9,7 @@ use ledger_core::{
     TransactionBuilder as LowLevelBuilder,
 };
 
+use crate::debt::DebtStrategy;
 use crate::error::Error;
 
 /// A pending debit request: take `qty` of `asset` from `account`.
@@ -37,10 +39,17 @@ struct RawDebit {
 /// the account and asset, selects the largest tokens first until the
 /// requested amount is covered, and auto-generates a change credit back
 /// to the source account if the selected tokens exceed the request.
+///
+/// # Debt operations
+///
+/// When a [`DebtStrategy`] is configured on the [`Ledger`](crate::Ledger),
+/// the builder exposes [`create_debt`](Self::create_debt) and
+/// [`settle_debt`](Self::settle_debt) as part of the fluent building flow.
 pub struct TransactionBuilder {
     idempotency_key: String,
     storage: Arc<dyn Storage>,
     assets: HashMap<String, Asset>,
+    debt_strategy: Option<Arc<dyn DebtStrategy>>,
     debits: Vec<DebitRequest>,
     raw_debits: Vec<RawDebit>,
     credits: Vec<Credit>,
@@ -51,11 +60,13 @@ impl TransactionBuilder {
         idempotency_key: String,
         storage: Arc<dyn Storage>,
         assets: HashMap<String, Asset>,
+        debt_strategy: Option<Arc<dyn DebtStrategy>>,
     ) -> Self {
         Self {
             idempotency_key,
             storage,
             assets,
+            debt_strategy,
             debits: Vec::new(),
             raw_debits: Vec::new(),
             credits: Vec::new(),
@@ -115,6 +126,48 @@ impl TransactionBuilder {
         });
         self
     }
+
+    // ── Debt operations ─────────────────────────────────────────────
+
+    /// Issue debt: `debtor` owes `amount` of `asset` to `creditor`.
+    ///
+    /// Adds debt entries to the transaction using the configured
+    /// [`DebtStrategy`]. The caller can chain additional entries
+    /// (e.g., product debits for a credit sale) before building.
+    ///
+    /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
+    pub fn create_debt(
+        mut self,
+        debtor: &AccountPath,
+        creditor: &AccountPath,
+        asset: &Asset,
+        amount: i128,
+    ) -> Result<Self, Error> {
+        let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
+        self = strategy.issue(self, debtor, creditor, asset, amount)?;
+        Ok(self)
+    }
+
+    /// Settle debt: reduce `debtor`'s obligation to `creditor` by `amount`.
+    ///
+    /// Adds settlement entries to the transaction using the configured
+    /// [`DebtStrategy`]. The caller is responsible for adding the cash
+    /// leg (e.g., `.credit("@store/cash", "gs", "5000")`).
+    ///
+    /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
+    pub async fn settle_debt(
+        mut self,
+        debtor: &AccountPath,
+        creditor: &AccountPath,
+        asset: &Asset,
+        amount: i128,
+    ) -> Result<Self, Error> {
+        let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
+        self = strategy.settle(self, debtor, creditor, asset, amount).await?;
+        Ok(self)
+    }
+
+    // ── Build ─────────────────────────────────────────────────────────
 
     /// Build the transaction with automatic token selection.
     ///

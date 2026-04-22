@@ -19,7 +19,7 @@ pub struct Ledger {
 ```
 
 - `inner`: The core ledger engine. All query and commit operations delegate here.
-- `debt_strategy`: Optional strategy for issuing and settling debt. When `None`, calls to `issue_debt()` / `settle_debt()` return `Error::NoDebtStrategy`.
+- `debt_strategy`: Optional strategy for issuing and settling debt. When set, builders created by `transaction()` expose `create_debt()` and `settle_debt()`. When `None`, those builder methods return `Error::NoDebtStrategy`.
 
 ## Design Decisions
 
@@ -46,13 +46,14 @@ ledger.transaction("key")           → TransactionBuilder
     .build().await                  → Transaction
 ```
 
-For debt operations, the builder is passed into the strategy and returned:
+Debt operations are part of the same fluent chain:
 
 ```
-let mut builder = ledger.transaction("key");
-builder = ledger.issue_debt(builder, debtor, creditor, asset, amount)?;
-// builder is moved into issue_debt and returned with debt entries added
-let tx = builder.build().await?;
+let tx = ledger.transaction("key")
+    .debit("@store/inventory", "brush", "3")
+    .credit("@customer/1", "brush", "3")
+    .create_debt(&debtor, &creditor, &asset, 5000)?
+    .build().await?;
 ```
 
 This ensures the builder is always in a consistent state and prevents accidental reuse.

@@ -2,7 +2,9 @@
 
 ## DebtStrategy Trait
 
-The `DebtStrategy` trait defines a pluggable interface for modeling debt in the ledger. The trait has two methods:
+The `DebtStrategy` trait defines a pluggable interface for modeling debt in the ledger. Strategies are configured on the `Ledger` and automatically passed to each `TransactionBuilder`, which exposes `create_debt()` and `settle_debt()` as part of its fluent API.
+
+The trait has two methods:
 
 ```rust
 #[async_trait]

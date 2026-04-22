@@ -10,7 +10,6 @@ use ledger_core::{
 
 use crate::builder::TransactionBuilder;
 use crate::debt::DebtStrategy;
-use crate::error::Error;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
 /// token selection via [`TransactionBuilder`] and optional debt handling
@@ -18,22 +17,22 @@ use crate::error::Error;
 ///
 /// # Debt support
 ///
-/// The ledger has no built-in concept of debt. To use [`issue_debt`] and
-/// [`settle_debt`], configure a strategy with [`with_debt_strategy`]:
+/// The ledger has no built-in concept of debt. To use
+/// [`TransactionBuilder::create_debt`] and [`TransactionBuilder::settle_debt`],
+/// configure a strategy with [`with_debt_strategy`]:
 ///
 /// ```ignore
 /// let ledger = Ledger::new(storage)
 ///     .with_debt_strategy(SignedPositionDebt);
 /// ```
 ///
-/// Without a strategy, debt methods return [`Error::NoDebtStrategy`].
+/// Without a strategy, debt methods on the builder return
+/// [`Error::NoDebtStrategy`].
 ///
-/// [`issue_debt`]: Ledger::issue_debt
-/// [`settle_debt`]: Ledger::settle_debt
 /// [`with_debt_strategy`]: Ledger::with_debt_strategy
 pub struct Ledger {
     inner: ledger_core::Ledger,
-    debt_strategy: Option<Box<dyn DebtStrategy>>,
+    debt_strategy: Option<Arc<dyn DebtStrategy>>,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -53,10 +52,11 @@ impl Ledger {
 
     /// Set the debt strategy for this ledger.
     ///
-    /// Enables [`issue_debt`](Self::issue_debt) and
-    /// [`settle_debt`](Self::settle_debt).
+    /// Enables [`TransactionBuilder::create_debt`] and
+    /// [`TransactionBuilder::settle_debt`] on builders created by
+    /// [`transaction`](Self::transaction).
     pub fn with_debt_strategy(mut self, strategy: impl DebtStrategy + 'static) -> Self {
-        self.debt_strategy = Some(Box::new(strategy));
+        self.debt_strategy = Some(Arc::new(strategy));
         self
     }
 
@@ -66,11 +66,16 @@ impl Ledger {
     ///
     /// Debits only require `(account, asset, qty)` — the builder
     /// automatically selects unspent tokens and generates change.
+    ///
+    /// If a [`DebtStrategy`] is configured, the builder also exposes
+    /// [`create_debt`](TransactionBuilder::create_debt) and
+    /// [`settle_debt`](TransactionBuilder::settle_debt).
     pub fn transaction(&self, idempotency_key: impl Into<String>) -> TransactionBuilder {
         TransactionBuilder::new(
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
             (*self.inner.assets()).clone(),
+            self.debt_strategy.clone(),
         )
     }
 
@@ -101,48 +106,6 @@ impl Ledger {
     /// Commit a validated transaction to the ledger.
     pub async fn commit(&self, tx: Transaction) -> Result<String, LedgerError> {
         self.inner.commit(tx).await
-    }
-
-    // ── Debt ─────────────────────────────────────────────────────────
-
-    /// Issue debt: `debtor` owes `amount` of `asset` to `creditor`.
-    ///
-    /// Adds debt entries to the given transaction builder using the
-    /// configured [`DebtStrategy`]. The caller can add additional entries
-    /// (e.g., product debits for a credit sale) before building.
-    ///
-    /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub fn issue_debt(
-        &self,
-        builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
-        asset: &Asset,
-        amount: i128,
-    ) -> Result<TransactionBuilder, Error> {
-        let strategy = self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?;
-        strategy.issue(builder, debtor, creditor, asset, amount)
-    }
-
-    /// Settle debt: reduce `debtor`'s obligation to `creditor` by `amount`.
-    ///
-    /// Adds settlement entries to the given transaction builder using the
-    /// configured [`DebtStrategy`]. The caller is responsible for adding
-    /// the cash leg (e.g., `.credit("@store/cash", "gs", "5000")`).
-    ///
-    /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub async fn settle_debt(
-        &self,
-        builder: TransactionBuilder,
-        debtor: &AccountPath,
-        creditor: &AccountPath,
-        asset: &Asset,
-        amount: i128,
-    ) -> Result<TransactionBuilder, Error> {
-        let strategy = self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?;
-        strategy
-            .settle(builder, debtor, creditor, asset, amount)
-            .await
     }
 
     // ── Queries ──────────────────────────────────────────────────────

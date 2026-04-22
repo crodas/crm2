@@ -1,9 +1,12 @@
 //! # Ledger
 //!
-//! High-level UTXO ledger with automatic token selection.
+//! High-level UTXO ledger with automatic token selection and debt operations.
 //!
 //! Re-exports core types from [`ledger_core`] and adds:
-//! - [`TransactionBuilder`] — automatic token selection for debits
+//! - [`TransactionBuilder`] — automatic token selection for debits, plus
+//!   [`create_debt`](TransactionBuilder::create_debt) and
+//!   [`settle_debt`](TransactionBuilder::settle_debt) when a
+//!   [`DebtStrategy`](debt::DebtStrategy) is configured
 //! - [`Ledger`] — wraps the core ledger with `.transaction()` method
 //!
 //! For low-level access (explicit entry refs), use [`ledger_core`] directly.

@@ -78,7 +78,7 @@ pub async fn create_sale_tx(
     }
 
     if payment_method.is_none() {
-        // Deferred (credit): issue debt via SignedPositionDebt strategy
+        // Deferred (credit): issue debt via configured DebtStrategy
         let gs = state
             .ledger
             .asset("gs")
@@ -87,10 +87,9 @@ pub async fn create_sale_tx(
             .map_err(|e| AppError::Internal(format!("invalid debtor path: {e}")))?;
         let creditor = AccountPath::new(&format!("@store/receivables/{customer_id}"))
             .map_err(|e| AppError::Internal(format!("invalid creditor path: {e}")))?;
-        builder = state
-            .ledger
-            .issue_debt(builder, &debtor, &creditor, &gs, total.cents().into())
-            .map_err(|e| AppError::Internal(format!("issue debt: {e}")))?;
+        builder = builder
+            .create_debt(&debtor, &creditor, &gs, total.cents().into())
+            .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
     }
 
     let ledger_tx = builder.build().await.map_err(|e| match e {
@@ -260,16 +259,13 @@ pub async fn record_sale_payment(
         .asset("gs")
         .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
-    let builder = state
-        .ledger
-        .transaction(format!("sale-payment-{}", payment.id));
-    let builder = state
-        .ledger
-        .settle_debt(builder, &debtor, &creditor, &gs, amount)
-        .await
-        .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?;
     let amount_str = format!("{amount}");
-    let ledger_tx = builder
+    let ledger_tx = state
+        .ledger
+        .transaction(format!("sale-payment-{}", payment.id))
+        .settle_debt(&debtor, &creditor, &gs, amount)
+        .await
+        .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
         .credit("@store/cash", "gs", &amount_str)
         .build()
         .await

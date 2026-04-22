@@ -59,16 +59,13 @@ pub async fn record_payment(
         .asset("gs")
         .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
-    let builder = state
-        .ledger
-        .transaction(format!("customer-payment-{}", payment.id));
-    let builder = state
-        .ledger
-        .settle_debt(builder, &debtor, &creditor, &gs, amount)
-        .await
-        .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?;
     let amount_str = format!("{amount}");
-    let ledger_tx = builder
+    let ledger_tx = state
+        .ledger
+        .transaction(format!("customer-payment-{}", payment.id))
+        .settle_debt(&debtor, &creditor, &gs, amount)
+        .await
+        .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
         .credit("@store/cash", "gs", &amount_str)
         .build()
         .await

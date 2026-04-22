@@ -330,11 +330,13 @@ mod tests {
     async fn issue_creates_paired_entries_on_debt_asset() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 10000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), -10000);
@@ -347,19 +349,23 @@ mod tests {
     async fn settle_full_zeroes_both() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 10000)
-            .unwrap();
-        let tx = builder.build().await.unwrap();
-        ledger.commit(tx).await.unwrap();
-
-        let builder = ledger.transaction("pay-001");
-        let builder = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 10000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .unwrap()
+            .build()
             .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
+        ledger.commit(tx).await.unwrap();
+
+        let tx = ledger
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 10000)
+            .await
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), 0);
@@ -370,19 +376,23 @@ mod tests {
     async fn settle_partial_leaves_remainder() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 10000)
-            .unwrap();
-        let tx = builder.build().await.unwrap();
-        ledger.commit(tx).await.unwrap();
-
-        let builder = ledger.transaction("pay-001");
-        let builder = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 6000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .unwrap()
+            .build()
             .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
+        ledger.commit(tx).await.unwrap();
+
+        let tx = ledger
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 6000)
+            .await
+            .unwrap()
+            .build()
+            .await
+            .unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), -4000);
@@ -393,29 +403,35 @@ mod tests {
     async fn multiple_debts_single_settle() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 5000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 5000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
-        let builder = ledger.transaction("debt-002");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 8000)
+        let tx = ledger
+            .transaction("debt-002")
+            .create_debt(&debtor(), &creditor(), &gs(), 8000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), -13000);
         assert_eq!(ledger.balance(&creditor(), "gs.d").await.unwrap(), 13000);
 
-        let builder = ledger.transaction("pay-001");
-        let builder = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 10000)
+        let tx = ledger
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 10000)
+            .await
+            .unwrap()
+            .build()
             .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), -3000);
@@ -426,16 +442,18 @@ mod tests {
     async fn overpayment_rejected() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 5000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 5000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
-        let builder = ledger.transaction("pay-001");
         let result = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 10000)
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 10000)
             .await;
         assert!(matches!(result, Err(Error::InsufficientDebt { .. })));
     }
@@ -452,15 +470,15 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        let builder = ledger
+        let tx = ledger
             .transaction("sale-001")
             .debit("@store/inventory", "brush", "3")
-            .credit("@customer/1", "brush", "3");
-
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 5000)
+            .credit("@customer/1", "brush", "3")
+            .create_debt(&debtor(), &creditor(), &gs(), 5000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         let inv = AccountPath::new("@store/inventory").unwrap();
@@ -475,11 +493,13 @@ mod tests {
     async fn settle_with_cash_leg() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 10000)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 10000)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         let tx = ledger
@@ -490,16 +510,16 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        let builder = ledger.transaction("pay-001");
-        let builder = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 5000)
+        let tx = ledger
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 5000)
+            .await
+            .unwrap()
+            .debit("@customer/1/cash", "gs", "5000")
+            .credit("@store/cash", "gs", "5000")
+            .build()
             .await
             .unwrap();
-        let builder =
-            builder
-                .debit("@customer/1/cash", "gs", "5000")
-                .credit("@store/cash", "gs", "5000");
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(ledger.balance(&debtor(), "gs.d").await.unwrap(), -5000);
@@ -514,8 +534,9 @@ mod tests {
     async fn non_positive_amount_rejected() {
         let ledger = setup().await;
 
-        let builder = ledger.transaction("bad");
-        let result = ledger.issue_debt(builder, &debtor(), &creditor(), &gs(), 0);
+        let result = ledger
+            .transaction("bad")
+            .create_debt(&debtor(), &creditor(), &gs(), 0);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }
 
@@ -533,11 +554,13 @@ mod tests {
             .await
             .unwrap();
 
-        let builder = ledger.transaction("debt-001");
-        let builder = ledger
-            .issue_debt(builder, &debtor(), &creditor(), &gs(), 7500)
+        let tx = ledger
+            .transaction("debt-001")
+            .create_debt(&debtor(), &creditor(), &gs(), 7500)
+            .unwrap()
+            .build()
+            .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(), 7500);
@@ -546,12 +569,14 @@ mod tests {
             7500
         );
 
-        let builder = ledger.transaction("pay-001");
-        let builder = ledger
-            .settle_debt(builder, &debtor(), &creditor(), &gs(), 3000)
+        let tx = ledger
+            .transaction("pay-001")
+            .settle_debt(&debtor(), &creditor(), &gs(), 3000)
+            .await
+            .unwrap()
+            .build()
             .await
             .unwrap();
-        let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
         assert_eq!(debt.owed_by(&ledger, &debtor(), &gs()).await.unwrap(), 4500);

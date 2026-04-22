@@ -49,10 +49,10 @@ let tx = ledger.transaction("sale-001")
     .build().await?;
 ledger.commit(tx).await?;
 
-// Issue and settle debt
-let mut builder = ledger.transaction("credit-sale-001");
-builder = ledger.issue_debt(builder, &debtor, &creditor, &usd_asset, 5000)?;
-let tx = builder.build().await?;
+// Issue and settle debt as part of the builder flow
+let tx = ledger.transaction("credit-sale-001")
+    .create_debt(&debtor, &creditor, &usd_asset, 5000)?
+    .build().await?;
 ledger.commit(tx).await?;
 ```
 

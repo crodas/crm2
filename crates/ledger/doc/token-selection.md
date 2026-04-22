@@ -124,14 +124,14 @@ ledger.transaction("sale-001")
 
 ## Interaction with Debt Strategies
 
-Debt strategies use the builder's `debit_raw()` and `credit()` methods to inject their entries. The strategies receive the builder, add entries, and return it:
+Debt strategies use the builder's `debit_raw()` and `credit()` methods to inject their entries. Debt operations are part of the builder's fluent API:
 
 ```rust
-let mut builder = ledger.transaction("credit-sale");
-builder = builder.debit("@store/inventory", "brush", 5);
-builder = builder.credit("@customer/goods", "brush", "5");
-builder = ledger.issue_debt(builder, &debtor, &creditor, &usd, 5000)?;
-let tx = builder.build().await?;
+let tx = ledger.transaction("credit-sale")
+    .debit("@store/inventory", "brush", 5)
+    .credit("@customer/goods", "brush", "5")
+    .create_debt(&debtor, &creditor, &usd, 5000)?
+    .build().await?;
 ```
 
 This design means token selection and debt entries coexist naturally in the same transaction.
