@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/ledger-core", "crates/ledger", "crates/ledger-sqlite"]
+members = [".", "crates/ledger-core", "crates/ledger", "crates/ledger-sqlite", "crates/ledger-viewer"]
 
 [package]
 name = "crm2"

@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f5f5f5; color: #1a1a1a; padding: 20px; }
+  h1 { font-size: 1.5rem; margin-bottom: 4px; }
+  .stats { color: #666; font-size: 0.85rem; margin-bottom: 16px; }
+  .tabs { display: flex; gap: 0; border-bottom: 2px solid #ddd; margin-bottom: 16px; }
+  .tab { padding: 8px 20px; cursor: pointer; border: none; background: none; font-size: 0.95rem; color: #666; border-bottom: 2px solid transparent; margin-bottom: -2px; }
+  .tab.active { color: #1a1a1a; border-bottom-color: #333; font-weight: 600; }
+  .tab:hover { color: #1a1a1a; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .filter { margin-bottom: 12px; }
+  .filter input { padding: 6px 12px; border: 1px solid #ccc; border-radius: 4px; width: 300px; font-size: 0.9rem; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 6px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th { background: #f9f9f9; text-align: left; padding: 10px 14px; font-size: 0.8rem; text-transform: uppercase; color: #666; border-bottom: 1px solid #eee; position: sticky; top: 0; }
+  td { padding: 8px 14px; border-bottom: 1px solid #f0f0f0; font-size: 0.9rem; vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+  .mono { font-family: "SF Mono", "Fira Code", monospace; font-size: 0.85rem; }
+  .amount { text-align: right; }
+  .negative { color: #c0392b; }
+  .positive { color: #27ae60; }
+  .tx-id { max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .entry-list { list-style: none; }
+  .entry-list li { padding: 2px 0; font-size: 0.85rem; }
+  .entry-list .account { color: #555; }
+  .loading { text-align: center; padding: 40px; color: #999; }
+  .error { text-align: center; padding: 40px; color: #c0392b; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 0.75rem; background: #eee; color: #555; }
+  .badge-spent { background: #fce4e4; color: #a94442; }
+  .badge-unspent { background: #dff0d8; color: #3c763d; }
+  .tx-row { cursor: pointer; }
+  .raw-row td { background: #fafafa; padding: 4px 14px; }
+  .raw-row .raw-label { font-size: 0.75rem; text-transform: uppercase; color: #999; margin-bottom: 2px; }
+  .raw-row .entry-list { margin-left: 8px; }
+  .raw-row .entry-list li { color: #888; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+
+<h1>Ledger Viewer</h1>
+<div class="stats" id="stats">Loading...</div>
+
+<div class="tabs">
+  <button class="tab active" data-panel="balances">Balances</button>
+  <button class="tab" data-panel="transactions">Transactions</button>
+  <button class="tab" data-panel="tokens">Tokens</button>
+  <button class="tab" data-panel="assets">Assets</button>
+</div>
+
+<div id="balances" class="panel active">
+  <div class="filter">
+    <input type="text" id="balance-filter" placeholder="Filter by account or asset..." oninput="filterBalances()">
+  </div>
+  <div id="balances-content"><div class="loading">Loading balances...</div></div>
+</div>
+
+<div id="transactions" class="panel">
+  <div id="transactions-content"><div class="loading">Loading transactions...</div></div>
+</div>
+
+<div id="tokens" class="panel">
+  <div class="filter">
+    <input type="text" id="token-filter" placeholder="Filter by account, asset, or status..." oninput="filterTokens()">
+  </div>
+  <div id="tokens-content"><div class="loading">Loading tokens...</div></div>
+</div>
+
+<div id="assets" class="panel">
+  <div id="assets-content"><div class="loading">Loading assets...</div></div>
+</div>
+
+<script>
+let allBalances = [];
+let allTokens = [];
+let allAssets = {};
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById(tab.dataset.panel).classList.add('active');
+  });
+});
+
+// Build token table from transactions: credits create tokens, debits spend them.
+function buildTokens(txs) {
+  const tokens = {};
+  for (const tx of txs) {
+    for (let i = 0; i < tx.credits.length; i++) {
+      const c = tx.credits[i];
+      const key = tx.tx_id + ':' + i;
+      tokens[key] = {
+        tx_id: tx.tx_id, entry_index: i,
+        owner: c.account, asset_name: c.asset_name,
+        raw: c.raw, display: c.display,
+        spent_by: null
+      };
+    }
+    for (const d of tx.debits) {
+      const key = d.ref_tx_id + ':' + d.ref_entry_index;
+      if (tokens[key]) {
+        tokens[key].spent_by = tx.tx_id;
+      }
+    }
+  }
+  return Object.values(tokens);
+}
+
+// Compute net movements per (account, asset) for a transaction,
+// collapsing UTXO mechanics (full-token debits + change credits).
+function netMovements(tx) {
+  const map = {};
+  for (const d of tx.debits) {
+    const key = d.account + '\0' + d.asset_name;
+    if (!map[key]) map[key] = { account: d.account, asset_name: d.asset_name, net: 0 };
+    map[key].net -= d.raw;
+  }
+  for (const c of tx.credits) {
+    const key = c.account + '\0' + c.asset_name;
+    if (!map[key]) map[key] = { account: c.account, asset_name: c.asset_name, net: 0 };
+    map[key].net += c.raw;
+  }
+  return Object.values(map).filter(m => m.net !== 0);
+}
+
+async function load() {
+  try {
+    const [balRes, txRes, assetRes] = await Promise.all([
+      fetch('/api/balances'),
+      fetch('/api/transactions'),
+      fetch('/api/assets'),
+    ]);
+
+    if (!balRes.ok || !txRes.ok || !assetRes.ok) throw new Error('API request failed');
+
+    const balances = await balRes.json();
+    const transactions = await txRes.json();
+    const assets = await assetRes.json();
+
+    allAssets = assets;
+    allBalances = balances;
+    allTokens = buildTokens(transactions);
+    const unspent = allTokens.filter(t => !t.spent_by).length;
+    const spent = allTokens.length - unspent;
+
+    document.getElementById('stats').textContent =
+      `${balances.length} account balances \u00b7 ${transactions.length} transactions \u00b7 ${allTokens.length} tokens (${unspent} unspent, ${spent} spent) \u00b7 ${Object.keys(assets).length} assets`;
+
+    renderBalances(balances);
+    renderTransactions(transactions);
+    renderTokens(allTokens);
+    renderAssets(assets);
+  } catch (e) {
+    document.getElementById('stats').textContent = 'Error loading data';
+    ['balances-content', 'transactions-content', 'tokens-content', 'assets-content'].forEach(id => {
+      document.getElementById(id).innerHTML = '<div class="error">Failed to load: ' + esc(e.message) + '</div>';
+    });
+  }
+}
+
+function amountClass(raw) {
+  if (raw < 0) return 'mono amount negative';
+  if (raw > 0) return 'mono amount positive';
+  return 'mono amount';
+}
+
+function addThousands(s) {
+  let result = '';
+  for (let i = s.length - 1, c = 0; i >= 0; i--, c++) {
+    if (c > 0 && c % 3 === 0) result = '.' + result;
+    result = s[i] + result;
+  }
+  return result;
+}
+
+function fmt(raw, assetName) {
+  const a = allAssets[assetName];
+  const sign = raw < 0 ? '-' : '';
+  const abs = raw < 0 ? -raw : raw;
+  if (!a || a.precision === 0) return sign + addThousands(String(abs));
+  const factor = Math.pow(10, a.precision);
+  const integer = addThousands(String(Math.floor(abs / factor)));
+  const frac = String(abs % factor).padStart(a.precision, '0');
+  return sign + integer + ',' + frac;
+}
+
+function renderBalances(balances) {
+  if (balances.length === 0) {
+    document.getElementById('balances-content').innerHTML = '<div class="loading">No balances found.</div>';
+    return;
+  }
+  const rows = balances.map(b =>
+    '<tr>' +
+      '<td class="mono">' + esc(b.account) + '</td>' +
+      '<td><span class="badge">' + esc(b.asset_name) + '</span></td>' +
+      '<td class="' + amountClass(b.raw) + '">' + esc(fmt(b.raw, b.asset_name)) + '</td>' +
+    '</tr>'
+  ).join('');
+  document.getElementById('balances-content').innerHTML =
+    '<table><thead><tr><th>Account</th><th>Asset</th><th style="text-align:right">Balance</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function filterBalances() {
+  const q = document.getElementById('balance-filter').value.toLowerCase();
+  const filtered = allBalances.filter(b =>
+    b.account.toLowerCase().includes(q) || b.asset_name.toLowerCase().includes(q)
+  );
+  renderBalances(filtered);
+}
+
+function renderTransactions(txs) {
+  if (txs.length === 0) {
+    document.getElementById('transactions-content').innerHTML = '<div class="loading">No transactions found.</div>';
+    return;
+  }
+  const reversed = [...txs].reverse();
+  const rows = reversed.map((tx, idx) => {
+    // Simplified view: net movements split into debit/credit columns
+    const movements = netMovements(tx);
+    const netDebits = movements.filter(m => m.net < 0);
+    const netCredits = movements.filter(m => m.net > 0);
+
+    const debitHtml = netDebits.map(m => {
+      return '<li><span class="account">' + esc(m.account) + '</span> ' +
+        '<span class="mono negative">-' + esc(fmt(-m.net, m.asset_name)) + '</span> ' +
+        '<span class="badge">' + esc(m.asset_name) + '</span></li>';
+    }).join('');
+    const creditHtml = netCredits.map(m => {
+      return '<li><span class="account">' + esc(m.account) + '</span> ' +
+        '<span class="mono positive">+' + esc(fmt(m.net, m.asset_name)) + '</span> ' +
+        '<span class="badge">' + esc(m.asset_name) + '</span></li>';
+    }).join('');
+
+    // Raw view: original debits and credits
+    const rawDebits = tx.debits.map(d =>
+      '<li><span class="account">' + esc(d.account) + '</span> ' +
+      '<span class="mono negative">-' + esc(fmt(d.raw, d.asset_name)) + '</span> ' +
+      '<span class="badge">' + esc(d.asset_name) + '</span></li>'
+    ).join('');
+    const rawCredits = tx.credits.map(c => {
+      const cls = c.raw < 0 ? 'mono negative' : 'mono positive';
+      const sign = c.raw >= 0 ? '+' : '';
+      return '<li><span class="account">' + esc(c.account) + '</span> ' +
+        '<span class="' + cls + '">' + sign + esc(fmt(c.raw, c.asset_name)) + '</span> ' +
+        '<span class="badge">' + esc(c.asset_name) + '</span></li>';
+    }).join('');
+
+    const rowId = 'raw-' + idx;
+    return '<tr class="tx-row" onclick="document.getElementById(\'' + rowId + '\').style.display = document.getElementById(\'' + rowId + '\').style.display === \'none\' ? \'table-row\' : \'none\'">' +
+      '<td class="mono tx-id" title="' + esc(tx.tx_id) + '">' + esc(tx.tx_id.slice(0, 12)) + '\u2026</td>' +
+      '<td class="mono">' + esc(tx.idempotency_key) + '</td>' +
+      '<td><ul class="entry-list">' + (debitHtml || '<li style="color:#999">\u2014</li>') + '</ul></td>' +
+      '<td><ul class="entry-list">' + (creditHtml || '<li style="color:#999">\u2014</li>') + '</ul></td>' +
+    '</tr>' +
+    '<tr class="raw-row" id="' + rowId + '" style="display:none">' +
+      '<td colspan="4">' +
+        '<div class="raw-label">Raw debits</div>' +
+        '<ul class="entry-list">' + (rawDebits || '<li>\u2014</li>') + '</ul>' +
+        '<div class="raw-label" style="margin-top:6px">Raw credits</div>' +
+        '<ul class="entry-list">' + (rawCredits || '<li>\u2014</li>') + '</ul>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('transactions-content').innerHTML =
+    '<table><thead><tr><th>TX ID</th><th>Idempotency Key</th><th>Debits</th><th>Credits</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function renderTokens(tokens) {
+  if (tokens.length === 0) {
+    document.getElementById('tokens-content').innerHTML = '<div class="loading">No tokens found.</div>';
+    return;
+  }
+  const rows = tokens.map(t => {
+    const statusBadge = t.spent_by
+      ? '<span class="badge badge-spent">spent</span>'
+      : '<span class="badge badge-unspent">unspent</span>';
+    const spentBy = t.spent_by
+      ? '<span class="mono" title="' + esc(t.spent_by) + '">' + esc(t.spent_by.slice(0, 12)) + '\u2026</span>'
+      : '\u2014';
+    return '<tr>' +
+      '<td class="mono tx-id" title="' + esc(t.tx_id) + '">' + esc(t.tx_id.slice(0, 12)) + '\u2026:' + t.entry_index + '</td>' +
+      '<td class="mono">' + esc(t.owner) + '</td>' +
+      '<td><span class="badge">' + esc(t.asset_name) + '</span></td>' +
+      '<td class="' + amountClass(t.raw) + '">' + esc(fmt(t.raw, t.asset_name)) + '</td>' +
+      '<td>' + statusBadge + '</td>' +
+      '<td>' + spentBy + '</td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('tokens-content').innerHTML =
+    '<table><thead><tr><th>Entry Ref</th><th>Owner</th><th>Asset</th><th style="text-align:right">Amount</th><th>Status</th><th>Spent By</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function filterTokens() {
+  const q = document.getElementById('token-filter').value.toLowerCase();
+  const filtered = allTokens.filter(t =>
+    t.owner.toLowerCase().includes(q) ||
+    t.asset_name.toLowerCase().includes(q) ||
+    (q === 'spent' && t.spent_by) ||
+    (q === 'unspent' && !t.spent_by)
+  );
+  renderTokens(filtered);
+}
+
+function renderAssets(assets) {
+  const entries = Object.values(assets);
+  if (entries.length === 0) {
+    document.getElementById('assets-content').innerHTML = '<div class="loading">No assets registered.</div>';
+    return;
+  }
+  const rows = entries.map(a =>
+    '<tr>' +
+      '<td class="mono">' + esc(a.name) + '</td>' +
+      '<td>' + a.precision + '</td>' +
+      '<td><span class="badge">' + esc(a.kind) + '</span></td>' +
+    '</tr>'
+  ).join('');
+  document.getElementById('assets-content').innerHTML =
+    '<table><thead><tr><th>Name</th><th>Precision</th><th>Kind</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+load();
+</script>
+</body>
+</html>
