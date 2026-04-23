@@ -26,10 +26,6 @@ pub enum Error {
     #[error("no debt strategy configured — call Ledger::with_debt_strategy first")]
     NoDebtStrategy,
 
-    /// No credit strategy configured on this ledger.
-    #[error("no credit strategy configured — call Ledger::with_credit_strategy first")]
-    NoCreditStrategy,
-
     /// Invalid account path resolved from a template.
     #[error("invalid account path: {0}")]
     InvalidPath(String),

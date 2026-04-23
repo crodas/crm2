@@ -37,7 +37,7 @@ use crate::debt::DebtStrategy;
 pub struct Ledger {
     inner: ledger_core::Ledger,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
-    credit_strategy: Option<Arc<dyn CreditStrategy>>,
+    credit_strategy: Arc<dyn CreditStrategy>,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -47,12 +47,15 @@ impl std::fmt::Debug for Ledger {
 }
 
 impl Ledger {
-    /// Create a new ledger backed by the given storage, with no debt strategy.
+    /// Create a new ledger backed by the given storage.
+    ///
+    /// Uses a default credit strategy that credits `@world/{id}`.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
+        use crate::credit::TemplateCreditStrategy;
         Self {
             inner: ledger_core::Ledger::new(storage),
             debt_strategy: None,
-            credit_strategy: None,
+            credit_strategy: Arc::new(TemplateCreditStrategy::new("@world/{id}")),
         }
     }
 
@@ -64,7 +67,7 @@ impl Ledger {
 
     /// Set the credit strategy for this ledger.
     pub fn with_credit_strategy(mut self, strategy: impl CreditStrategy + 'static) -> Self {
-        self.credit_strategy = Some(Arc::new(strategy));
+        self.credit_strategy = Arc::new(strategy);
         self
     }
 
@@ -76,7 +79,7 @@ impl Ledger {
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
             self.debt_strategy.clone(),
-            self.credit_strategy.clone(),
+            Arc::clone(&self.credit_strategy),
         )
     }
 

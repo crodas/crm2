@@ -46,7 +46,7 @@ pub struct TransactionBuilder {
     idempotency_key: String,
     storage: Arc<dyn Storage>,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
-    credit_strategy: Option<Arc<dyn CreditStrategy>>,
+    credit_strategy: Arc<dyn CreditStrategy>,
     debits: Vec<DebitRequest>,
     raw_debits: Vec<RawDebit>,
     credits: Vec<(String, Amount)>,
@@ -57,7 +57,7 @@ impl TransactionBuilder {
         idempotency_key: String,
         storage: Arc<dyn Storage>,
         debt_strategy: Option<Arc<dyn DebtStrategy>>,
-        credit_strategy: Option<Arc<dyn CreditStrategy>>,
+        credit_strategy: Arc<dyn CreditStrategy>,
     ) -> Self {
         Self {
             idempotency_key,
@@ -132,14 +132,8 @@ impl TransactionBuilder {
     // ── Credit operations ────────────────────────────────────────────
 
     /// Apply credit entries for `entity_id` using the configured [`CreditStrategy`].
-    ///
-    /// Returns [`Error::NoCreditStrategy`] if no strategy is configured.
     pub fn create_credit(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
-        let strategy = Arc::clone(
-            self.credit_strategy
-                .as_ref()
-                .ok_or(Error::NoCreditStrategy)?,
-        );
+        let strategy = Arc::clone(&self.credit_strategy);
         self = strategy.apply(self, entity_id, amount)?;
         Ok(self)
     }
