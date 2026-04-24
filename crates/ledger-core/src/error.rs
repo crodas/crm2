@@ -25,11 +25,7 @@ pub enum LedgerError {
         credit_sum: i128,
     },
 
-    /// An unsigned asset has a negative quantity in a credit.
-    #[error("unsigned asset '{asset}' cannot have negative quantity: {qty}")]
-    NegativeUnsigned { asset: String, qty: i128 },
-
-    /// A negative monetary credit exists without a matching positive credit
+    /// A negative credit exists without a matching positive credit
     /// in the same transaction (invariant 5).
     #[error("dangling debt: negative credit for '{asset}' without matching positive credit")]
     DanglingDebt { asset: String },

@@ -72,7 +72,8 @@ pub async fn receive_inventory(
         let amount = asset
             .parse_amount(&format!("{:.3}", line.quantity))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
-        builder = builder.credit(&account, &amount);
+        builder = builder.issue(&account, &amount)
+            .map_err(|e| AppError::Internal(format!("issue: {e}")))?;
 
         // Store prices for each customer group
         for price in &line.prices {
@@ -547,7 +548,7 @@ mod tests {
     };
     use http_body_util::BodyExt;
     use ledger::debt::SignedPositionDebt;
-    use ledger::{Asset, AssetKind};
+    use ledger::Asset;
     use sqlx::SqlitePool;
     use tower::ServiceExt;
 
@@ -578,11 +579,11 @@ mod tests {
             SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
         );
         ledger
-            .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+            .register_asset(Asset::new("gs", 0))
             .await
             .unwrap();
         ledger
-            .register_asset(Asset::new("product:1", 3, AssetKind::Unsigned))
+            .register_asset(Asset::new("product:1", 3))
             .await
             .unwrap();
 
@@ -608,7 +609,8 @@ mod tests {
         let tx = state
             .ledger
             .transaction(format!("seed-{warehouse_id}-{product_id}"))
-            .credit(&account, &amount)
+            .issue(&account, &amount)
+            .unwrap()
             .build()
             .await
             .unwrap();

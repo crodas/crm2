@@ -74,16 +74,18 @@ pub struct Transaction {
 ///
 /// ```
 /// # use ledger_core::*;
-/// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+/// let brush = Asset::new("brush", 0);
 /// let five = brush.try_amount(5).unwrap();
+/// let neg_five = five.negate();
 ///
 /// let tx = TransactionBuilder::new("issue-brush-001")
 ///     .credit("store1/inventory", &five)
+///     .credit("@world", &neg_five)
 ///     .build()
 ///     .unwrap();
 ///
-/// assert!(tx.debits.is_empty()); // issuance
-/// assert_eq!(tx.credits.len(), 1);
+/// assert!(tx.debits.is_empty());
+/// assert_eq!(tx.credits.len(), 2);
 /// ```
 pub struct TransactionBuilder {
     idempotency_key: String,
@@ -155,8 +157,8 @@ impl TransactionBuilder {
                 .or_default() += debit.amount.raw();
         }
 
-        // Conservation: per-asset debit sum == credit sum (skip for issuance).
-        if !self.debits.is_empty() {
+        // Conservation: per-asset debit sum == credit sum (always enforced).
+        {
             let all_assets: HashSet<&str> = asset_debit_sums
                 .keys()
                 .chain(asset_credit_sums.keys())
@@ -267,25 +269,28 @@ mod hex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::asset::{Asset, AssetKind};
+    use crate::asset::Asset;
 
     fn brush() -> Asset {
-        Asset::new("brush", 0, AssetKind::Unsigned)
+        Asset::new("brush", 0)
     }
 
     fn usd() -> Asset {
-        Asset::new("usd", 2, AssetKind::Signed)
+        Asset::new("usd", 2)
     }
 
     #[test]
     fn issuance_tx_id_is_deterministic() {
         let five_brush = brush().try_amount(5).unwrap();
+        let neg_five = five_brush.negate();
         let tx1 = TransactionBuilder::new("test-key")
             .credit("store1/inventory", &five_brush)
+            .credit("@world", &neg_five)
             .build()
             .expect("build issuance tx1");
         let tx2 = TransactionBuilder::new("test-key")
             .credit("store1/inventory", &five_brush)
+            .credit("@world", &neg_five)
             .build()
             .expect("build issuance tx2");
         assert_eq!(tx1.tx_id, tx2.tx_id);
@@ -295,12 +300,15 @@ mod tests {
     #[test]
     fn different_keys_produce_different_ids() {
         let five_brush = brush().try_amount(5).unwrap();
+        let neg_five = five_brush.negate();
         let tx1 = TransactionBuilder::new("key-a")
             .credit("store1/inventory", &five_brush)
+            .credit("@world", &neg_five)
             .build()
             .expect("build tx with key-a");
         let tx2 = TransactionBuilder::new("key-b")
             .credit("store1/inventory", &five_brush)
+            .credit("@world", &neg_five)
             .build()
             .expect("build tx with key-b");
         assert_ne!(tx1.tx_id, tx2.tx_id);
@@ -347,14 +355,43 @@ mod tests {
     }
 
     #[test]
+    fn unbalanced_issuance_rejected() {
+        let five_brush = brush().try_amount(5).unwrap();
+        let result = TransactionBuilder::new("bad")
+            .credit("store1/inventory", &five_brush)
+            .build();
+        assert!(matches!(
+            result,
+            Err(LedgerError::ConservationViolated { .. })
+        ));
+    }
+
+    #[test]
     fn dangling_debt_rejected_at_build() {
+        // Negative credit (-1000) is larger than positive credit (+500) for
+        // the same asset. Conservation passes (both net to zero via debits)
+        // but dangling debt check catches it.
         let neg_usd = usd().try_amount(-1000).unwrap();
-        let result = TransactionBuilder::new("bad").credit("x", &neg_usd).build();
+        let pos_usd = usd().try_amount(500).unwrap();
+        let b5 = brush().try_amount(5).unwrap();
+        let result = TransactionBuilder::new("bad")
+            .debit("tx1", 0, "a", &neg_usd)
+            .debit("tx2", 0, "b", &pos_usd)
+            .debit("tx3", 0, "c", &b5)
+            .credit("d", &neg_usd)
+            .credit("e", &pos_usd)
+            .credit("f", &b5)
+            .build();
         assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
     }
 
     #[test]
-    fn negative_unsigned_rejected_at_amount_creation() {
-        assert!(brush().try_amount(-5).is_err());
+    fn standalone_negative_credit_violates_conservation() {
+        let neg_usd = usd().try_amount(-1000).unwrap();
+        let result = TransactionBuilder::new("bad").credit("x", &neg_usd).build();
+        assert!(matches!(
+            result,
+            Err(LedgerError::ConservationViolated { .. })
+        ));
     }
 }

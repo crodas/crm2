@@ -44,7 +44,7 @@ impl DebtStrategy for SignedPositionDebt {
         }
         let debtor = resolve_template(&self.debtor_template, entity_id);
         let creditor = resolve_template(&self.creditor_template, entity_id);
-        let neg = amount.negate().map_err(|e| Error::Ledger(e))?;
+        let neg = amount.negate();
 
         Ok(builder.credit(debtor, &neg).credit(creditor, amount))
     }
@@ -60,7 +60,7 @@ impl DebtStrategy for SignedPositionDebt {
         }
         let debtor = resolve_template(&self.debtor_template, entity_id);
         let creditor = resolve_template(&self.creditor_template, entity_id);
-        let neg = amount.negate().map_err(|e| Error::Ledger(e))?;
+        let neg = amount.negate();
 
         Ok(builder.credit(debtor, amount).credit(creditor, &neg))
     }
@@ -70,7 +70,7 @@ impl DebtStrategy for SignedPositionDebt {
 mod tests {
     use std::sync::Arc;
 
-    use ledger_core::{Amount, Asset, AssetKind, MemoryStorage};
+    use ledger_core::{Amount, Asset, MemoryStorage};
 
     use crate::error::Error;
     use crate::Ledger;
@@ -82,20 +82,18 @@ mod tests {
         let ledger = Ledger::new(storage)
             .with_debt_strategy(SignedPositionDebt::new("customer/{id}", "store/{id}"));
         ledger
-            .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+            .register_asset(Asset::new("gs", 0))
             .await
             .unwrap();
         ledger
-            .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
+            .register_asset(Asset::new("brush", 0))
             .await
             .unwrap();
         ledger
     }
 
     fn gs_amount(raw: i128) -> Amount {
-        Asset::new("gs", 0, AssetKind::Signed)
-            .try_amount(raw)
-            .unwrap()
+        Asset::new("gs", 0).try_amount(raw).unwrap()
     }
 
     #[tokio::test]
@@ -103,7 +101,7 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage); // no strategy
         ledger
-            .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+            .register_asset(Asset::new("gs", 0))
             .await
             .unwrap();
 
@@ -193,7 +191,8 @@ mod tests {
 
         let tx = ledger
             .transaction("issue-inv")
-            .credit("store/inventory", &b10)
+            .issue("store/inventory", &b10)
+            .unwrap()
             .build()
             .await
             .unwrap();
@@ -236,7 +235,8 @@ mod tests {
             .settle_debt("1", &gs_amount(5000))
             .await
             .unwrap()
-            .credit("store/cash", &gs5000)
+            .issue("store/cash", &gs5000)
+            .unwrap()
             .build()
             .await
             .unwrap();
@@ -254,9 +254,7 @@ mod tests {
         let result = ledger.transaction("bad").create_debt("1", &gs_amount(0));
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
-        let neg = Asset::new("gs", 0, AssetKind::Signed)
-            .try_amount(-100)
-            .unwrap();
+        let neg = Asset::new("gs", 0).try_amount(-100).unwrap();
         let result = ledger.transaction("bad2").create_debt("1", &neg);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }

@@ -7,7 +7,7 @@ use ledger_core::{
     Amount, SpendingToken, Storage, Transaction, TransactionBuilder as LowLevelBuilder,
 };
 
-use crate::credit::CreditStrategy;
+use crate::issuance::IssuanceStrategy;
 use crate::debt::DebtStrategy;
 use crate::error::Error;
 
@@ -46,7 +46,7 @@ pub struct TransactionBuilder {
     idempotency_key: String,
     storage: Arc<dyn Storage>,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
-    credit_strategy: Arc<dyn CreditStrategy>,
+    issuance_strategy: Arc<dyn IssuanceStrategy>,
     debits: Vec<DebitRequest>,
     raw_debits: Vec<RawDebit>,
     credits: Vec<(String, Amount)>,
@@ -57,13 +57,13 @@ impl TransactionBuilder {
         idempotency_key: String,
         storage: Arc<dyn Storage>,
         debt_strategy: Option<Arc<dyn DebtStrategy>>,
-        credit_strategy: Arc<dyn CreditStrategy>,
+        issuance_strategy: Arc<dyn IssuanceStrategy>,
     ) -> Self {
         Self {
             idempotency_key,
             storage,
             debt_strategy,
-            credit_strategy,
+            issuance_strategy,
             debits: Vec::new(),
             raw_debits: Vec::new(),
             credits: Vec::new(),
@@ -129,13 +129,36 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    // ── Credit operations ────────────────────────────────────────────
+    // ── Issuance operations ──────────────────────────────────────────
 
-    /// Apply credit entries for `entity_id` using the configured [`CreditStrategy`].
-    pub fn create_credit(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
-        let strategy = Arc::clone(&self.credit_strategy);
-        self = strategy.apply(self, entity_id, amount)?;
+    /// Issue tokens to `to` using the configured [`IssuanceStrategy`] (default: @world).
+    ///
+    /// Adds a positive credit to `to` and a balancing negative credit to the
+    /// strategy's source account, maintaining conservation.
+    pub fn issue(mut self, to: &str, amount: &Amount) -> Result<Self, Error> {
+        if amount.raw() <= 0 {
+            return Err(Error::NonPositiveAmount);
+        }
+        let strategy = Arc::clone(&self.issuance_strategy);
+        self = strategy.apply(self, to, amount)?;
         Ok(self)
+    }
+
+    /// Issue tokens to `to` with a custom source account.
+    ///
+    /// Use when tokens come from a specific provider, bank, or supplier
+    /// instead of the default @world.
+    ///
+    /// ```ignore
+    /// builder.issue_from("bank/chase", "store/cash", &amount)?
+    /// builder.issue_from("supplier/acme", "store/inventory", &amount)?
+    /// ```
+    pub fn issue_from(self, source: &str, to: &str, amount: &Amount) -> Result<Self, Error> {
+        if amount.raw() <= 0 {
+            return Err(Error::NonPositiveAmount);
+        }
+        let neg = amount.negate();
+        Ok(self.credit(to, amount).credit(source, &neg))
     }
 
     // ── Build ─────────────────────────────────────────────────────────
@@ -239,7 +262,7 @@ fn select_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ledger_core::{Asset, AssetKind, MemoryStorage};
+    use ledger_core::{Asset, MemoryStorage};
 
     use crate::Ledger;
 
@@ -247,11 +270,11 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage);
         ledger
-            .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
+            .register_asset(Asset::new("brush", 0))
             .await
             .expect("register brush asset");
         ledger
-            .register_asset(Asset::new("usd", 2, AssetKind::Signed))
+            .register_asset(Asset::new("usd", 2))
             .await
             .expect("register usd asset");
         ledger
@@ -261,7 +284,8 @@ mod tests {
     async fn issue(ledger: &Ledger, key: &str, account: &str, amount: &Amount) {
         let tx = ledger
             .transaction(key)
-            .credit(account, amount)
+            .issue(account, amount)
+            .expect("issue")
             .build()
             .await
             .expect("build issuance tx");
@@ -366,14 +390,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn issuance_no_debits() {
+    async fn issuance_via_issue() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
         let b10 = brush.try_amount(10).unwrap();
 
         let tx = ledger
             .transaction("issue-001")
-            .credit("store1/inventory", &b10)
+            .issue("store1/inventory", &b10)
+            .expect("issue")
             .build()
             .await
             .expect("build tx");
@@ -383,6 +408,10 @@ mod tests {
         assert_eq!(
             ledger.balance("store1/inventory", "brush").await.unwrap(),
             10
+        );
+        assert_eq!(
+            ledger.balance("@world", "brush").await.unwrap(),
+            -10
         );
     }
 

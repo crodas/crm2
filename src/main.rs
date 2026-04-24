@@ -15,7 +15,7 @@ use axum::{
     Router,
 };
 use ledger::debt::SignedPositionDebt;
-use ledger::{Asset, AssetKind};
+use ledger::Asset;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -82,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Register monetary asset
     ledger
-        .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+        .register_asset(Asset::new("gs", 0))
         .await
         .map_err(|e| format!("register gs: {e}"))?;
 
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     for (id,) in &product_ids {
         ledger
-            .register_asset(Asset::new(format!("product:{id}"), 3, AssetKind::Unsigned))
+            .register_asset(Asset::new(format!("product:{id}"), 3))
             .await
             .map_err(|e| format!("register product:{id}: {e}"))?;
     }

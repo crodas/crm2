@@ -9,7 +9,7 @@ use ledger_core::{
 };
 
 use crate::builder::TransactionBuilder;
-use crate::credit::CreditStrategy;
+use crate::issuance::IssuanceStrategy;
 use crate::debt::DebtStrategy;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
@@ -37,7 +37,7 @@ use crate::debt::DebtStrategy;
 pub struct Ledger {
     inner: ledger_core::Ledger,
     debt_strategy: Option<Arc<dyn DebtStrategy>>,
-    credit_strategy: Arc<dyn CreditStrategy>,
+    issuance_strategy: Arc<dyn IssuanceStrategy>,
 }
 
 impl std::fmt::Debug for Ledger {
@@ -49,13 +49,13 @@ impl std::fmt::Debug for Ledger {
 impl Ledger {
     /// Create a new ledger backed by the given storage.
     ///
-    /// Uses a default credit strategy that credits `@world/{id}`.
+    /// Uses a default issuance strategy with `@world` as the source.
     pub fn new(storage: Arc<dyn Storage>) -> Self {
-        use crate::credit::TemplateCreditStrategy;
+        use crate::issuance::TemplateIssuanceStrategy;
         Self {
             inner: ledger_core::Ledger::new(storage),
             debt_strategy: None,
-            credit_strategy: Arc::new(TemplateCreditStrategy::new("@world/{id}")),
+            issuance_strategy: Arc::new(TemplateIssuanceStrategy::new("@world")),
         }
     }
 
@@ -65,9 +65,9 @@ impl Ledger {
         self
     }
 
-    /// Set the credit strategy for this ledger.
-    pub fn with_credit_strategy(mut self, strategy: impl CreditStrategy + 'static) -> Self {
-        self.credit_strategy = Arc::new(strategy);
+    /// Set the issuance strategy for this ledger.
+    pub fn with_issuance_strategy(mut self, strategy: impl IssuanceStrategy + 'static) -> Self {
+        self.issuance_strategy = Arc::new(strategy);
         self
     }
 
@@ -79,7 +79,7 @@ impl Ledger {
             idempotency_key.into(),
             Arc::clone(self.inner.storage()),
             self.debt_strategy.clone(),
-            Arc::clone(&self.credit_strategy),
+            Arc::clone(&self.issuance_strategy),
         )
     }
 

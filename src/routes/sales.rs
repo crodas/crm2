@@ -137,7 +137,8 @@ pub async fn create_sale_tx(
         let cash_tx = state
             .ledger
             .transaction(format!("sale-{}-cash", sale.id))
-            .credit("store/cash", &cash_amount)
+            .issue("store/cash", &cash_amount)
+            .map_err(|e| AppError::Internal(format!("issue: {e}")))?
             .build()
             .await
             .map_err(|e| AppError::Internal(format!("cash ledger build: {e}")))?;
@@ -271,7 +272,8 @@ pub async fn record_sale_payment(
         .settle_debt(&customer_id.to_string(), &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .credit("store/cash", &gs_amount)
+        .issue("store/cash", &gs_amount)
+        .map_err(|e| AppError::Internal(format!("issue cash: {e}")))?
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -309,7 +311,7 @@ mod tests {
     };
     use http_body_util::BodyExt;
     use ledger::debt::SignedPositionDebt;
-    use ledger::{Asset, AssetKind};
+    use ledger::Asset;
     use sqlx::SqlitePool;
     use tower::ServiceExt;
 
@@ -340,11 +342,11 @@ mod tests {
             SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
         );
         ledger
-            .register_asset(Asset::new("gs", 0, AssetKind::Signed))
+            .register_asset(Asset::new("gs", 0))
             .await
             .unwrap();
         ledger
-            .register_asset(Asset::new("product:1", 3, AssetKind::Unsigned))
+            .register_asset(Asset::new("product:1", 3))
             .await
             .unwrap();
 
@@ -356,7 +358,8 @@ mod tests {
         let tx = state
             .ledger
             .transaction("seed-stock")
-            .credit("store/1/product/1", &seed_amount)
+            .issue("store/1/product/1", &seed_amount)
+            .unwrap()
             .build()
             .await
             .unwrap();

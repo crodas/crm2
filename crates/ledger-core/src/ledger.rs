@@ -32,12 +32,14 @@ use crate::transaction::{compute_tx_id, Transaction};
 ///
 /// let storage = Arc::new(MemoryStorage::new());
 /// let ledger = Ledger::new(storage);
-/// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+/// let brush = Asset::new("brush", 0);
 /// ledger.register_asset(brush.clone()).await.unwrap();
 ///
 /// // Issue 7 brushes into store inventory.
+/// let seven = brush.try_amount(7).unwrap();
 /// let issue = TransactionBuilder::new("issue-001")
-///     .credit("store1/inventory", &brush.try_amount(7).unwrap())
+///     .credit("store1/inventory", &seven)
+///     .credit("@world", &seven.negate())
 ///     .build()
 ///     .unwrap();
 /// let tx_id = ledger.commit(issue).await.unwrap();
@@ -258,7 +260,6 @@ impl Ledger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::asset::AssetKind;
     use crate::storage::MemoryStorage;
     use crate::TransactionBuilder;
 
@@ -266,11 +267,11 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage);
         ledger
-            .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
+            .register_asset(Asset::new("brush", 0))
             .await
             .expect("register brush asset");
         ledger
-            .register_asset(Asset::new("usd", 2, AssetKind::Signed))
+            .register_asset(Asset::new("usd", 2))
             .await
             .expect("register usd asset");
         ledger
@@ -290,9 +291,11 @@ mod tests {
     async fn issue_inventory() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
+        let five_b = b.try_amount(5).unwrap();
 
         let tx = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build issuance");
         ledger.commit(tx).await.expect("commit issuance");
@@ -310,9 +313,11 @@ mod tests {
     async fn transfer_with_change() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
+        let seven_b = b.try_amount(7).unwrap();
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(7).unwrap())
+            .credit("store1/inventory", &seven_b)
+            .credit("@world", &seven_b.negate())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
@@ -346,9 +351,11 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
+        let five_b = b.try_amount(5).unwrap();
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
@@ -390,9 +397,11 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
+        let five_b = b.try_amount(5).unwrap();
 
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
@@ -406,8 +415,10 @@ mod tests {
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
+        let cash_1000 = u.try_amount(1000).unwrap();
         let t3 = TransactionBuilder::new("cash-in-001")
-            .credit("customer1/cash", &u.try_amount(1000).unwrap())
+            .credit("customer1/cash", &cash_1000)
+            .credit("@world", &cash_1000.negate())
             .build()
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
@@ -513,15 +524,19 @@ mod tests {
     async fn prefix_query() {
         let ledger = setup_ledger().await;
         let u = usd(&ledger);
+        let six_hundred = u.try_amount(600).unwrap();
+        let four_hundred = u.try_amount(400).unwrap();
 
         let t1 = TransactionBuilder::new("k1")
-            .credit("store1/cash", &u.try_amount(600).unwrap())
+            .credit("store1/cash", &six_hundred)
+            .credit("@world", &six_hundred.negate())
             .build()
             .expect("build tx");
         ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("k2")
-            .credit("store1/receivables/s1", &u.try_amount(400).unwrap())
+            .credit("store1/receivables/s1", &four_hundred)
+            .credit("@world", &four_hundred.negate())
             .build()
             .expect("build tx");
         ledger.commit(t2).await.expect("commit t2");
@@ -539,9 +554,11 @@ mod tests {
     async fn double_spend_rejected() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
+        let five_b = b.try_amount(5).unwrap();
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
@@ -585,31 +602,29 @@ mod tests {
         let result = TransactionBuilder::new("bad-001")
             .credit("customer1", &u.try_amount(-1000).unwrap())
             .build();
-        assert!(matches!(result, Err(LedgerError::DanglingDebt { .. })));
-    }
-
-    #[tokio::test]
-    async fn negative_unsigned_rejected_at_build() {
-        let ledger = setup_ledger().await;
-        let b = brush(&ledger);
-
-        let result = b.try_amount(-5);
-        assert!(matches!(result, Err(LedgerError::NegativeUnsigned { .. })));
+        assert!(matches!(
+            result,
+            Err(LedgerError::ConservationViolated { .. })
+        ));
     }
 
     #[tokio::test]
     async fn duplicate_idempotency_key_rejected() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
+        let five_b = b.try_amount(5).unwrap();
+        let three_b = b.try_amount(3).unwrap();
 
         let tx1 = TransactionBuilder::new("same-key")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build tx");
         ledger.commit(tx1).await.expect("commit tx1");
 
         let tx2 = TransactionBuilder::new("same-key")
-            .credit("store1/inventory", &b.try_amount(3).unwrap())
+            .credit("store1/inventory", &three_b)
+            .credit("@world", &three_b.negate())
             .build()
             .expect("build tx");
         assert!(matches!(
@@ -625,10 +640,14 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
+        let ten_b = b.try_amount(10).unwrap();
+        let five_k = u.try_amount(5000).unwrap();
 
         let tx = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(10).unwrap())
-            .credit("store1/cash", &u.try_amount(5000).unwrap())
+            .credit("store1/inventory", &ten_b)
+            .credit("@world", &ten_b.negate())
+            .credit("store1/cash", &five_k)
+            .credit("@world", &five_k.negate())
             .build()
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
@@ -653,9 +672,11 @@ mod tests {
     async fn transfer_conserves_unsigned_asset() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
+        let ten_b = b.try_amount(10).unwrap();
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("a", &b.try_amount(10).unwrap())
+            .credit("a", &ten_b)
+            .credit("@world", &ten_b.negate())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
@@ -715,9 +736,11 @@ mod tests {
     async fn signed_asset_conservation_across_transfer() {
         let ledger = setup_ledger().await;
         let u = usd(&ledger);
+        let ten_k = u.try_amount(10000).unwrap();
 
         let issue = TransactionBuilder::new("issue-001")
-            .credit("a", &u.try_amount(10000).unwrap())
+            .credit("a", &ten_k)
+            .credit("@world", &ten_k.negate())
             .build()
             .expect("build tx");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
@@ -784,8 +807,10 @@ mod tests {
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
+        let five_k = u.try_amount(5000).unwrap();
         let t2 = TransactionBuilder::new("cash-in")
-            .credit("debtor", &u.try_amount(5000).unwrap())
+            .credit("debtor", &five_k)
+            .credit("@world", &five_k.negate())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
@@ -820,15 +845,19 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
+        let ten_b = b.try_amount(10).unwrap();
+        let two_k = u.try_amount(2000).unwrap();
 
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("a", &b.try_amount(10).unwrap())
+            .credit("a", &ten_b)
+            .credit("@world", &ten_b.negate())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("issue-002")
-            .credit("a", &u.try_amount(2000).unwrap())
+            .credit("a", &two_k)
+            .credit("@world", &two_k.negate())
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
@@ -906,8 +935,10 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
+        let five_b = b.try_amount(5).unwrap();
         let t1 = TransactionBuilder::new("issue-001")
-            .credit("store1/inventory", &b.try_amount(5).unwrap())
+            .credit("store1/inventory", &five_b)
+            .credit("@world", &five_b.negate())
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
@@ -937,8 +968,10 @@ mod tests {
             2
         );
 
+        let five_hundred = u.try_amount(500).unwrap();
         let t3 = TransactionBuilder::new("cash-in-001")
-            .credit("customer1/cash", &u.try_amount(500).unwrap())
+            .credit("customer1/cash", &five_hundred)
+            .credit("@world", &five_hundred.negate())
             .build()
             .expect("build tx");
         let t3_id = ledger.commit(t3).await.expect("commit t3");
@@ -974,8 +1007,10 @@ mod tests {
             1000
         );
 
+        let five_hundred_2 = u.try_amount(500).unwrap();
         let t5 = TransactionBuilder::new("cash-in-002")
-            .credit("customer1/cash", &u.try_amount(500).unwrap())
+            .credit("customer1/cash", &five_hundred_2)
+            .credit("@world", &five_hundred_2.negate())
             .build()
             .expect("build tx");
         let t5_id = ledger.commit(t5).await.expect("commit t5");

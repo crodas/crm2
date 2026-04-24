@@ -22,18 +22,18 @@
 //! ```
 
 use crate::{
-    Asset, AssetKind, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
+    Asset, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
     TransactionBuilder,
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
 fn brush() -> Asset {
-    Asset::new("brush", 0, AssetKind::Unsigned)
+    Asset::new("brush", 0)
 }
 
 fn usd() -> Asset {
-    Asset::new("usd", 2, AssetKind::Signed)
+    Asset::new("usd", 2)
 }
 
 /// Register brush and usd assets so SQLite JOINs succeed.
@@ -42,8 +42,8 @@ async fn register_test_assets(s: &dyn Storage) {
     s.register_asset(&usd()).await.expect("register usd");
 }
 
-/// Build an issuance transaction (credits only, no debits) and the
-/// spending tokens the storage layer should persist.
+/// Build a balanced issuance transaction (credit account + debit @world)
+/// and the spending tokens the storage layer should persist.
 fn make_issuance(
     key: &str,
     account: &str,
@@ -51,8 +51,10 @@ fn make_issuance(
     raw: i128,
 ) -> (Transaction, Vec<SpendingToken>) {
     let amount = asset.try_amount(raw).expect("valid amount for fixture");
+    let neg = amount.negate();
     let tx = TransactionBuilder::new(key)
         .credit(account, &amount)
+        .credit("@world", &neg)
         .build()
         .expect("build issuance fixture");
 
@@ -107,7 +109,7 @@ pub async fn load_assets_empty(s: &dyn Storage) {
 }
 
 pub async fn save_and_load_asset(s: &dyn Storage) {
-    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    let brush = Asset::new("brush", 0);
     s.register_asset(&brush).await.expect("save brush");
 
     let loaded = s.load_assets().await.expect("load_assets");
@@ -116,7 +118,7 @@ pub async fn save_and_load_asset(s: &dyn Storage) {
 }
 
 pub async fn register_asset_duplicate_is_noop(s: &dyn Storage) {
-    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+    let brush = Asset::new("brush", 0);
     s.register_asset(&brush).await.expect("save brush");
     s.register_asset(&brush)
         .await
@@ -128,10 +130,10 @@ pub async fn register_asset_duplicate_is_noop(s: &dyn Storage) {
 }
 
 pub async fn register_asset_conflict_rejected(s: &dyn Storage) {
-    let v1 = Asset::new("thing", 0, AssetKind::Unsigned);
+    let v1 = Asset::new("thing", 0);
     s.register_asset(&v1).await.expect("save v1");
 
-    let v2 = Asset::new("thing", 2, AssetKind::Signed);
+    let v2 = Asset::new("thing", 2);
     let err = s
         .register_asset(&v2)
         .await
@@ -147,8 +149,8 @@ pub async fn register_asset_conflict_rejected(s: &dyn Storage) {
 }
 
 pub async fn save_multiple_assets(s: &dyn Storage) {
-    let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-    let usd = Asset::new("usd", 2, AssetKind::Signed);
+    let brush = Asset::new("brush", 0);
+    let usd = Asset::new("usd", 2);
     s.register_asset(&brush).await.expect("save brush");
     s.register_asset(&usd).await.expect("save usd");
 
@@ -507,20 +509,7 @@ pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
         .await
         .expect("commit brush");
 
-    let usd_amount = usd().try_amount(1000).expect("valid usd amount");
-    let tx2 = TransactionBuilder::new("issue-002")
-        .credit("store1/cash", &usd_amount)
-        .build()
-        .expect("build usd issuance");
-    let tokens2 = vec![SpendingToken {
-        entry_ref: EntryRef {
-            tx_id: tx2.tx_id.clone(),
-            entry_index: 0,
-        },
-        owner: "store1/cash".to_string(),
-        amount: usd_amount,
-        status: TokenStatus::Unspent,
-    }];
+    let (tx2, tokens2) = make_issuance("issue-002", "store1/cash", &usd(), 1000);
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit usd");
 
     let result = s
@@ -590,20 +579,7 @@ pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
     let (tx2, tokens2) = make_issuance("issue-002", "store/w2/product/1", &brush(), 3);
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit");
 
-    let usd_amount = usd().try_amount(1000).expect("valid usd amount");
-    let tx3 = TransactionBuilder::new("issue-003")
-        .credit("store/w1/product/1", &usd_amount)
-        .build()
-        .expect("build");
-    let tokens3 = vec![SpendingToken {
-        entry_ref: EntryRef {
-            tx_id: tx3.tx_id.clone(),
-            entry_index: 0,
-        },
-        owner: "store/w1/product/1".to_string(),
-        amount: usd_amount,
-        status: TokenStatus::Unspent,
-    }];
+    let (tx3, tokens3) = make_issuance("issue-003", "store/w1/product/1", &usd(), 1000);
     s.commit_tx(&tx3, &tokens3, &[]).await.expect("commit");
 
     let result = s

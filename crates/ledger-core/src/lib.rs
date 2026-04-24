@@ -18,7 +18,7 @@ mod transaction;
 
 pub use account::is_prefix_of;
 pub use amount::Amount;
-pub use asset::{Asset, AssetKind};
+pub use asset::Asset;
 pub use error::LedgerError;
 pub use ledger::Ledger;
 pub use storage::{MemoryStorage, Storage};

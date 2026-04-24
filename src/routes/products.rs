@@ -7,7 +7,7 @@ use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ledger::{Asset, AssetKind};
+use ledger::Asset;
 
 use crate::amount::Amount;
 use crate::error::AppError;
@@ -115,7 +115,6 @@ pub async fn create_product(
         .register_asset(Asset::new(
             format!("product:{}", product.id),
             3,
-            AssetKind::Unsigned,
         ))
         .await
         .map_err(|e| AppError::Internal(format!("register asset: {e}")))?;

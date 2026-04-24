@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ledger_core::{Amount, Asset, AssetKind, LedgerError, SpendingToken, Storage};
+use ledger_core::{Amount, Asset, LedgerError, SpendingToken, Storage};
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
@@ -40,11 +40,7 @@ impl SplitAssetDebt {
 
     /// Return the debt asset for a base asset (e.g., `"gs"` → `"gs.d"` signed).
     pub fn debt_asset(base: &Asset) -> Asset {
-        Asset::new(
-            format!("{}.d", base.name()),
-            base.precision(),
-            AssetKind::Signed,
-        )
+        Asset::new(format!("{}.d", base.name()), base.precision())
     }
 
     /// Register the debt asset `{base}.d` alongside an existing base asset.
@@ -242,7 +238,7 @@ fn select_positive_tokens<'a>(
 mod tests {
     use std::sync::Arc;
 
-    use ledger_core::{Amount, Asset, AssetKind, MemoryStorage};
+    use ledger_core::{Amount, Asset, MemoryStorage};
 
     use crate::error::Error;
     use crate::Ledger;
@@ -250,7 +246,7 @@ mod tests {
     use super::SplitAssetDebt;
 
     fn gs() -> Asset {
-        Asset::new("gs", 0, AssetKind::Signed)
+        Asset::new("gs", 0)
     }
 
     fn gs_amount(raw: i128) -> Amount {
@@ -263,7 +259,7 @@ mod tests {
         let ledger = Ledger::new(storage).with_debt_strategy(strategy);
         ledger.register_asset(gs()).await.unwrap();
         ledger
-            .register_asset(Asset::new("brush", 0, AssetKind::Unsigned))
+            .register_asset(Asset::new("brush", 0))
             .await
             .unwrap();
         SplitAssetDebt::register_debt_asset(&ledger, &gs())
@@ -410,7 +406,8 @@ mod tests {
 
         let tx = ledger
             .transaction("issue-inv")
-            .credit("store/inventory", &b10)
+            .issue("store/inventory", &b10)
+            .unwrap()
             .build()
             .await
             .unwrap();
@@ -450,7 +447,8 @@ mod tests {
 
         let tx = ledger
             .transaction("fund-customer")
-            .credit("customer/1/cash", &gs5000)
+            .issue("customer/1/cash", &gs5000)
+            .unwrap()
             .build()
             .await
             .unwrap();

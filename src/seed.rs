@@ -52,7 +52,6 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
             .register_asset(ledger::Asset::new(
                 format!("product:{id}"),
                 3,
-                ledger::AssetKind::Unsigned,
             ))
             .await?;
     }
@@ -211,7 +210,7 @@ async fn seed_receipt(
                 format!("asset product:{product_id} not registered").into()
             })?;
         let amount = asset.parse_amount(&format!("{qty:.3}"))?;
-        builder = builder.credit(&account, &amount);
+        builder = builder.issue(&account, &amount)?;
     }
 
     // Commit ledger transaction

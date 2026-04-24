@@ -1,32 +1,29 @@
 //! Asset-aware amount type.
 //!
 //! An [`Amount`] bundles a scaled integer value with the [`Asset`] it belongs
-//! to, enabling precision-aware formatting and kind-aware validation at
-//! construction time rather than deep inside the transaction builder.
+//! to, enabling precision-aware formatting at construction time rather than
+//! deep inside the transaction builder.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::asset::{Asset, AssetKind};
+use crate::asset::Asset;
 use crate::error::LedgerError;
 
 /// A quantity of a specific asset, stored as a scaled `i128`.
 ///
 /// Created via [`Asset::try_amount`] (from raw scaled integer) or
 /// [`Asset::parse_amount`] (from a decimal string like `"10.50"`).
-/// Construction validates that unsigned assets never carry negative values.
+/// All amounts are signed — negative values are allowed for debt modeling.
 ///
 /// ```
-/// # use ledger_core::{Asset, AssetKind};
-/// let usd = Asset::new("usd", 2, AssetKind::Signed);
+/// # use ledger_core::Asset;
+/// let usd = Asset::new("usd", 2);
 /// let ten_bucks = usd.try_amount(1050).unwrap();
 /// assert_eq!(ten_bucks.to_decimal_string(), "10.50");
 /// assert_eq!(ten_bucks.raw(), 1050);
 /// assert_eq!(ten_bucks.asset_name(), "usd");
-///
-/// let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-/// assert!(brush.try_amount(-1).is_err()); // unsigned rejects negative
 /// ```
 #[derive(Debug, Clone)]
 pub struct Amount {
@@ -37,16 +34,8 @@ pub struct Amount {
 impl Amount {
     /// Create a new amount for the given asset.
     ///
-    /// Returns `Err(NegativeUnsigned)` if the asset is unsigned and `raw < 0`.
-    ///
-    /// Prefer using [`Asset::try_amount`] or [`Asset::amount`] instead.
+    /// Prefer using [`Asset::try_amount`] instead.
     pub(crate) fn new(asset: Asset, raw: i128) -> Result<Self, LedgerError> {
-        if asset.kind() == AssetKind::Unsigned && raw < 0 {
-            return Err(LedgerError::NegativeUnsigned {
-                asset: asset.name().to_string(),
-                qty: raw,
-            });
-        }
         Ok(Self { asset, raw })
     }
 
@@ -87,11 +76,12 @@ impl Amount {
         self.asset.from_cents(self.raw)
     }
 
-    /// Negate the amount (for debt modeling).
-    ///
-    /// Returns `Err` if the asset is unsigned and the result would be negative.
-    pub fn negate(&self) -> Result<Self, LedgerError> {
-        Self::new(self.asset.clone(), -self.raw)
+    /// Negate the amount (for debt modeling / issuance).
+    pub fn negate(&self) -> Self {
+        Self {
+            asset: self.asset.clone(),
+            raw: -self.raw,
+        }
     }
 }
 
@@ -109,7 +99,6 @@ impl fmt::Display for Amount {
 struct AmountWire {
     asset_name: String,
     precision: u8,
-    kind: AssetKind,
     raw: i128,
 }
 
@@ -118,7 +107,6 @@ impl Serialize for Amount {
         let wire = AmountWire {
             asset_name: self.asset.name().to_string(),
             precision: self.asset.precision(),
-            kind: self.asset.kind(),
             raw: self.raw,
         };
         wire.serialize(serializer)
@@ -128,7 +116,7 @@ impl Serialize for Amount {
 impl<'de> Deserialize<'de> for Amount {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire = AmountWire::deserialize(deserializer)?;
-        let asset = Asset::new(wire.asset_name, wire.precision, wire.kind);
+        let asset = Asset::new(wire.asset_name, wire.precision);
         Ok(Amount::new_unchecked(asset, wire.raw))
     }
 }
@@ -146,23 +134,24 @@ mod tests {
     use super::*;
 
     fn usd() -> Asset {
-        Asset::new("usd", 2, AssetKind::Signed)
+        Asset::new("usd", 2)
     }
 
     fn brush() -> Asset {
-        Asset::new("brush", 0, AssetKind::Unsigned)
+        Asset::new("brush", 0)
     }
 
     #[test]
-    fn new_signed_allows_negative() {
+    fn allows_negative() {
         let amt = Amount::new(usd(), -1050).unwrap();
         assert_eq!(amt.raw(), -1050);
         assert_eq!(amt.to_decimal_string(), "-10.50");
     }
 
     #[test]
-    fn new_unsigned_rejects_negative() {
-        assert!(Amount::new(brush(), -1).is_err());
+    fn allows_negative_any_asset() {
+        let amt = Amount::new(brush(), -5).unwrap();
+        assert_eq!(amt.raw(), -5);
     }
 
     #[test]
@@ -178,23 +167,24 @@ mod tests {
     }
 
     #[test]
-    fn negate_signed() {
+    fn negate() {
         let amt = Amount::new(usd(), 1050).unwrap();
-        let neg = amt.negate().unwrap();
+        let neg = amt.negate();
         assert_eq!(neg.raw(), -1050);
     }
 
     #[test]
-    fn negate_unsigned_zero_ok() {
+    fn negate_zero() {
         let amt = Amount::new(brush(), 0).unwrap();
-        let neg = amt.negate().unwrap();
+        let neg = amt.negate();
         assert_eq!(neg.raw(), 0);
     }
 
     #[test]
-    fn negate_unsigned_positive_fails() {
+    fn negate_any_asset() {
         let amt = Amount::new(brush(), 5).unwrap();
-        assert!(amt.negate().is_err());
+        let neg = amt.negate();
+        assert_eq!(neg.raw(), -5);
     }
 
     #[test]
@@ -211,6 +201,5 @@ mod tests {
         assert_eq!(restored.raw(), 1050);
         assert_eq!(restored.asset_name(), "usd");
         assert_eq!(restored.asset().precision(), 2);
-        assert_eq!(restored.asset().kind(), AssetKind::Signed);
     }
 }

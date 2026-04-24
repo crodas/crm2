@@ -9,8 +9,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    Asset, AssetKind, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
-    Transaction,
+    Asset, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -57,39 +56,24 @@ fn db_err(e: sqlx::Error) -> LedgerError {
     LedgerError::Storage(e.to_string())
 }
 
-fn kind_to_str(kind: AssetKind) -> &'static str {
-    match kind {
-        AssetKind::Signed => "signed",
-        AssetKind::Unsigned => "unsigned",
-    }
-}
-
-fn str_to_kind(s: &str) -> AssetKind {
-    match s {
-        "signed" => AssetKind::Signed,
-        _ => AssetKind::Unsigned,
-    }
-}
-
-/// Build an Asset from a row that has asset_name, precision, kind columns.
+/// Build an Asset from a row that has asset_name and precision columns.
 fn asset_from_row(row: &sqlx::sqlite::SqliteRow) -> Asset {
     let name: String = row.get("asset_name");
     let precision: i32 = row.get("precision");
-    let kind: String = row.get("kind");
-    Asset::new(name, precision as u8, str_to_kind(&kind))
+    Asset::new(name, precision as u8)
 }
 
 /// SQL fragment that joins ledger_tokens with ledger_assets.
 const TOKEN_SELECT: &str =
     "SELECT t.tx_id, t.entry_index, t.owner, t.asset_name, t.qty, t.spent_by_tx,
-            a.precision, a.kind
+            a.precision
      FROM ledger_tokens t
      JOIN ledger_assets a ON a.name = t.asset_name";
 
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
-        let existing = sqlx::query("SELECT precision, kind FROM ledger_assets WHERE name = ?")
+        let existing = sqlx::query("SELECT precision FROM ledger_assets WHERE name = ?")
             .bind(asset.name())
             .fetch_optional(&self.pool)
             .await
@@ -97,25 +81,19 @@ impl Storage for SqliteStorage {
 
         if let Some(row) = existing {
             let precision: i32 = row.get("precision");
-            let kind: String = row.get("kind");
-            if precision == asset.precision() as i32 && kind == kind_to_str(asset.kind()) {
+            if precision == asset.precision() as i32 {
                 return Ok(());
             }
             return Err(LedgerError::AssetConflict {
                 name: asset.name().to_string(),
-                existing: format!("precision={precision}, kind={kind}"),
-                incoming: format!(
-                    "precision={}, kind={}",
-                    asset.precision(),
-                    kind_to_str(asset.kind())
-                ),
+                existing: format!("precision={precision}"),
+                incoming: format!("precision={}", asset.precision()),
             });
         }
 
-        sqlx::query("INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, ?)")
+        sqlx::query("INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, 'signed')")
             .bind(asset.name())
             .bind(asset.precision() as i32)
-            .bind(kind_to_str(asset.kind()))
             .execute(&self.pool)
             .await
             .map_err(db_err)?;
@@ -123,7 +101,7 @@ impl Storage for SqliteStorage {
     }
 
     async fn load_assets(&self) -> Result<HashMap<String, Asset>, LedgerError> {
-        let rows = sqlx::query("SELECT name, precision, kind FROM ledger_assets")
+        let rows = sqlx::query("SELECT name, precision FROM ledger_assets")
             .fetch_all(&self.pool)
             .await
             .map_err(db_err)?;
@@ -132,11 +110,7 @@ impl Storage for SqliteStorage {
         for row in rows {
             let name: String = row.get("name");
             let precision: i32 = row.get("precision");
-            let kind: String = row.get("kind");
-            assets.insert(
-                name.clone(),
-                Asset::new(name, precision as u8, str_to_kind(&kind)),
-            );
+            assets.insert(name.clone(), Asset::new(name, precision as u8));
         }
         Ok(assets)
     }
@@ -243,7 +217,7 @@ impl Storage for SqliteStorage {
 
         let rows = sqlx::query(
             "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
-                    a.precision, a.kind
+                    a.precision
              FROM ledger_tokens t
              JOIN ledger_assets a ON a.name = t.asset_name
              WHERE (t.owner = ? OR t.owner LIKE ?)
@@ -391,8 +365,8 @@ mod tests {
 
         let storage = SqliteStorage::from_pool(pool).await.expect("from_pool");
 
-        use ledger_core::{Asset, AssetKind, Storage};
-        let brush = Asset::new("brush", 0, AssetKind::Unsigned);
+        use ledger_core::{Asset, Storage};
+        let brush = Asset::new("brush", 0);
         storage
             .register_asset(&brush)
             .await
