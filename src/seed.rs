@@ -49,10 +49,7 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
     for id in 1..=8 {
         state
             .ledger
-            .register_asset(ledger::Asset::new(
-                format!("product:{id}"),
-                3,
-            ))
+            .register_asset(ledger::Asset::new(format!("product:{id}"), 3))
             .await?;
     }
 
@@ -202,7 +199,7 @@ async fn seed_receipt(
         .await?;
 
         // Credit inventory to the store warehouse
-        let account = format!("store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))

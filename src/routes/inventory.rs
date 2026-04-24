@@ -62,7 +62,7 @@ pub async fn receive_inventory(
         .await?;
 
         // Credit inventory to the store warehouse
-        let account = format!("store/{}/product/{}", line.warehouse_id, line.product_id);
+        let account = format!("store/{}", line.warehouse_id);
         let asset = state
             .ledger
             .asset(&format!("product:{}", line.product_id))
@@ -72,7 +72,8 @@ pub async fn receive_inventory(
         let amount = asset
             .parse_amount(&format!("{:.3}", line.quantity))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
-        builder = builder.issue(&account, &amount)
+        builder = builder
+            .issue(&account, &amount)
             .map_err(|e| AppError::Internal(format!("issue: {e}")))?;
 
         // Store prices for each customer group
@@ -167,7 +168,7 @@ pub async fn get_stock(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Parse account paths like "store/{warehouse_id}/product/{product_id}"
+    // Parse account paths like "store/{warehouse_id}"
     // and filter to product assets only
     let stock: Vec<StockLevel> = entries
         .iter()
@@ -487,8 +488,8 @@ pub async fn transfer_inventory(
             .parse_amount(&format!("{:.3}", line.quantity))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
-        let from_account = format!("store/{}/product/{}", from_wh, line.product_id);
-        let to_account = format!("store/{}/product/{}", to_wh, line.product_id);
+        let from_account = format!("store/{}", from_wh);
+        let to_account = format!("store/{}", to_wh);
 
         // Debit source (spend UTXO via FIFO), credit destination
         builder = builder
@@ -576,12 +577,9 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
+            SignedPositionDebt::new("customer/{id}", "store/receivables/{id}"),
         );
-        ledger
-            .register_asset(Asset::new("gs", 0))
-            .await
-            .unwrap();
+        ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger
             .register_asset(Asset::new("product:1", 3))
             .await
@@ -600,7 +598,7 @@ mod tests {
     }
 
     async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
-        let account = format!("store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))

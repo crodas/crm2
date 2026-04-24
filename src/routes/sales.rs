@@ -66,7 +66,7 @@ pub async fn create_sale_tx(
     let mut builder = state.ledger.transaction(format!("sale-{}", sale.id));
 
     for &(product_id, warehouse_id, quantity, _price_cents) in lines {
-        let account = format!("store/{warehouse_id}/product/{product_id}");
+        let account = format!("store/{warehouse_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))
@@ -104,7 +104,7 @@ pub async fn create_sale_tx(
             required,
             available,
         } => {
-            // Parse product_id from account "store/{wh}/product/{pid}"
+            // Parse product_id from account "store/{wh}"
             let product_id = account
                 .split('/')
                 .last()
@@ -339,12 +339,9 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("customer/{id}/debt", "store/receivables/{id}"),
+            SignedPositionDebt::new("customer/{id}", "store/receivables/{id}"),
         );
-        ledger
-            .register_asset(Asset::new("gs", 0))
-            .await
-            .unwrap();
+        ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger
             .register_asset(Asset::new("product:1", 3))
             .await
