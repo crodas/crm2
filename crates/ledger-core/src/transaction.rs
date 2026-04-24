@@ -18,7 +18,7 @@
 //!
 //! The double SHA-256 guards against length-extension attacks on the outer hash.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -68,6 +68,44 @@ pub struct Transaction {
     pub debits: Vec<DebitRef>,
     /// New spending tokens produced.
     pub credits: Vec<Credit>,
+}
+
+/// A net movement for one (account, asset) pair within a transaction.
+///
+/// Collapses UTXO mechanics: full-token debits and change credits are
+/// aggregated into a single net value per account per asset. Zero-net
+/// entries (e.g. change that exactly restores the original balance) are
+/// excluded.
+#[derive(Debug, Clone)]
+pub struct NetMovement {
+    pub account: String,
+    pub asset_name: String,
+    pub net_raw: i128,
+}
+
+impl Transaction {
+    /// Compute net movements per (account, asset), collapsing UTXO internals.
+    ///
+    /// Returns only entries with a non-zero net. Sorted by account then asset.
+    pub fn net_movements(&self) -> Vec<NetMovement> {
+        let mut map: BTreeMap<(&str, &str), i128> = BTreeMap::new();
+        for d in &self.debits {
+            *map.entry((d.from.as_str(), d.amount.asset_name()))
+                .or_default() -= d.amount.raw();
+        }
+        for c in &self.credits {
+            *map.entry((c.to.as_str(), c.amount.asset_name()))
+                .or_default() += c.amount.raw();
+        }
+        map.into_iter()
+            .filter(|(_, net)| *net != 0)
+            .map(|((account, asset_name), net_raw)| NetMovement {
+                account: account.to_string(),
+                asset_name: asset_name.to_string(),
+                net_raw,
+            })
+            .collect()
+    }
 }
 
 /// Builder for constructing validated transactions.

@@ -4,8 +4,7 @@ use std::sync::Arc;
 use axum::extract::State;
 use axum::response::Html;
 use axum::routing::get;
-use axum::Json;
-use axum::Router;
+use axum::{Json, Router};
 use serde::Serialize;
 
 use ledger::{Asset, Ledger, Storage};
@@ -17,6 +16,13 @@ struct BalanceResponse {
     asset_name: String,
     raw: i128,
     display: String,
+}
+
+#[derive(Serialize)]
+struct MovementEntry {
+    account: String,
+    asset_name: String,
+    net: i128,
 }
 
 #[derive(Serialize)]
@@ -43,91 +49,110 @@ struct TransactionResponse {
     idempotency_key: String,
     debits: Vec<DebitEntry>,
     credits: Vec<CreditEntry>,
+    movements: Vec<MovementEntry>,
 }
 
-/// Compute balances from transactions (avoids prefix query limitations).
-fn balances_from_transactions(
-    txs: &[ledger::Transaction],
-) -> Vec<BalanceResponse> {
-    let mut map: HashMap<(String, String), (i128, Option<Asset>)> = HashMap::new();
-
-    for tx in txs {
-        for d in &tx.debits {
-            let key = (d.from.clone(), d.amount.asset_name().to_string());
-            let entry = map.entry(key).or_insert((0, None));
-            entry.0 -= d.amount.raw();
-            if entry.1.is_none() {
-                entry.1 = Some(d.amount.asset().clone());
-            }
-        }
-        for c in &tx.credits {
-            let key = (c.to.clone(), c.amount.asset_name().to_string());
-            let entry = map.entry(key).or_insert((0, None));
-            entry.0 += c.amount.raw();
-            if entry.1.is_none() {
-                entry.1 = Some(c.amount.asset().clone());
-            }
-        }
-    }
-
-    let mut balances: Vec<BalanceResponse> = map
-        .into_iter()
-        .filter(|(_, (raw, _))| *raw != 0)
-        .map(|((account, asset_name), (raw, asset))| {
-            let display = match asset {
-                Some(a) => a.from_cents(raw),
-                None => raw.to_string(),
-            };
-            BalanceResponse {
-                account,
-                asset_name,
-                raw,
-                display,
-            }
-        })
-        .collect();
-
-    balances.sort_by(|a, b| a.account.cmp(&b.account).then(a.asset_name.cmp(&b.asset_name)));
-    balances
+#[derive(Serialize)]
+struct TokenResponse {
+    tx_id: String,
+    entry_index: u32,
+    owner: String,
+    asset_name: String,
+    raw: i128,
+    display: String,
+    spent_by: Option<String>,
 }
 
 async fn list_balances(State(ledger): State<Arc<Ledger>>) -> Json<Vec<BalanceResponse>> {
-    let txs = ledger.transactions().await.unwrap_or_default();
-    Json(balances_from_transactions(&txs))
+    let entries = ledger.balances_by_prefix("").await.unwrap_or_default();
+    let balances = entries
+        .into_iter()
+        .map(|e| BalanceResponse {
+            account: e.account,
+            asset_name: e.amount.asset_name().to_string(),
+            raw: e.amount.raw(),
+            display: e.amount.to_decimal_string(),
+        })
+        .collect();
+    Json(balances)
 }
 
 async fn list_transactions(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TransactionResponse>> {
     let txs = ledger.transactions().await.unwrap_or_default();
     let responses: Vec<TransactionResponse> = txs
         .into_iter()
-        .map(|tx| TransactionResponse {
-            tx_id: tx.tx_id,
-            idempotency_key: tx.idempotency_key,
-            debits: tx
-                .debits
+        .map(|tx| {
+            let movements = tx
+                .net_movements()
                 .into_iter()
-                .map(|d| DebitEntry {
-                    account: d.from,
-                    asset_name: d.amount.asset_name().to_string(),
-                    raw: d.amount.raw(),
-                    display: d.amount.to_decimal_string(),
-                    ref_tx_id: d.tx_id,
-                    ref_entry_index: d.entry_index,
+                .map(|m| MovementEntry {
+                    account: m.account,
+                    asset_name: m.asset_name,
+                    net: m.net_raw,
                 })
-                .collect(),
-            credits: tx
-                .credits
-                .into_iter()
-                .map(|c| CreditEntry {
-                    account: c.to,
-                    asset_name: c.amount.asset_name().to_string(),
-                    raw: c.amount.raw(),
-                    display: c.amount.to_decimal_string(),
-                })
-                .collect(),
+                .collect();
+            TransactionResponse {
+                tx_id: tx.tx_id,
+                idempotency_key: tx.idempotency_key,
+                debits: tx
+                    .debits
+                    .into_iter()
+                    .map(|d| DebitEntry {
+                        account: d.from,
+                        asset_name: d.amount.asset_name().to_string(),
+                        raw: d.amount.raw(),
+                        display: d.amount.to_decimal_string(),
+                        ref_tx_id: d.tx_id,
+                        ref_entry_index: d.entry_index,
+                    })
+                    .collect(),
+                credits: tx
+                    .credits
+                    .into_iter()
+                    .map(|c| CreditEntry {
+                        account: c.to,
+                        asset_name: c.amount.asset_name().to_string(),
+                        raw: c.amount.raw(),
+                        display: c.amount.to_decimal_string(),
+                    })
+                    .collect(),
+                movements,
+            }
         })
         .collect();
     Json(responses)
+}
+
+async fn list_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TokenResponse>> {
+    let txs = ledger.transactions().await.unwrap_or_default();
+    let mut tokens: HashMap<(String, u32), TokenResponse> = HashMap::new();
+
+    for tx in &txs {
+        for (i, c) in tx.credits.iter().enumerate() {
+            let idx = i as u32;
+            tokens.insert(
+                (tx.tx_id.clone(), idx),
+                TokenResponse {
+                    tx_id: tx.tx_id.clone(),
+                    entry_index: idx,
+                    owner: c.to.clone(),
+                    asset_name: c.amount.asset_name().to_string(),
+                    raw: c.amount.raw(),
+                    display: c.amount.to_decimal_string(),
+                    spent_by: None,
+                },
+            );
+        }
+        for d in &tx.debits {
+            if let Some(token) = tokens.get_mut(&(d.tx_id.clone(), d.entry_index)) {
+                token.spent_by = Some(tx.tx_id.clone());
+            }
+        }
+    }
+
+    let mut result: Vec<TokenResponse> = tokens.into_values().collect();
+    result.sort_by(|a, b| a.tx_id.cmp(&b.tx_id).then(a.entry_index.cmp(&b.entry_index)));
+    Json(result)
 }
 
 async fn list_assets(State(ledger): State<Arc<Ledger>>) -> Json<HashMap<String, Asset>> {
@@ -148,7 +173,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = SqliteStorage::connect(&db_url).await?;
     let storage: Arc<dyn Storage> = Arc::new(storage);
 
-    // Load existing assets into the ledger cache.
     let assets = storage.load_assets().await?;
     let ledger = Ledger::new(Arc::clone(&storage));
     for asset in assets.values() {
@@ -161,6 +185,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(viewer))
         .route("/api/balances", get(list_balances))
         .route("/api/transactions", get(list_transactions))
+        .route("/api/tokens", get(list_tokens))
         .route("/api/assets", get(list_assets))
         .with_state(ledger);
 

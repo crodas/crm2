@@ -98,73 +98,34 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
-// Build token table from transactions: credits create tokens, debits spend them.
-function buildTokens(txs) {
-  const tokens = {};
-  for (const tx of txs) {
-    for (let i = 0; i < tx.credits.length; i++) {
-      const c = tx.credits[i];
-      const key = tx.tx_id + ':' + i;
-      tokens[key] = {
-        tx_id: tx.tx_id, entry_index: i,
-        owner: c.account, asset_name: c.asset_name,
-        raw: c.raw, display: c.display,
-        spent_by: null
-      };
-    }
-    for (const d of tx.debits) {
-      const key = d.ref_tx_id + ':' + d.ref_entry_index;
-      if (tokens[key]) {
-        tokens[key].spent_by = tx.tx_id;
-      }
-    }
-  }
-  return Object.values(tokens);
-}
-
-// Compute net movements per (account, asset) for a transaction,
-// collapsing UTXO mechanics (full-token debits + change credits).
-function netMovements(tx) {
-  const map = {};
-  for (const d of tx.debits) {
-    const key = d.account + '\0' + d.asset_name;
-    if (!map[key]) map[key] = { account: d.account, asset_name: d.asset_name, net: 0 };
-    map[key].net -= d.raw;
-  }
-  for (const c of tx.credits) {
-    const key = c.account + '\0' + c.asset_name;
-    if (!map[key]) map[key] = { account: c.account, asset_name: c.asset_name, net: 0 };
-    map[key].net += c.raw;
-  }
-  return Object.values(map).filter(m => m.net !== 0);
-}
-
 async function load() {
   try {
-    const [balRes, txRes, assetRes] = await Promise.all([
+    const [balRes, txRes, tokenRes, assetRes] = await Promise.all([
       fetch('/api/balances'),
       fetch('/api/transactions'),
+      fetch('/api/tokens'),
       fetch('/api/assets'),
     ]);
 
-    if (!balRes.ok || !txRes.ok || !assetRes.ok) throw new Error('API request failed');
+    if (!balRes.ok || !txRes.ok || !tokenRes.ok || !assetRes.ok) throw new Error('API request failed');
 
     const balances = await balRes.json();
     const transactions = await txRes.json();
+    const tokens = await tokenRes.json();
     const assets = await assetRes.json();
 
     allAssets = assets;
     allBalances = balances;
-    allTokens = buildTokens(transactions);
-    const unspent = allTokens.filter(t => !t.spent_by).length;
-    const spent = allTokens.length - unspent;
+    allTokens = tokens;
+    const unspent = tokens.filter(t => !t.spent_by).length;
+    const spent = tokens.length - unspent;
 
     document.getElementById('stats').textContent =
-      `${balances.length} account balances \u00b7 ${transactions.length} transactions \u00b7 ${allTokens.length} tokens (${unspent} unspent, ${spent} spent) \u00b7 ${Object.keys(assets).length} assets`;
+      `${balances.length} account balances \u00b7 ${transactions.length} transactions \u00b7 ${tokens.length} tokens (${unspent} unspent, ${spent} spent) \u00b7 ${Object.keys(assets).length} assets`;
 
     renderBalances(balances);
     renderTransactions(transactions);
-    renderTokens(allTokens);
+    renderTokens(tokens);
     renderAssets(assets);
   } catch (e) {
     document.getElementById('stats').textContent = 'Error loading data';
@@ -183,7 +144,7 @@ function amountClass(raw) {
 function addThousands(s) {
   let result = '';
   for (let i = s.length - 1, c = 0; i >= 0; i--, c++) {
-    if (c > 0 && c % 3 === 0) result = '.' + result;
+    if (c > 0 && c % 3 === 0) result = '\u202F' + result;
     result = s[i] + result;
   }
   return result;
@@ -205,7 +166,6 @@ function renderBalances(balances) {
     document.getElementById('balances-content').innerHTML = '<div class="loading">No balances found.</div>';
     return;
   }
-  // Group by account
   const groups = {};
   for (const b of balances) {
     if (!groups[b.account]) groups[b.account] = [];
@@ -248,10 +208,8 @@ function renderTransactions(txs) {
   }
   const reversed = [...txs].reverse();
   const rows = reversed.map((tx, idx) => {
-    // Simplified view: net movements split into debit/credit columns
-    const movements = netMovements(tx);
-    const netDebits = movements.filter(m => m.net < 0);
-    const netCredits = movements.filter(m => m.net > 0);
+    const netDebits = tx.movements.filter(m => m.net < 0);
+    const netCredits = tx.movements.filter(m => m.net > 0);
 
     const debitHtml = netDebits.map(m => {
       return '<li><span class="account">' + esc(m.account) + '</span> ' +
@@ -264,7 +222,6 @@ function renderTransactions(txs) {
         '<span class="badge">' + esc(m.asset_name) + '</span></li>';
     }).join('');
 
-    // Raw view: original debits and credits
     const rawDebits = tx.debits.map(d =>
       '<li><span class="account">' + esc(d.account) + '</span> ' +
       '<span class="mono negative">-' + esc(fmt(d.raw, d.asset_name)) + '</span> ' +
@@ -344,11 +301,10 @@ function renderAssets(assets) {
     '<tr>' +
       '<td class="mono">' + esc(a.name) + '</td>' +
       '<td>' + a.precision + '</td>' +
-      '<td><span class="badge">' + esc(a.kind) + '</span></td>' +
     '</tr>'
   ).join('');
   document.getElementById('assets-content').innerHTML =
-    '<table><thead><tr><th>Name</th><th>Precision</th><th>Kind</th></tr></thead><tbody>' + rows + '</tbody></table>';
+    '<table><thead><tr><th>Name</th><th>Precision</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
 function esc(s) {

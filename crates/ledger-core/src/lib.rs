@@ -23,4 +23,4 @@ pub use error::LedgerError;
 pub use ledger::Ledger;
 pub use storage::{MemoryStorage, Storage};
 pub use token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
-pub use transaction::{Credit, DebitRef, Transaction, TransactionBuilder};
+pub use transaction::{Credit, DebitRef, NetMovement, Transaction, TransactionBuilder};

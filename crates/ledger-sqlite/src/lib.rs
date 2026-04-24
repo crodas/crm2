@@ -177,60 +177,94 @@ impl Storage for SqliteStorage {
         prefix: &str,
         asset_name: &str,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let like_pattern = format!("{prefix}/%");
-
-        let sql = format!(
-            "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-               AND t.asset_name = ?
-               AND t.spent_by_tx IS NULL"
-        );
-        let rows = sqlx::query(&sql)
-            .bind(prefix)
-            .bind(&like_pattern)
-            .bind(asset_name)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?;
+        let rows = if prefix.is_empty() {
+            let sql = format!(
+                "{TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL"
+            );
+            sqlx::query(&sql)
+                .bind(asset_name)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            let like_pattern = format!("{prefix}/%");
+            let sql = format!(
+                "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                   AND t.asset_name = ?
+                   AND t.spent_by_tx IS NULL"
+            );
+            sqlx::query(&sql)
+                .bind(prefix)
+                .bind(&like_pattern)
+                .bind(asset_name)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?
+        };
 
         rows_to_tokens(rows)
     }
 
     async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError> {
-        let like_pattern = format!("{prefix}/%");
-
-        let sql = format!(
-            "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-               AND t.spent_by_tx IS NULL"
-        );
-        let rows = sqlx::query(&sql)
-            .bind(prefix)
-            .bind(&like_pattern)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?;
+        let rows = if prefix.is_empty() {
+            let sql = format!(
+                "{TOKEN_SELECT} WHERE t.spent_by_tx IS NULL"
+            );
+            sqlx::query(&sql)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?
+        } else {
+            let like_pattern = format!("{prefix}/%");
+            let sql = format!(
+                "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                   AND t.spent_by_tx IS NULL"
+            );
+            sqlx::query(&sql)
+                .bind(prefix)
+                .bind(&like_pattern)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(db_err)?
+        };
 
         rows_to_tokens(rows)
     }
 
     async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        let like_pattern = format!("{prefix}/%");
-
-        let rows = sqlx::query(
-            "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
-                    a.precision
-             FROM ledger_tokens t
-             JOIN ledger_assets a ON a.name = t.asset_name
-             WHERE (t.owner = ? OR t.owner LIKE ?)
-               AND t.spent_by_tx IS NULL
-             GROUP BY t.owner, t.asset_name
-             HAVING SUM(t.qty) != 0
-             ORDER BY t.owner, t.asset_name",
-        )
-        .bind(prefix)
-        .bind(&like_pattern)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(db_err)?;
+        let rows = if prefix.is_empty() {
+            sqlx::query(
+                "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
+                        a.precision
+                 FROM ledger_tokens t
+                 JOIN ledger_assets a ON a.name = t.asset_name
+                 WHERE t.spent_by_tx IS NULL
+                 GROUP BY t.owner, t.asset_name
+                 HAVING SUM(t.qty) != 0
+                 ORDER BY t.owner, t.asset_name",
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?
+        } else {
+            let like_pattern = format!("{prefix}/%");
+            sqlx::query(
+                "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
+                        a.precision
+                 FROM ledger_tokens t
+                 JOIN ledger_assets a ON a.name = t.asset_name
+                 WHERE (t.owner = ? OR t.owner LIKE ?)
+                   AND t.spent_by_tx IS NULL
+                 GROUP BY t.owner, t.asset_name
+                 HAVING SUM(t.qty) != 0
+                 ORDER BY t.owner, t.asset_name",
+            )
+            .bind(prefix)
+            .bind(&like_pattern)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db_err)?
+        };
 
         rows.into_iter()
             .map(|row| {

@@ -19,7 +19,7 @@
 /// assert!(!is_prefix_of("store1", "store2"));
 /// ```
 pub fn is_prefix_of(prefix: &str, other: &str) -> bool {
-    other == prefix || other.starts_with(&format!("{prefix}/"))
+    prefix.is_empty() || other == prefix || other.starts_with(&format!("{prefix}/"))
 }
 
 #[cfg(test)]
@@ -32,5 +32,12 @@ mod tests {
         assert!(is_prefix_of("store1", "store1"));
         assert!(!is_prefix_of("store1", "store2"));
         assert!(!is_prefix_of("store1/inventory", "store1"));
+    }
+
+    #[test]
+    fn empty_prefix_matches_everything() {
+        assert!(is_prefix_of("", "store1"));
+        assert!(is_prefix_of("", "store1/inventory"));
+        assert!(is_prefix_of("", "@world"));
     }
 }
