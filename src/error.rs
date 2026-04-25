@@ -44,6 +44,21 @@ impl IntoResponse for AppError {
     }
 }
 
+impl std::fmt::Display for AppError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppError::NotFound(msg) => write!(f, "not found: {msg}"),
+            AppError::BadRequest(msg) => write!(f, "bad request: {msg}"),
+            AppError::InsufficientStock { product_id, requested, available } => {
+                write!(f, "insufficient stock for product {product_id}: requested {requested}, available {available}")
+            }
+            AppError::Internal(msg) => write!(f, "internal error: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for AppError {}
+
 impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
         AppError::Internal(e.to_string())

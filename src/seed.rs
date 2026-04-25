@@ -1,7 +1,7 @@
 use crate::state::AppState;
 
 pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::Error>> {
-    let pool = &state.pool;
+    let pool = state.db.pool();
 
     // Check if already seeded
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM products")
@@ -48,7 +48,7 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
     // Register product assets in ledger
     for id in 1..=8 {
         state
-            .ledger
+            .db
             .register_asset(ledger::Asset::new(format!("product:{id}"), 3))
             .await?;
     }
@@ -82,19 +82,16 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
     ).execute(pool).await?;
 
     // Inventory receipts with lines and ledger entries
-    // Receipt 1: Cement and Steel
     seed_receipt(
         state,
         1,
         "INV-2026-001",
         "Cementos Paraguayos SA",
         &[
-            // (product_id, warehouse_id, quantity, cost_per_unit_cents)
             (1, 1, 200.0, 4500000),
             (2, 1, 500.0, 1200000),
         ],
         &[
-            // (product_id, customer_group_id, price_per_unit_cents)
             (1, 1, 6300000),
             (1, 2, 5400000),
             (2, 1, 1680000),
@@ -103,7 +100,6 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
     )
     .await?;
 
-    // Receipt 2: Sand, Bricks, PVC
     seed_receipt(
         state,
         2,
@@ -125,7 +121,6 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
     )
     .await?;
 
-    // Receipt 3: Electrical, Paint, Roof tiles
     seed_receipt(
         state,
         3,
@@ -160,12 +155,11 @@ async fn seed_receipt(
     receipt_id: i64,
     reference: &str,
     supplier: &str,
-    lines: &[(i64, i64, f64, i64)], // (product_id, warehouse_id, qty, cost_cents)
-    prices: &[(i64, i64, i64)],     // (product_id, group_id, price_cents)
+    lines: &[(i64, i64, f64, i64)],
+    prices: &[(i64, i64, i64)],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let pool = &state.pool;
+    let pool = state.db.pool();
 
-    // Calculate total cost
     let total_cost: i64 = lines
         .iter()
         .map(|&(_, _, qty, cost)| (qty * cost as f64).round() as i64)
@@ -181,11 +175,9 @@ async fn seed_receipt(
     .execute(pool)
     .await?;
 
-    // Build ledger transaction for inventory tokens
-    let mut builder = state.ledger.transaction(format!("receipt-{receipt_id}"));
+    let mut builder = state.db.ledger().transaction(format!("receipt-{receipt_id}"));
 
     for &(product_id, warehouse_id, qty, cost) in lines {
-        // Store line item metadata
         sqlx::query(
             "INSERT INTO inventory_receipt_lines (receipt_id, product_id, warehouse_id, quantity, cost_per_unit)
              VALUES (?, ?, ?, ?, ?)",
@@ -198,10 +190,9 @@ async fn seed_receipt(
         .execute(pool)
         .await?;
 
-        // Credit inventory to the store warehouse
         let account = format!("warehouse/{warehouse_id}");
         let asset = state
-            .ledger
+            .db
             .asset(&format!("product:{product_id}"))
             .ok_or_else(|| -> Box<dyn std::error::Error> {
                 format!("asset product:{product_id} not registered").into()
@@ -210,11 +201,9 @@ async fn seed_receipt(
         builder = builder.issue(&account, &amount)?;
     }
 
-    // Commit ledger transaction
     let ledger_tx = builder.build().await?;
-    state.ledger.commit(ledger_tx).await?;
+    state.db.ledger().commit(ledger_tx).await?;
 
-    // Store prices
     for &(product_id, group_id, price) in prices {
         sqlx::query(
             "INSERT INTO inventory_receipt_prices (receipt_id, product_id, customer_group_id, price_per_unit)

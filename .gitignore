@@ -4,3 +4,6 @@ frontend/dist/
 crm2.db
 crm2.db-shm
 crm2.db-wal
+ledger.db
+ledger.db-shm
+ledger.db-wal

@@ -5,6 +5,7 @@ mod models;
 mod routes;
 mod seed;
 mod state;
+mod storage;
 mod version;
 
 use std::path::Path;
@@ -69,44 +70,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         build_frontend(!is_release)?;
     }
 
-    // Initialize database
+    // Initialize CRM database
     let database_url =
         std::env::var("DATABASE_URL").unwrap_or_else(|_| "sqlite:crm2.db?mode=rwc".into());
     let pool = db::init_pool(&database_url).await?;
 
-    // Initialize ledger (shares the same SQLite pool)
-    let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone()).await?;
-    let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
+    // Initialize ledger with its own separate database
+    let ledger_url =
+        std::env::var("LEDGER_URL").unwrap_or_else(|_| "sqlite:ledger.db?mode=rwc".into());
+    let ledger_storage = ledger_sqlite::SqliteStorage::connect(&ledger_url).await?;
+    let ledger = ledger::Ledger::new(Arc::new(ledger_storage)).with_debt_strategy(
         SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
     );
 
+    let store_id = std::env::var("STORE_ID").unwrap_or_else(|_| "1".into());
+    let db = storage::Db::new(pool, ledger, store_id);
+
     // Register monetary asset
-    ledger
-        .register_asset(Asset::new("gs", 0))
-        .await
-        .map_err(|e| format!("register gs: {e}"))?;
+    db.register_asset(Asset::new("gs", 0)).await?;
 
     // Register one asset per product (precision 3 = thousandths for fractional quantities)
-    let product_ids: Vec<(i64,)> = sqlx::query_as("SELECT id FROM products")
-        .fetch_all(&pool)
-        .await?;
-    for (id,) in &product_ids {
-        ledger
-            .register_asset(Asset::new(format!("product:{id}"), 3))
-            .await
-            .map_err(|e| format!("register product:{id}: {e}"))?;
+    let product_ids = db.product_ids().await?;
+    for id in &product_ids {
+        db.register_asset(Asset::new(format!("product:{id}"), 3))
+            .await?;
     }
     tracing::info!(
         "Ledger initialized with {} product assets",
         product_ids.len()
     );
 
-    let store_id = std::env::var("STORE_ID").unwrap_or_else(|_| "1".into());
-    let state = Arc::new(AppState {
-        pool,
-        ledger,
-        store_id,
-    });
+    let state = Arc::new(AppState { db });
 
     // Seed dev data (only in debug mode)
     if !is_release {
