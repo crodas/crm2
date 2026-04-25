@@ -176,12 +176,17 @@ pub async fn get_stock(
         .filter_map(|e| {
             let path = e.account.as_str();
             let parts: Vec<&str> = path.split('/').collect();
-            // Expected: ["store", "{wh_id}", "product", "{pid}"]
-            if parts.len() != 4 || parts[2] != "product" {
+            // Expected: ["store", "{wh_id}"]
+            if parts.len() != 2 || parts[0] != "store" {
                 return None;
             }
             let warehouse_id: i64 = parts[1].parse().ok()?;
-            let product_id: i64 = parts[3].parse().ok()?;
+            let product_id: i64 = e
+                .amount
+                .asset_name()
+                .strip_prefix("product:")?
+                .parse()
+                .ok()?;
 
             // Apply filters
             if let Some(pid) = params.product_id {
@@ -405,7 +410,7 @@ pub async fn list_transfers(
                 .iter()
                 .filter(|c| {
                     c.amount.asset_name().starts_with("product:")
-                        && c.to.as_str().contains(&format!("/{to_warehouse_id}/"))
+                        && c.to.as_str() == format!("store/{to_warehouse_id}")
                 })
                 .filter_map(|c| {
                     let product_id: i64 = c
@@ -542,12 +547,7 @@ pub async fn supplier_balance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{
-        body::Body,
-        http::Request,
-        routing::{get, post},
-        Router,
-    };
+    use axum::{body::Body, http::Request, routing::get, Router};
     use http_body_util::BodyExt;
     use ledger::debt::SignedPositionDebt;
     use ledger::Asset;
@@ -641,8 +641,8 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         // Verify balances
-        let from_acc = "store/1/product/1";
-        let to_acc = "store/2/product/1";
+        let from_acc = "store/1";
+        let to_acc = "store/2";
         let from_bal = state.ledger.balance(&from_acc, "product:1").await.unwrap();
         let to_bal = state.ledger.balance(&to_acc, "product:1").await.unwrap();
 

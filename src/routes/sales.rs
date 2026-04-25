@@ -355,7 +355,7 @@ mod tests {
         let tx = state
             .ledger
             .transaction("seed-stock")
-            .issue("store/1/product/1", &seed_amount)
+            .issue("store/1", &seed_amount)
             .unwrap()
             .build()
             .await
@@ -409,7 +409,7 @@ mod tests {
         assert_eq!(sale["total_amount"], 100.0);
 
         // Customer should have debt in the ledger (10000 cents)
-        let bal = state.ledger.balance("customer/1/debt", "gs").await.unwrap();
+        let bal = state.ledger.balance("customer/1", "gs").await.unwrap();
         assert_eq!(bal, -10000);
     }
 
