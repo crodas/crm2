@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize ledger (shares the same SQLite pool)
     let storage = ledger_sqlite::SqliteStorage::from_pool(pool.clone()).await?;
     let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-        SignedPositionDebt::new("customer/{from}", "store/{to}/receivables/{from}"),
+        SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
     );
 
     // Register monetary asset

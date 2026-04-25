@@ -66,7 +66,7 @@ pub async fn create_sale_tx(
     let mut builder = state.ledger.transaction(format!("sale-{}", sale.id));
 
     for &(product_id, warehouse_id, quantity, _price_cents) in lines {
-        let account = format!("store/{warehouse_id}");
+        let account = format!("warehouse/{warehouse_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))
@@ -104,7 +104,7 @@ pub async fn create_sale_tx(
             required,
             available,
         } => {
-            // Parse product_id from account "store/{wh}"
+            // Parse product_id from account "warehouse/{wh}"
             let product_id = account
                 .split('/')
                 .last()
@@ -137,7 +137,7 @@ pub async fn create_sale_tx(
         let cash_tx = state
             .ledger
             .transaction(format!("sale-{}-cash", sale.id))
-            .issue("store/cash", &cash_amount)
+            .issue("warehouse/cash", &cash_amount)
             .map_err(|e| AppError::Internal(format!("issue: {e}")))?
             .build()
             .await
@@ -272,7 +272,7 @@ pub async fn record_sale_payment(
         .settle_debt(&customer_id.to_string(), &state.store_id, &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .issue("store/cash", &gs_amount)
+        .issue("warehouse/cash", &gs_amount)
         .map_err(|e| AppError::Internal(format!("issue cash: {e}")))?
         .build()
         .await
@@ -339,7 +339,7 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("customer/{from}", "store/{to}/receivables/{from}"),
+            SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
         );
         ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger
@@ -347,7 +347,11 @@ mod tests {
             .await
             .unwrap();
 
-        let state = Arc::new(AppState { pool, ledger, store_id: "1".into() });
+        let state = Arc::new(AppState {
+            pool,
+            ledger,
+            store_id: "1".into(),
+        });
 
         // Seed stock: 100 units in warehouse 1 (precision=3, so "100.000")
         let product_asset = state.ledger.asset("product:1").unwrap();
@@ -355,7 +359,7 @@ mod tests {
         let tx = state
             .ledger
             .transaction("seed-stock")
-            .issue("store/1", &seed_amount)
+            .issue("warehouse/1", &seed_amount)
             .unwrap()
             .build()
             .await
@@ -429,7 +433,7 @@ mod tests {
         assert_eq!(bal, 0);
 
         // Cash account should be credited (10000 cents)
-        let cash_bal = state.ledger.balance("store/cash", "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("warehouse/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 
@@ -506,7 +510,7 @@ mod tests {
         assert_eq!(bal, 0);
 
         // Cash should have full amount (10000 cents)
-        let cash_bal = state.ledger.balance("store/cash", "gs").await.unwrap();
+        let cash_bal = state.ledger.balance("warehouse/cash", "gs").await.unwrap();
         assert_eq!(cash_bal, 10000);
     }
 }

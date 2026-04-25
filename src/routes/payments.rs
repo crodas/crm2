@@ -62,7 +62,7 @@ pub async fn record_payment(
         .settle_debt(&customer_id.to_string(), &state.store_id, &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
-        .issue("store/cash", &gs_amount)
+        .issue("warehouse/cash", &gs_amount)
         .map_err(|e| AppError::Internal(format!("issue cash: {e}")))?
         .build()
         .await

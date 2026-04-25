@@ -62,7 +62,7 @@ pub async fn receive_inventory(
         .await?;
 
         // Credit inventory to the store warehouse
-        let account = format!("store/{}", line.warehouse_id);
+        let account = format!("warehouse/{}", line.warehouse_id);
         let asset = state
             .ledger
             .asset(&format!("product:{}", line.product_id))
@@ -109,8 +109,11 @@ pub async fn receive_inventory(
 
         // Debt: supplier is owed, store has payable
         builder = builder
-            .credit(&format!("supplier/{}", receipt.id), &neg_gs_amount)
-            .credit(&format!("store/payables/{}", receipt.id), &gs_amount);
+            .credit(&format!("supplier/{}", receipt.id), &gs_amount)
+            .credit(
+                &format!("warehouse/payables/{}", receipt.id),
+                &neg_gs_amount,
+            );
 
         // Record metadata for the debt entry
         sqlx::query(
@@ -126,8 +129,11 @@ pub async fn receive_inventory(
         if paid_cash {
             // Settle immediately: cancel the debt
             builder = builder
-                .credit(&format!("supplier/{}", receipt.id), &gs_amount)
-                .credit(&format!("store/payables/{}", receipt.id), &neg_gs_amount);
+                .credit(&format!("supplier/{}", receipt.id), &neg_gs_amount)
+                .credit(
+                    &format!("warehouse/payables/{}", receipt.id),
+                    &neg_gs_amount,
+                );
 
             // Record metadata for the payment entry
             sqlx::query(
@@ -168,7 +174,7 @@ pub async fn get_stock(
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
-    // Parse account paths like "store/{warehouse_id}"
+    // Parse account paths like "warehouse/{warehouse_id}"
     // and filter to product assets only
     let stock: Vec<StockLevel> = entries
         .iter()
@@ -261,7 +267,7 @@ pub async fn get_receipt(
     .await?;
 
     // Compute supplier balance from the ledger
-    let payable_account = format!("store/payables/{id}");
+    let payable_account = format!("warehouse/payables/{id}");
     let outstanding = state
         .ledger
         .balance(&payable_account, "gs")
@@ -372,7 +378,7 @@ pub async fn record_supplier_payment(
         .ledger
         .transaction(format!("supplier-payment-{}", entry.id))
         .credit(&format!("supplier/{receipt_id}"), &gs_amount)
-        .credit(&format!("store/payables/{receipt_id}"), &neg_gs_amount)
+        .credit(&format!("warehouse/payables/{receipt_id}"), &neg_gs_amount)
         .build()
         .await
         .map_err(|e| AppError::Internal(format!("ledger build: {e}")))?;
@@ -410,7 +416,7 @@ pub async fn list_transfers(
                 .iter()
                 .filter(|c| {
                     c.amount.asset_name().starts_with("product:")
-                        && c.to.as_str() == format!("store/{to_warehouse_id}")
+                        && c.to.as_str() == format!("warehouse/{to_warehouse_id}")
                 })
                 .filter_map(|c| {
                     let product_id: i64 = c
@@ -493,8 +499,8 @@ pub async fn transfer_inventory(
             .parse_amount(&format!("{:.3}", line.quantity))
             .map_err(|e| AppError::Internal(format!("parse amount: {e}")))?;
 
-        let from_account = format!("store/{}", from_wh);
-        let to_account = format!("store/{}", to_wh);
+        let from_account = format!("warehouse/{}", from_wh);
+        let to_account = format!("warehouse/{}", to_wh);
 
         // Debit source (spend UTXO via FIFO), credit destination
         builder = builder
@@ -521,7 +527,7 @@ pub async fn supplier_balance(
     let filter = ledger::Asset::new("gs", 0).max();
     let tokens = state
         .ledger
-        .unspent_tokens_prefix("store/payables", Some(&filter))
+        .unspent_tokens_prefix("warehouse/payables", Some(&filter))
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -578,7 +584,7 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("customer/{from}", "store/{to}/receivables/{from}"),
+            SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
         );
         ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger
@@ -586,7 +592,11 @@ mod tests {
             .await
             .unwrap();
 
-        let state = Arc::new(AppState { pool, ledger, store_id: "1".into() });
+        let state = Arc::new(AppState {
+            pool,
+            ledger,
+            store_id: "1".into(),
+        });
 
         let app = Router::new()
             .route(
@@ -599,7 +609,7 @@ mod tests {
     }
 
     async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
-        let account = format!("store/{warehouse_id}");
+        let account = format!("warehouse/{warehouse_id}");
         let asset = state
             .ledger
             .asset(&format!("product:{product_id}"))
@@ -641,8 +651,8 @@ mod tests {
         assert_eq!(resp.status(), 200);
 
         // Verify balances
-        let from_acc = "store/1";
-        let to_acc = "store/2";
+        let from_acc = "warehouse/1";
+        let to_acc = "warehouse/2";
         let from_bal = state.ledger.balance(&from_acc, "product:1").await.unwrap();
         let to_bal = state.ledger.balance(&to_acc, "product:1").await.unwrap();
 
