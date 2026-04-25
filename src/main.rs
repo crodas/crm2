@@ -101,7 +101,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         product_ids.len()
     );
 
-    let state = Arc::new(AppState { pool, ledger });
+    let store_id = std::env::var("STORE_ID").unwrap_or_else(|_| "1".into());
+    let state = Arc::new(AppState {
+        pool,
+        ledger,
+        store_id,
+    });
 
     // Seed dev data (only in debug mode)
     if !is_release {

@@ -586,7 +586,7 @@ mod tests {
             .await
             .unwrap();
 
-        let state = Arc::new(AppState { pool, ledger });
+        let state = Arc::new(AppState { pool, ledger, store_id: "1".into() });
 
         let app = Router::new()
             .route(

@@ -93,7 +93,7 @@ pub async fn create_sale_tx(
             .try_amount(total.cents().into())
             .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
         builder = builder
-            .create_debt(&customer_id.to_string(), &debt_amount)
+            .create_debt(&customer_id.to_string(), &state.store_id, &debt_amount)
             .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
     }
 
@@ -269,7 +269,7 @@ pub async fn record_sale_payment(
     let ledger_tx = state
         .ledger
         .transaction(format!("sale-payment-{}", payment.id))
-        .settle_debt(&customer_id.to_string(), &gs_amount)
+        .settle_debt(&customer_id.to_string(), &state.store_id, &gs_amount)
         .await
         .map_err(|e| AppError::Internal(format!("settle debt: {e}")))?
         .issue("store/cash", &gs_amount)
@@ -347,7 +347,7 @@ mod tests {
             .await
             .unwrap();
 
-        let state = Arc::new(AppState { pool, ledger });
+        let state = Arc::new(AppState { pool, ledger, store_id: "1".into() });
 
         // Seed stock: 100 units in warehouse 1 (precision=3, so "100.000")
         let product_asset = state.ledger.asset("product:1").unwrap();

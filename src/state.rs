@@ -4,4 +4,5 @@ use sqlx::SqlitePool;
 pub struct AppState {
     pub pool: SqlitePool,
     pub ledger: ledger::Ledger,
+    pub store_id: String,
 }
