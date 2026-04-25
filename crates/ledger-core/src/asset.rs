@@ -15,16 +15,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-/// Inner data for an asset definition.
-#[derive(Debug, PartialEq, Eq)]
-struct AssetInner {
-    name: String,
-    precision: u8,
-}
-
 /// An asset definition with a name and decimal precision.
 ///
-/// Cheap to clone (internally `Arc`-backed).
+/// Cheap to clone (`name` is `Arc<str>`-backed).
 ///
 /// ```
 /// # use ledger_core::Asset;
@@ -32,7 +25,10 @@ struct AssetInner {
 /// assert_eq!(usd.precision(), 2);
 /// ```
 #[derive(Debug, Clone)]
-pub struct Asset(Arc<AssetInner>);
+pub struct Asset {
+    name: Arc<str>,
+    precision: u8,
+}
 
 impl Asset {
     /// Create a new asset definition.
@@ -40,10 +36,10 @@ impl Asset {
     /// - `name` — unique identifier (e.g. `"usd"`, `"brush"`).
     /// - `precision` — number of decimal places (0 for whole units).
     pub fn new(name: impl Into<String>, precision: u8) -> Self {
-        Self(Arc::new(AssetInner {
-            name: name.into(),
+        Self {
+            name: Arc::from(name.into()),
             precision,
-        }))
+        }
     }
 
     /// An amount representing the maximum possible value for this asset.
@@ -55,11 +51,11 @@ impl Asset {
     }
 
     pub fn name(&self) -> &str {
-        &self.0.name
+        &self.name
     }
 
     pub fn precision(&self) -> u8 {
-        self.0.precision
+        self.precision
     }
 
     /// Create an [`Amount`] from a raw scaled integer.
@@ -110,17 +106,17 @@ impl Asset {
     /// assert_eq!(brush.from_cents(5), "5");
     /// ```
     pub fn from_cents(&self, raw: i128) -> String {
-        if self.0.precision == 0 {
+        if self.precision == 0 {
             return raw.to_string();
         }
-        let scale = 10_i128.pow(self.0.precision as u32);
+        let scale = 10_i128.pow(self.precision as u32);
         let sign = if raw < 0 { "-" } else { "" };
         let abs = raw.unsigned_abs();
         let whole = abs / scale as u128;
         let frac = abs % scale as u128;
         format!(
             "{sign}{whole}.{frac:0>width$}",
-            width = self.0.precision as usize
+            width = self.precision as usize
         )
     }
 
@@ -139,18 +135,18 @@ impl Asset {
         let negative = s.starts_with('-');
         let s = s.strip_prefix('-').unwrap_or(s);
 
-        let scale = 10_i128.pow(self.0.precision as u32);
+        let scale = 10_i128.pow(self.precision as u32);
 
-        let raw = if self.0.precision == 0 {
+        let raw = if self.precision == 0 {
             if s.contains('.') {
                 return Err(ParseQtyError::UnexpectedDecimal);
             }
             s.parse::<i128>().map_err(|_| ParseQtyError::Invalid)?
         } else {
             let (whole, frac) = if let Some((w, f)) = s.split_once('.') {
-                if f.len() != self.0.precision as usize {
+                if f.len() != self.precision as usize {
                     return Err(ParseQtyError::WrongPrecision {
-                        expected: self.0.precision,
+                        expected: self.precision,
                         got: f.len() as u8,
                     });
                 }
@@ -170,7 +166,7 @@ impl Asset {
 
 impl PartialEq for Asset {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+        self.name == other.name && self.precision == other.precision
     }
 }
 
@@ -178,7 +174,7 @@ impl Eq for Asset {}
 
 impl fmt::Display for Asset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0.name)
+        write!(f, "{}", self.name)
     }
 }
 
@@ -187,8 +183,8 @@ impl Serialize for Asset {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeStruct;
         let mut s = serializer.serialize_struct("Asset", 2)?;
-        s.serialize_field("name", &self.0.name)?;
-        s.serialize_field("precision", &self.0.precision)?;
+        s.serialize_field("name", &*self.name)?;
+        s.serialize_field("precision", &self.precision)?;
         s.end()
     }
 }
@@ -257,7 +253,7 @@ mod tests {
         let usd2 = usd.clone();
         assert_eq!(usd, usd2);
         // Arc means same pointer
-        assert!(Arc::ptr_eq(&usd.0, &usd2.0));
+        assert!(Arc::ptr_eq(&usd.name, &usd2.name));
     }
 
     #[test]
