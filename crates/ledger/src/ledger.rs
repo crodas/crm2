@@ -25,8 +25,8 @@ use crate::issuance::IssuanceStrategy;
 /// ```ignore
 /// let ledger = Ledger::new(storage)
 ///     .with_debt_strategy(SignedPositionDebt::new(
-///         "customer/{id}/debt",
-///         "store/receivables/{id}",
+///         "customer/{from}/debt",
+///         "store/{to}/receivables/{from}",
 ///     ));
 /// ```
 ///

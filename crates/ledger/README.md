@@ -37,8 +37,8 @@ use std::sync::Arc;
 let storage = Arc::new(MemoryStorage::new());
 let ledger = Ledger::new(storage)
     .with_debt_strategy(SignedPositionDebt::new(
-        "customer/{id}",
-        "store/receivables/{id}",
+        "customer/{from}",
+        "store/{to}/receivables/{from}",
     ));
 
 // Register assets

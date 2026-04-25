@@ -10,8 +10,8 @@
 //! long as debits and credits balance.
 //!
 //! Strategies are configured with debtor/creditor path templates at
-//! construction time. The `{id}` placeholder in templates is replaced with
-//! the entity identifier at call time.
+//! construction time. The `{from}` and `{to}` placeholders in templates
+//! are replaced with the debit-side and credit-side identifiers at call time.
 //!
 //! Two implementations are provided:
 //!
@@ -32,9 +32,11 @@ use ledger_core::Amount;
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
 
-/// Resolve a path template by replacing `{id}` with the given entity identifier.
-pub fn resolve_template(template: &str, entity_id: &str) -> String {
-    template.replace("{id}", entity_id)
+/// Resolve a path template by replacing `{from}` and `{to}` placeholders.
+///
+/// `from` is the debit-side identifier, `to` is the credit-side identifier.
+pub fn resolve_template(template: &str, from: &str, to: &str) -> String {
+    template.replace("{from}", from).replace("{to}", to)
 }
 
 /// Strategy for issuing and settling debt within ledger transactions.
@@ -46,32 +48,34 @@ pub fn resolve_template(template: &str, entity_id: &str) -> String {
 /// ledger accepts the transaction.
 ///
 /// Strategies are configured with debtor/creditor path templates at
-/// construction time (e.g. `customer/{id}/debt` and
-/// `store/receivables/{id}`). The `{id}` placeholder is resolved by the
-/// strategy when `issue` or `settle` is called.
+/// construction time (e.g. `customer/{from}/debt` and
+/// `store/{to}/receivables/{from}`). The `{from}` and `{to}` placeholders are
+/// resolved by the strategy when `issue` or `settle` is called.
 #[async_trait]
 pub trait DebtStrategy: Send + Sync {
     /// Add debt issuance entries to the transaction.
     ///
-    /// `entity_id` identifies the debt relationship (e.g. a customer ID).
+    /// `from` is the debit-side identifier, `to` is the credit-side identifier.
     /// `amount` is always positive — the strategy decides the sign convention.
     fn issue(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error>;
 
     /// Add debt settlement entries to the transaction.
     ///
-    /// `entity_id` identifies the debt relationship (e.g. a customer ID).
+    /// `from` is the debit-side identifier, `to` is the credit-side identifier.
     /// `amount` is always positive — the strategy selects and consumes the
     /// appropriate debt tokens. The caller is responsible for adding the
     /// cash leg (debit payment source, credit cash account).
     async fn settle(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error>;
 }

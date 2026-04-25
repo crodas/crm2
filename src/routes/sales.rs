@@ -339,7 +339,7 @@ mod tests {
             .await
             .unwrap();
         let ledger = ledger::Ledger::new(Arc::new(storage)).with_debt_strategy(
-            SignedPositionDebt::new("customer/{id}", "store/receivables/{id}"),
+            SignedPositionDebt::new("customer/{from}", "store/{to}/receivables/{from}"),
         );
         ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger

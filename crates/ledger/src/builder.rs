@@ -109,23 +109,30 @@ impl TransactionBuilder {
 
     // ── Debt operations ─────────────────────────────────────────────
 
-    /// Issue debt for `entity_id` using the configured [`DebtStrategy`].
+    /// Issue debt using the configured [`DebtStrategy`].
     ///
+    /// `from` is the debit-side identifier, `to` is the credit-side identifier.
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub fn create_debt(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
+    pub fn create_debt(mut self, from: &str, to: &str, amount: &Amount) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy.issue(self, entity_id, amount)?;
+        self = strategy.issue(self, from, to, amount)?;
         Ok(self)
     }
 
-    /// Settle debt for `entity_id` using the configured [`DebtStrategy`].
+    /// Settle debt using the configured [`DebtStrategy`].
     ///
+    /// `from` is the debit-side identifier, `to` is the credit-side identifier.
     /// The caller is responsible for adding the cash leg.
     ///
     /// Returns [`Error::NoDebtStrategy`] if no strategy is configured.
-    pub async fn settle_debt(mut self, entity_id: &str, amount: &Amount) -> Result<Self, Error> {
+    pub async fn settle_debt(
+        mut self,
+        from: &str,
+        to: &str,
+        amount: &Amount,
+    ) -> Result<Self, Error> {
         let strategy = Arc::clone(self.debt_strategy.as_ref().ok_or(Error::NoDebtStrategy)?);
-        self = strategy.settle(self, entity_id, amount).await?;
+        self = strategy.settle(self, from, to, amount).await?;
         Ok(self)
     }
 

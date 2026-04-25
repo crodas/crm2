@@ -16,7 +16,7 @@ use super::{resolve_template, DebtStrategy};
 
 /// Debt on the same asset using the signed-position model.
 ///
-/// Configured with debtor/creditor path templates containing `{id}`.
+/// Configured with debtor/creditor path templates containing `{from}` and/or `{to}`.
 pub struct SignedPositionDebt {
     debtor_template: String,
     creditor_template: String,
@@ -36,14 +36,15 @@ impl DebtStrategy for SignedPositionDebt {
     fn issue(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
         if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        let debtor = resolve_template(&self.debtor_template, entity_id);
-        let creditor = resolve_template(&self.creditor_template, entity_id);
+        let debtor = resolve_template(&self.debtor_template, from, to);
+        let creditor = resolve_template(&self.creditor_template, from, to);
         let neg = amount.negate();
 
         Ok(builder.credit(debtor, &neg).credit(creditor, amount))
@@ -52,14 +53,15 @@ impl DebtStrategy for SignedPositionDebt {
     async fn settle(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
         if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        let debtor = resolve_template(&self.debtor_template, entity_id);
-        let creditor = resolve_template(&self.creditor_template, entity_id);
+        let debtor = resolve_template(&self.debtor_template, from, to);
+        let creditor = resolve_template(&self.creditor_template, from, to);
         let neg = amount.negate();
 
         Ok(builder.credit(debtor, amount).credit(creditor, &neg))
@@ -80,7 +82,7 @@ mod tests {
     async fn setup_ledger() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage)
-            .with_debt_strategy(SignedPositionDebt::new("customer/{id}", "store/{id}"));
+            .with_debt_strategy(SignedPositionDebt::new("customer/{from}", "store/{to}"));
         ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
         ledger.register_asset(Asset::new("brush", 0)).await.unwrap();
         ledger
@@ -98,7 +100,7 @@ mod tests {
 
         let result = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000));
+            .create_debt("1", "1", &gs_amount(10000));
         assert!(matches!(result, Err(Error::NoDebtStrategy)));
     }
 
@@ -108,7 +110,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -125,7 +127,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -134,7 +136,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(10000))
+            .settle_debt("1", "1", &gs_amount(10000))
             .await
             .unwrap()
             .build()
@@ -152,7 +154,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -161,7 +163,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(6000))
+            .settle_debt("1", "1", &gs_amount(6000))
             .await
             .unwrap()
             .build()
@@ -193,7 +195,7 @@ mod tests {
             .transaction("sale-001")
             .debit("store/inventory", &b3)
             .credit("customer/1", &b3)
-            .create_debt("1", &gs_amount(5000))
+            .create_debt("1", "1", &gs_amount(5000))
             .unwrap()
             .build()
             .await
@@ -214,7 +216,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -223,7 +225,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(5000))
+            .settle_debt("1", "1", &gs_amount(5000))
             .await
             .unwrap()
             .issue("store/cash", &gs5000)
@@ -242,11 +244,13 @@ mod tests {
     async fn non_positive_amount_rejected() {
         let ledger = setup_ledger().await;
 
-        let result = ledger.transaction("bad").create_debt("1", &gs_amount(0));
+        let result = ledger
+            .transaction("bad")
+            .create_debt("1", "1", &gs_amount(0));
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
         let neg = Asset::new("gs", 0).try_amount(-100).unwrap();
-        let result = ledger.transaction("bad2").create_debt("1", &neg);
+        let result = ledger.transaction("bad2").create_debt("1", "1", &neg);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }
 }

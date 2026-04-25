@@ -18,7 +18,7 @@ use super::{resolve_template, DebtStrategy};
 
 /// Debt on a separate `{asset}.d` signed asset.
 ///
-/// Configured with debtor/creditor path templates containing `{id}`.
+/// Configured with debtor/creditor path templates containing `{from}` and/or `{to}`.
 pub struct SplitAssetDebt {
     pub(crate) storage: Arc<dyn Storage>,
     debtor_template: String,
@@ -55,10 +55,11 @@ impl SplitAssetDebt {
     pub async fn owed_by(
         &self,
         ledger: &Ledger,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         asset: &Asset,
     ) -> Result<i128, Error> {
-        let debtor = resolve_template(&self.debtor_template, entity_id);
+        let debtor = resolve_template(&self.debtor_template, from, to);
         let debt_asset = Self::debt_asset(asset);
         let balance = ledger.balance(&debtor, debt_asset.name()).await?;
         Ok(balance.unsigned_abs() as i128)
@@ -68,10 +69,11 @@ impl SplitAssetDebt {
     pub async fn owed_to(
         &self,
         ledger: &Ledger,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         asset: &Asset,
     ) -> Result<i128, Error> {
-        let creditor = resolve_template(&self.creditor_template, entity_id);
+        let creditor = resolve_template(&self.creditor_template, from, to);
         let debt_asset = Self::debt_asset(asset);
         let balance = ledger.balance(&creditor, debt_asset.name()).await?;
         Ok(balance)
@@ -83,14 +85,15 @@ impl DebtStrategy for SplitAssetDebt {
     fn issue(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
         if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        let debtor = resolve_template(&self.debtor_template, entity_id);
-        let creditor = resolve_template(&self.creditor_template, entity_id);
+        let debtor = resolve_template(&self.debtor_template, from, to);
+        let creditor = resolve_template(&self.creditor_template, from, to);
         let debt_asset = Self::debt_asset(amount.asset());
         let neg = debt_asset
             .try_amount(-amount.raw())
@@ -103,14 +106,15 @@ impl DebtStrategy for SplitAssetDebt {
     async fn settle(
         &self,
         builder: TransactionBuilder,
-        entity_id: &str,
+        from: &str,
+        to: &str,
         amount: &Amount,
     ) -> Result<TransactionBuilder, Error> {
         if amount.raw() <= 0 {
             return Err(Error::NonPositiveAmount);
         }
-        let debtor = resolve_template(&self.debtor_template, entity_id);
-        let creditor = resolve_template(&self.creditor_template, entity_id);
+        let debtor = resolve_template(&self.debtor_template, from, to);
+        let creditor = resolve_template(&self.creditor_template, from, to);
         let debt_asset = Self::debt_asset(amount.asset());
 
         // Select negative tokens from debtor.
@@ -256,7 +260,7 @@ mod tests {
 
     async fn setup() -> Ledger {
         let storage = Arc::new(MemoryStorage::new());
-        let strategy = SplitAssetDebt::new(storage.clone(), "customer/{id}", "store/{id}");
+        let strategy = SplitAssetDebt::new(storage.clone(), "customer/{from}", "store/{to}");
         let ledger = Ledger::new(storage).with_debt_strategy(strategy);
         ledger.register_asset(gs()).await.unwrap();
         ledger.register_asset(Asset::new("brush", 0)).await.unwrap();
@@ -272,7 +276,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -291,7 +295,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -300,7 +304,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(10000))
+            .settle_debt("1", "1", &gs_amount(10000))
             .await
             .unwrap()
             .build()
@@ -318,7 +322,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -327,7 +331,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(6000))
+            .settle_debt("1", "1", &gs_amount(6000))
             .await
             .unwrap()
             .build()
@@ -345,7 +349,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(5000))
+            .create_debt("1", "1", &gs_amount(5000))
             .unwrap()
             .build()
             .await
@@ -354,7 +358,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-002")
-            .create_debt("1", &gs_amount(8000))
+            .create_debt("1", "1", &gs_amount(8000))
             .unwrap()
             .build()
             .await
@@ -363,7 +367,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(10000))
+            .settle_debt("1", "1", &gs_amount(10000))
             .await
             .unwrap()
             .build()
@@ -381,7 +385,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(5000))
+            .create_debt("1", "1", &gs_amount(5000))
             .unwrap()
             .build()
             .await
@@ -390,7 +394,7 @@ mod tests {
 
         let result = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(10000))
+            .settle_debt("1", "1", &gs_amount(10000))
             .await;
         assert!(matches!(result, Err(Error::InsufficientDebt { .. })));
     }
@@ -415,7 +419,7 @@ mod tests {
             .transaction("sale-001")
             .debit("store/inventory", &b3)
             .credit("customer/1", &b3)
-            .create_debt("1", &gs_amount(5000))
+            .create_debt("1", "1", &gs_amount(5000))
             .unwrap()
             .build()
             .await
@@ -436,7 +440,7 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(10000))
+            .create_debt("1", "1", &gs_amount(10000))
             .unwrap()
             .build()
             .await
@@ -454,7 +458,7 @@ mod tests {
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(5000))
+            .settle_debt("1", "1", &gs_amount(5000))
             .await
             .unwrap()
             .debit("customer/1/cash", &gs5000)
@@ -474,18 +478,20 @@ mod tests {
     async fn non_positive_amount_rejected() {
         let ledger = setup().await;
 
-        let result = ledger.transaction("bad").create_debt("1", &gs_amount(0));
+        let result = ledger
+            .transaction("bad")
+            .create_debt("1", "1", &gs_amount(0));
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }
 
     #[tokio::test]
     async fn query_owed_by_and_owed_to() {
         let storage = Arc::new(MemoryStorage::new());
-        let debt = SplitAssetDebt::new(storage.clone(), "customer/{id}", "store/{id}");
+        let debt = SplitAssetDebt::new(storage.clone(), "customer/{from}", "store/{to}");
         let ledger = Ledger::new(storage).with_debt_strategy(SplitAssetDebt::new(
             debt.storage.clone(),
-            "customer/{id}",
-            "store/{id}",
+            "customer/{from}",
+            "store/{to}",
         ));
         ledger.register_asset(gs()).await.unwrap();
         SplitAssetDebt::register_debt_asset(&ledger, &gs())
@@ -494,19 +500,19 @@ mod tests {
 
         let tx = ledger
             .transaction("debt-001")
-            .create_debt("1", &gs_amount(7500))
+            .create_debt("1", "1", &gs_amount(7500))
             .unwrap()
             .build()
             .await
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(debt.owed_by(&ledger, "1", &gs()).await.unwrap(), 7500);
-        assert_eq!(debt.owed_to(&ledger, "1", &gs()).await.unwrap(), 7500);
+        assert_eq!(debt.owed_by(&ledger, "1", "1", &gs()).await.unwrap(), 7500);
+        assert_eq!(debt.owed_to(&ledger, "1", "1", &gs()).await.unwrap(), 7500);
 
         let tx = ledger
             .transaction("pay-001")
-            .settle_debt("1", &gs_amount(3000))
+            .settle_debt("1", "1", &gs_amount(3000))
             .await
             .unwrap()
             .build()
@@ -514,7 +520,7 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(debt.owed_by(&ledger, "1", &gs()).await.unwrap(), 4500);
-        assert_eq!(debt.owed_to(&ledger, "1", &gs()).await.unwrap(), 4500);
+        assert_eq!(debt.owed_by(&ledger, "1", "1", &gs()).await.unwrap(), 4500);
+        assert_eq!(debt.owed_to(&ledger, "1", "1", &gs()).await.unwrap(), 4500);
     }
 }

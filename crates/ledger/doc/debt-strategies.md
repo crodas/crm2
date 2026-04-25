@@ -51,12 +51,12 @@ Each strategy is constructed with debtor/creditor path templates:
 
 ```rust
 let strategy = SignedPositionDebt::new(
-    "customer/{id}/debt",        // debtor template
-    "store/receivables/{id}",    // creditor template
+    "customer/{from}/debt",        // debtor template
+    "store/{to}/receivables/{from}",  // creditor template
 );
 ```
 
-The `{id}` placeholder is replaced with the entity identifier when `create_debt(entity_id, ...)` or `settle_debt(entity_id, ...)` is called. `entity_id` is `&str`. `resolve_template` returns a plain `String` (not `Result`). This keeps account path conventions in one place (strategy configuration) rather than scattered across route handlers.
+The `{from}` and `{to}` placeholders are replaced with the debit-side and credit-side identifiers when `create_debt(from, to, ...)` or `settle_debt(from, to, ...)` is called. Both are `&str`. `resolve_template` returns a plain `String` (not `Result`). This keeps account path conventions in one place (strategy configuration) rather than scattered across route handlers.
 
 ## SignedPositionDebt
 
