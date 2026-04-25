@@ -9,7 +9,8 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    Asset, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
+    Amount, Asset, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
+    Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -157,46 +158,22 @@ impl Storage for SqliteStorage {
     async fn unspent_by_account(
         &self,
         account: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let sql = format!(
-            "{TOKEN_SELECT} WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL"
-        );
-        let rows = sqlx::query(&sql)
-            .bind(account)
-            .bind(asset_name)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?;
-
-        rows_to_tokens(rows)
-    }
-
-    async fn unspent_by_prefix(
-        &self,
-        prefix: &str,
-        asset_name: &str,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let rows = if prefix.is_empty() {
+        let rows = if let Some(req) = requested_amount {
             let sql = format!(
-                "{TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL"
+                "{TOKEN_SELECT} WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL"
             );
             sqlx::query(&sql)
-                .bind(asset_name)
+                .bind(account)
+                .bind(req.asset_name())
                 .fetch_all(&self.pool)
                 .await
                 .map_err(db_err)?
         } else {
-            let like_pattern = format!("{prefix}/%");
-            let sql = format!(
-                "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-                   AND t.asset_name = ?
-                   AND t.spent_by_tx IS NULL"
-            );
+            let sql = format!("{TOKEN_SELECT} WHERE t.owner = ? AND t.spent_by_tx IS NULL");
             sqlx::query(&sql)
-                .bind(prefix)
-                .bind(&like_pattern)
-                .bind(asset_name)
+                .bind(account)
                 .fetch_all(&self.pool)
                 .await
                 .map_err(db_err)?
@@ -205,27 +182,54 @@ impl Storage for SqliteStorage {
         rows_to_tokens(rows)
     }
 
-    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError> {
+    async fn unspent_by_prefix(
+        &self,
+        prefix: &str,
+        requested_amount: Option<&Amount>,
+    ) -> Result<Vec<SpendingToken>, LedgerError> {
         let rows = if prefix.is_empty() {
-            let sql = format!(
-                "{TOKEN_SELECT} WHERE t.spent_by_tx IS NULL"
-            );
-            sqlx::query(&sql)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(db_err)?
+            if let Some(req) = requested_amount {
+                let sql =
+                    format!("{TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL");
+                sqlx::query(&sql)
+                    .bind(req.asset_name())
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                let sql = format!("{TOKEN_SELECT} WHERE t.spent_by_tx IS NULL");
+                sqlx::query(&sql)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(db_err)?
+            }
         } else {
             let like_pattern = format!("{prefix}/%");
-            let sql = format!(
-                "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-                   AND t.spent_by_tx IS NULL"
-            );
-            sqlx::query(&sql)
-                .bind(prefix)
-                .bind(&like_pattern)
-                .fetch_all(&self.pool)
-                .await
-                .map_err(db_err)?
+            if let Some(req) = requested_amount {
+                let sql = format!(
+                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                       AND t.asset_name = ?
+                       AND t.spent_by_tx IS NULL"
+                );
+                sqlx::query(&sql)
+                    .bind(prefix)
+                    .bind(&like_pattern)
+                    .bind(req.asset_name())
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(db_err)?
+            } else {
+                let sql = format!(
+                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                       AND t.spent_by_tx IS NULL"
+                );
+                sqlx::query(&sql)
+                    .bind(prefix)
+                    .bind(&like_pattern)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(db_err)?
+            }
         };
 
         rows_to_tokens(rows)

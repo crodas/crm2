@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::storage::Storage;
@@ -200,7 +201,11 @@ impl Ledger {
 
     /// Return the balance of a specific account for a given asset.
     pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
-        let tokens = self.storage.unspent_by_account(account, asset_name).await?;
+        let filter = Asset::new(asset_name, 0).max();
+        let tokens = self
+            .storage
+            .unspent_by_account(account, Some(&filter))
+            .await?;
         Ok(tokens.iter().map(|t| t.amount.raw()).sum())
     }
 
@@ -210,34 +215,42 @@ impl Ledger {
         prefix: &str,
         asset_name: &str,
     ) -> Result<i128, LedgerError> {
-        let tokens = self.storage.unspent_by_prefix(prefix, asset_name).await?;
+        let filter = Asset::new(asset_name, 0).max();
+        let tokens = self
+            .storage
+            .unspent_by_prefix(prefix, Some(&filter))
+            .await?;
         Ok(tokens.iter().map(|t| t.amount.raw()).sum())
     }
 
-    /// Return all unspent tokens owned by the given account for a given asset.
+    /// Return unspent tokens owned by the given account.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     pub async fn unspent_tokens(
         &self,
         account: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.storage.unspent_by_account(account, asset_name).await
+        self.storage
+            .unspent_by_account(account, requested_amount)
+            .await
     }
 
-    /// Return all unspent tokens under a prefix for a given asset.
+    /// Return unspent tokens under a prefix.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     pub async fn unspent_tokens_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.storage.unspent_by_prefix(prefix, asset_name).await
-    }
-
-    /// Return all unspent tokens under a prefix, across all assets.
-    pub async fn unspent_all_by_prefix(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.storage.unspent_all_by_prefix(prefix).await
+        self.storage
+            .unspent_by_prefix(prefix, requested_amount)
+            .await
     }
 
     /// Return aggregated balances grouped by (account, asset) for all

@@ -513,9 +513,10 @@ pub async fn transfer_inventory(
 pub async fn supplier_balance(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<SupplierBalance>, AppError> {
+    let filter = ledger::Asset::new("gs", 0).max();
     let tokens = state
         .ledger
-        .unspent_tokens_prefix("store/payables", "gs")
+        .unspent_tokens_prefix("store/payables", Some(&filter))
         .await
         .map_err(|e| AppError::Internal(e.to_string()))?;
 

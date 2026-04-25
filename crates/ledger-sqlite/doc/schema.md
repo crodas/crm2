@@ -93,8 +93,8 @@ CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_account
 ```
 
 A **partial index** covering only unspent tokens. Optimizes the two most common queries:
-- `unspent_by_account()`: exact match on `(owner, asset_name)`
-- `unspent_by_prefix()`: range scan on `owner` with exact `asset_name`
+- `unspent_by_account(_, Some(_))`: exact match on `(owner, asset_name)`
+- `unspent_by_prefix(_, Some(_))`: range scan on `owner` with exact `asset_name`
 
 As tokens are spent, they fall out of this index, keeping it compact.
 
@@ -106,7 +106,7 @@ CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_prefix
 ```
 
 Optimizes queries that filter by asset across multiple owners:
-- `unspent_all_by_prefix()`: all unspent tokens under a prefix
+- `unspent_by_prefix(_, None)`: all unspent tokens under a prefix (all assets)
 - `balances_by_prefix()`: aggregated balances
 
 ## Quantity Storage

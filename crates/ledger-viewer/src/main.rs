@@ -151,7 +151,11 @@ async fn list_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TokenRespons
     }
 
     let mut result: Vec<TokenResponse> = tokens.into_values().collect();
-    result.sort_by(|a, b| a.tx_id.cmp(&b.tx_id).then(a.entry_index.cmp(&b.entry_index)));
+    result.sort_by(|a, b| {
+        a.tx_id
+            .cmp(&b.tx_id)
+            .then(a.entry_index.cmp(&b.entry_index))
+    });
     Json(result)
 }
 

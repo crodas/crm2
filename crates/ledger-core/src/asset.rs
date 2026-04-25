@@ -46,6 +46,14 @@ impl Asset {
         }))
     }
 
+    /// An amount representing the maximum possible value for this asset.
+    ///
+    /// Useful when you want all unspent tokens for an asset without a
+    /// specific minimum threshold.
+    pub fn max(&self) -> crate::Amount {
+        crate::Amount::new_unchecked(self.clone(), i128::MAX)
+    }
+
     pub fn name(&self) -> &str {
         &self.0.name
     }

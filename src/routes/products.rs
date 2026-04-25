@@ -112,10 +112,7 @@ pub async fn create_product(
     // Register a ledger asset for this product
     state
         .ledger
-        .register_asset(Asset::new(
-            format!("product:{}", product.id),
-            3,
-        ))
+        .register_asset(Asset::new(format!("product:{}", product.id), 3))
         .await
         .map_err(|e| AppError::Internal(format!("register asset: {e}")))?;
 

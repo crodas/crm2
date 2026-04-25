@@ -114,9 +114,10 @@ impl DebtStrategy for SplitAssetDebt {
         let debt_asset = Self::debt_asset(amount.asset());
 
         // Select negative tokens from debtor.
+        let filter = debt_asset.max();
         let debtor_tokens = self
             .storage
-            .unspent_by_account(&debtor, debt_asset.name())
+            .unspent_by_account(&debtor, Some(&filter))
             .await?;
         let (selected_debtor, debtor_change) =
             select_negative_tokens(&debtor_tokens, amount.raw())?;
@@ -124,7 +125,7 @@ impl DebtStrategy for SplitAssetDebt {
         // Select positive tokens from creditor.
         let creditor_tokens = self
             .storage
-            .unspent_by_account(&creditor, debt_asset.name())
+            .unspent_by_account(&creditor, Some(&filter))
             .await?;
         let (selected_creditor, creditor_change) =
             select_positive_tokens(&creditor_tokens, amount.raw())?;
@@ -258,10 +259,7 @@ mod tests {
         let strategy = SplitAssetDebt::new(storage.clone(), "customer/{id}", "store/{id}");
         let ledger = Ledger::new(storage).with_debt_strategy(strategy);
         ledger.register_asset(gs()).await.unwrap();
-        ledger
-            .register_asset(Asset::new("brush", 0))
-            .await
-            .unwrap();
+        ledger.register_asset(Asset::new("brush", 0)).await.unwrap();
         SplitAssetDebt::register_debt_asset(&ledger, &gs())
             .await
             .unwrap();

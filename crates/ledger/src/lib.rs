@@ -12,9 +12,9 @@
 //! For low-level access (explicit entry refs), use [`ledger_core`] directly.
 
 mod builder;
-pub mod issuance;
 pub mod debt;
 mod error;
+pub mod issuance;
 mod ledger;
 
 // Expose ledger_core as a sub-module.

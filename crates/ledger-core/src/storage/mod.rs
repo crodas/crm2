@@ -11,6 +11,7 @@ use std::sync::RwLock;
 use async_trait::async_trait;
 
 use crate::account::is_prefix_of;
+use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
@@ -41,22 +42,27 @@ pub trait Storage: Send + Sync + Debug {
     /// Fetch a single spending token by its entry reference.
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
 
-    /// Return all unspent tokens owned by `account` for the given asset.
+    /// Return unspent tokens owned by `account`.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     async fn unspent_by_account(
         &self,
         account: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
 
-    /// Return all unspent tokens under `prefix` for the given asset.
+    /// Return unspent tokens under `prefix`.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     async fn unspent_by_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
-
-    /// Return all unspent tokens under `prefix`, across all assets.
-    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError>;
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under `prefix`.
@@ -162,7 +168,7 @@ impl Storage for MemoryStorage {
     async fn unspent_by_account(
         &self,
         account: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
@@ -171,7 +177,7 @@ impl Storage for MemoryStorage {
             .filter(|t| {
                 t.status == TokenStatus::Unspent
                     && t.owner == account
-                    && t.amount.asset_name() == asset_name
+                    && requested_amount.map_or(true, |a| t.amount.asset_name() == a.asset_name())
             })
             .cloned()
             .collect())
@@ -180,7 +186,7 @@ impl Storage for MemoryStorage {
     async fn unspent_by_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
@@ -189,26 +195,14 @@ impl Storage for MemoryStorage {
             .filter(|t| {
                 t.status == TokenStatus::Unspent
                     && is_prefix_of(prefix, &t.owner)
-                    && t.amount.asset_name() == asset_name
+                    && requested_amount.map_or(true, |a| t.amount.asset_name() == a.asset_name())
             })
-            .cloned()
-            .collect())
-    }
-
-    async fn unspent_all_by_prefix(&self, prefix: &str) -> Result<Vec<SpendingToken>, LedgerError> {
-        let state = self.state.read().map_err(lock_err)?;
-        Ok(state
-            .tokens
-            .values()
-            .filter(|t| t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner))
             .cloned()
             .collect())
     }
 
     async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
-        use crate::amount::Amount;
-
         let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
         for t in state.tokens.values() {
             if t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {

@@ -7,9 +7,9 @@ use ledger_core::{
     Amount, SpendingToken, Storage, Transaction, TransactionBuilder as LowLevelBuilder,
 };
 
-use crate::issuance::IssuanceStrategy;
 use crate::debt::DebtStrategy;
 use crate::error::Error;
+use crate::issuance::IssuanceStrategy;
 
 /// A pending debit request: take `amount` from `account`.
 struct DebitRequest {
@@ -180,7 +180,7 @@ impl TransactionBuilder {
         for req in &self.debits {
             let mut tokens = self
                 .storage
-                .unspent_by_account(&req.account, req.amount.asset_name())
+                .unspent_by_account(&req.account, Some(&req.amount))
                 .await?;
 
             // Sort largest first for greedy selection.
@@ -409,10 +409,7 @@ mod tests {
             ledger.balance("store1/inventory", "brush").await.unwrap(),
             10
         );
-        assert_eq!(
-            ledger.balance("@world", "brush").await.unwrap(),
-            -10
-        );
+        assert_eq!(ledger.balance("@world", "brush").await.unwrap(), -10);
     }
 
     #[tokio::test]

@@ -16,11 +16,9 @@ pub trait Storage: Send + Sync + Debug {
 
     // Token queries
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
-    async fn unspent_by_account(&self, account: &str, asset_name: &str)
+    async fn unspent_by_account(&self, account: &str, requested_amount: Option<&Amount>)
         -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn unspent_by_prefix(&self, prefix: &str, asset_name: &str)
-        -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn unspent_all_by_prefix(&self, prefix: &str)
+    async fn unspent_by_prefix(&self, prefix: &str, requested_amount: Option<&Amount>)
         -> Result<Vec<SpendingToken>, LedgerError>;
     async fn balances_by_prefix(&self, prefix: &str)
         -> Result<Vec<BalanceEntry>, LedgerError>;
@@ -58,17 +56,15 @@ pub trait Storage: Send + Sync + Debug {
 
 #### `unspent_by_account`
 
-- Returns all tokens with `status == Unspent` for the **exact** account and asset
+- `Some(amount)` — returns all tokens with `status == Unspent` for the **exact** account and the amount's asset
+- `None` — returns all unspent tokens for the account across all assets
 - Must **not** include descendant accounts (e.g., `store` does not include `store/cash`)
 
 #### `unspent_by_prefix`
 
-- Returns all tokens with `status == Unspent` where the owner matches the prefix **or** is a descendant
+- `Some(amount)` — returns all tokens with `status == Unspent` where the owner matches the prefix **or** is a descendant, filtered by the amount's asset
+- `None` — same but across all assets
 - Prefix matching: owner == prefix OR owner starts with `{prefix}/`
-
-#### `unspent_all_by_prefix`
-
-- Same as `unspent_by_prefix` but across **all** assets (no asset filter)
 
 #### `balances_by_prefix`
 

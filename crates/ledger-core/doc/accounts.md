@@ -58,10 +58,11 @@ An account A is a prefix of account B if B starts with A followed by `/`:
 let total = ledger.balance_prefix("store1", "usd").await?;
 
 // All unspent tokens under store1 for a specific asset
-let tokens = ledger.unspent_tokens_prefix("store1", "usd").await?;
+let usd = Asset::new("usd", 2);
+let tokens = ledger.unspent_tokens_prefix("store1", Some(&usd.max())).await?;
 
 // All unspent tokens under store1 across all assets
-let all = ledger.unspent_all_by_prefix("store1").await?;
+let all = ledger.unspent_tokens_prefix("store1", None).await?;
 
 // Aggregated balances grouped by (account, asset)
 let entries = ledger.balances_by_prefix("store1").await?;

@@ -232,7 +232,7 @@ pub async fn token_marked_spent(s: &dyn Storage) {
 pub async fn unspent_account_empty(s: &dyn Storage) {
     register_test_assets(s).await;
     let result = s
-        .unspent_by_account("nobody", "brush")
+        .unspent_by_account("nobody", Some(&brush().max()))
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty());
@@ -244,7 +244,7 @@ pub async fn unspent_account_returns_matching(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_account("a", "brush")
+        .unspent_by_account("a", Some(&brush().max()))
         .await
         .expect("unspent_by_account");
     assert_eq!(result.len(), 1);
@@ -265,7 +265,7 @@ pub async fn unspent_account_excludes_spent(s: &dyn Storage) {
         .expect("commit transfer");
 
     let result = s
-        .unspent_by_account("a", "brush")
+        .unspent_by_account("a", Some(&brush().max()))
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty(), "spent tokens should be excluded");
@@ -277,7 +277,7 @@ pub async fn unspent_account_excludes_other_assets(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_account("a", "usd")
+        .unspent_by_account("a", Some(&usd().max()))
         .await
         .expect("unspent_by_account");
     assert!(result.is_empty(), "different asset should be excluded");
@@ -289,7 +289,7 @@ pub async fn unspent_account_excludes_children(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_account("store1", "brush")
+        .unspent_by_account("store1", Some(&brush().max()))
         .await
         .expect("unspent_by_account");
     assert!(
@@ -303,7 +303,7 @@ pub async fn unspent_account_excludes_children(s: &dyn Storage) {
 pub async fn unspent_prefix_empty(s: &dyn Storage) {
     register_test_assets(s).await;
     let result = s
-        .unspent_by_prefix("nobody", "brush")
+        .unspent_by_prefix("nobody", Some(&brush().max()))
         .await
         .expect("unspent_by_prefix");
     assert!(result.is_empty());
@@ -315,7 +315,7 @@ pub async fn unspent_prefix_includes_descendants(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_prefix("store1", "brush")
+        .unspent_by_prefix("store1", Some(&brush().max()))
         .await
         .expect("unspent_by_prefix");
     assert_eq!(result.len(), 1);
@@ -328,7 +328,7 @@ pub async fn unspent_prefix_includes_exact(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_prefix("store1", "brush")
+        .unspent_by_prefix("store1", Some(&brush().max()))
         .await
         .expect("unspent_by_prefix");
     assert_eq!(result.len(), 1);
@@ -349,7 +349,7 @@ pub async fn unspent_prefix_excludes_spent(s: &dyn Storage) {
         .expect("commit transfer");
 
     let result = s
-        .unspent_by_prefix("store1", "brush")
+        .unspent_by_prefix("store1", Some(&brush().max()))
         .await
         .expect("unspent_by_prefix");
     assert!(
@@ -364,7 +364,7 @@ pub async fn unspent_prefix_excludes_other_assets(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_prefix("store1", "usd")
+        .unspent_by_prefix("store1", Some(&usd().max()))
         .await
         .expect("unspent_by_prefix");
     assert!(result.is_empty(), "different asset should be excluded");
@@ -376,7 +376,7 @@ pub async fn unspent_prefix_excludes_non_descendants(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_by_prefix("store1", "brush")
+        .unspent_by_prefix("store1", Some(&brush().max()))
         .await
         .expect("unspent_by_prefix");
     assert!(
@@ -475,12 +475,12 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
     assert_eq!(b.status, TokenStatus::Unspent);
 
     assert!(s
-        .unspent_by_account("a", "brush")
+        .unspent_by_account("a", Some(&brush().max()))
         .await
         .expect("unspent @a")
         .is_empty());
     assert_eq!(
-        s.unspent_by_account("b", "brush")
+        s.unspent_by_account("b", Some(&brush().max()))
             .await
             .expect("unspent @b")
             .len(),
@@ -495,9 +495,9 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
 pub async fn unspent_all_prefix_empty(s: &dyn Storage) {
     register_test_assets(s).await;
     let result = s
-        .unspent_all_by_prefix("nobody")
+        .unspent_by_prefix("nobody", None)
         .await
-        .expect("unspent_all_by_prefix");
+        .expect("unspent_by_prefix");
     assert!(result.is_empty());
 }
 
@@ -513,9 +513,9 @@ pub async fn unspent_all_prefix_returns_multiple_assets(s: &dyn Storage) {
     s.commit_tx(&tx2, &tokens2, &[]).await.expect("commit usd");
 
     let result = s
-        .unspent_all_by_prefix("store1")
+        .unspent_by_prefix("store1", None)
         .await
-        .expect("unspent_all_by_prefix");
+        .expect("unspent_by_prefix");
     assert_eq!(result.len(), 2);
 
     let brush_count = result
@@ -540,9 +540,9 @@ pub async fn unspent_all_prefix_excludes_spent(s: &dyn Storage) {
     s.commit_tx(&tx2, &tokens2, &spent).await.expect("commit");
 
     let result = s
-        .unspent_all_by_prefix("a")
+        .unspent_by_prefix("a", None)
         .await
-        .expect("unspent_all_by_prefix");
+        .expect("unspent_by_prefix");
     assert!(result.is_empty());
 }
 
@@ -552,9 +552,9 @@ pub async fn unspent_all_prefix_excludes_non_descendants(s: &dyn Storage) {
     s.commit_tx(&tx, &tokens, &[]).await.expect("commit");
 
     let result = s
-        .unspent_all_by_prefix("store1")
+        .unspent_by_prefix("store1", None)
         .await
-        .expect("unspent_all_by_prefix");
+        .expect("unspent_by_prefix");
     assert!(result.is_empty());
 }
 

@@ -124,15 +124,17 @@ Single account queries match **exactly** -- `store` does not include `store/cash
 
 ```rust
 // All unspent tokens under a prefix for a specific asset
+let usd = Asset::new("usd", 2);
 let tokens = ledger.unspent_tokens_prefix(
     "store",
-    "usd"
+    Some(&usd.max())
 ).await?;
 // Includes: store, store/cash, store/receivables/sale_1, etc.
 
 // All unspent tokens under a prefix across ALL assets
-let all = ledger.unspent_all_by_prefix(
-    "store"
+let all = ledger.unspent_tokens_prefix(
+    "store",
+    None
 ).await?;
 
 // Aggregated prefix balance for one asset

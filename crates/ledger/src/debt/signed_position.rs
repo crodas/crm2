@@ -81,14 +81,8 @@ mod tests {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage)
             .with_debt_strategy(SignedPositionDebt::new("customer/{id}", "store/{id}"));
-        ledger
-            .register_asset(Asset::new("gs", 0))
-            .await
-            .unwrap();
-        ledger
-            .register_asset(Asset::new("brush", 0))
-            .await
-            .unwrap();
+        ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
+        ledger.register_asset(Asset::new("brush", 0)).await.unwrap();
         ledger
     }
 
@@ -100,10 +94,7 @@ mod tests {
     async fn no_strategy_returns_error() {
         let storage = Arc::new(MemoryStorage::new());
         let ledger = Ledger::new(storage); // no strategy
-        ledger
-            .register_asset(Asset::new("gs", 0))
-            .await
-            .unwrap();
+        ledger.register_asset(Asset::new("gs", 0)).await.unwrap();
 
         let result = ledger
             .transaction("debt-001")

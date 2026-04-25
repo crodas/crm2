@@ -4,13 +4,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
+    Amount, Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
 use crate::builder::TransactionBuilder;
-use crate::issuance::IssuanceStrategy;
 use crate::debt::DebtStrategy;
+use crate::issuance::IssuanceStrategy;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
 /// token selection via [`TransactionBuilder`] and optional debt handling
@@ -128,30 +128,32 @@ impl Ledger {
         self.inner.balance_prefix(prefix, asset_name).await
     }
 
-    /// Return all unspent tokens owned by the given account for a given asset.
+    /// Return unspent tokens owned by the given account.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     pub async fn unspent_tokens(
         &self,
         account: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_tokens(account, asset_name).await
+        self.inner.unspent_tokens(account, requested_amount).await
     }
 
-    /// Return all unspent tokens under a prefix for a given asset.
+    /// Return unspent tokens under a prefix.
+    ///
+    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
+    ///   the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent tokens across all assets.
     pub async fn unspent_tokens_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
+        requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_tokens_prefix(prefix, asset_name).await
-    }
-
-    /// Return all unspent tokens under a prefix, across all assets.
-    pub async fn unspent_all_by_prefix(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner.unspent_all_by_prefix(prefix).await
+        self.inner
+            .unspent_tokens_prefix(prefix, requested_amount)
+            .await
     }
 
     /// Return aggregated balances grouped by (account, asset) for all
