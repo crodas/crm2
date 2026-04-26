@@ -74,9 +74,11 @@ const TOKEN_SELECT: &str =
 #[async_trait]
 impl Storage for SqliteStorage {
     async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+
         let existing = sqlx::query("SELECT precision FROM ledger_assets WHERE name = ?")
             .bind(asset.name())
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await
             .map_err(db_err)?;
 
@@ -95,9 +97,11 @@ impl Storage for SqliteStorage {
         sqlx::query("INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, 'signed')")
             .bind(asset.name())
             .bind(asset.precision() as i32)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
@@ -287,6 +291,8 @@ impl Storage for SqliteStorage {
         if refs.is_empty() {
             return Ok(());
         }
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+
         let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
         let sql = format!(
             "UPDATE ledger_tokens SET spent_by_tx = ? \
@@ -297,23 +303,31 @@ impl Storage for SqliteStorage {
         for eref in refs {
             q = q.bind(&eref.tx_id).bind(eref.entry_index as i32);
         }
-        let result = q.execute(&self.pool).await.map_err(db_err)?;
+        let result = q.execute(&mut *tx).await.map_err(db_err)?;
 
         if result.rows_affected() != refs.len() as u64 {
             // Find the culprit — only reached on actual race.
+            let check_sql = format!("{TOKEN_SELECT} WHERE t.tx_id = ? AND t.entry_index = ?");
             for eref in refs {
-                let token = self.get_token(eref).await?;
-                match token {
-                    Some(t) if t.status != TokenStatus::Unspent => {
+                let row = sqlx::query(&check_sql)
+                    .bind(&eref.tx_id)
+                    .bind(eref.entry_index as i32)
+                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(db_err)?;
+                if let Some(row) = row {
+                    let spent_by: Option<String> = row.get("spent_by_tx");
+                    if spent_by.is_some() {
                         return Err(LedgerError::AlreadySpent(eref.clone()));
                     }
-                    _ => {}
                 }
             }
             return Err(LedgerError::Storage(
                 "mark_spent: unexpected row count".into(),
             ));
         }
+
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
@@ -325,6 +339,8 @@ impl Storage for SqliteStorage {
         if refs.is_empty() {
             return Ok(());
         }
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
+
         let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
         let sql = format!(
             "UPDATE ledger_tokens SET spent_by_tx = NULL \
@@ -336,11 +352,14 @@ impl Storage for SqliteStorage {
             q = q.bind(&eref.tx_id).bind(eref.entry_index as i32);
         }
         q = q.bind(tx_to_revert);
-        q.execute(&self.pool).await.map_err(db_err)?;
+        q.execute(&mut *tx).await.map_err(db_err)?;
+
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
     async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
         for token in tokens {
             sqlx::query(
                 "INSERT INTO ledger_tokens (tx_id, entry_index, owner, asset_name, qty)
@@ -351,26 +370,30 @@ impl Storage for SqliteStorage {
             .bind(&token.owner)
             .bind(token.amount.asset_name())
             .bind(token.amount.raw() as i64)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(db_err)?;
         }
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
     async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
         for eref in refs {
             sqlx::query("DELETE FROM ledger_tokens WHERE tx_id = ? AND entry_index = ?")
                 .bind(&eref.tx_id)
                 .bind(eref.entry_index as i32)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(db_err)?;
         }
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
     async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError> {
+        let mut db_tx = self.pool.begin().await.map_err(db_err)?;
         let data = serde_json::to_string(tx).map_err(|e| LedgerError::Storage(e.to_string()))?;
         sqlx::query(
             "INSERT INTO ledger_transactions (tx_id, idempotency_key, data) VALUES (?, ?, ?)",
@@ -378,18 +401,21 @@ impl Storage for SqliteStorage {
         .bind(&tx.tx_id)
         .bind(&tx.idempotency_key)
         .bind(&data)
-        .execute(&self.pool)
+        .execute(&mut *db_tx)
         .await
         .map_err(db_err)?;
+        db_tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
     async fn remove_tx(&self, tx_id: &str) -> Result<(), LedgerError> {
+        let mut tx = self.pool.begin().await.map_err(db_err)?;
         sqlx::query("DELETE FROM ledger_transactions WHERE tx_id = ?")
             .bind(tx_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(db_err)?;
+        tx.commit().await.map_err(db_err)?;
         Ok(())
     }
 
