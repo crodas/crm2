@@ -203,10 +203,20 @@ mod tests {
         let sale: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(sale["payment_status"], "paid");
 
-        let bal = state.db.ledger().balance("customer/1/debt", "gs").await.unwrap();
+        let bal = state
+            .db
+            .ledger()
+            .balance("customer/1/debt", "gs")
+            .await
+            .unwrap();
         assert_eq!(bal, 0);
 
-        let cash_bal = state.db.ledger().balance("warehouse/cash", "gs").await.unwrap();
+        let cash_bal = state
+            .db
+            .ledger()
+            .balance("warehouse/cash", "gs")
+            .await
+            .unwrap();
         assert_eq!(cash_bal, 10000);
     }
 
@@ -266,10 +276,20 @@ mod tests {
         assert_eq!(detail["balance"], 0);
         assert_eq!(detail["sale"]["payment_status"], "paid");
 
-        let bal = state.db.ledger().balance("customer/1/debt", "gs").await.unwrap();
+        let bal = state
+            .db
+            .ledger()
+            .balance("customer/1/debt", "gs")
+            .await
+            .unwrap();
         assert_eq!(bal, 0);
 
-        let cash_bal = state.db.ledger().balance("warehouse/cash", "gs").await.unwrap();
+        let cash_bal = state
+            .db
+            .ledger()
+            .balance("warehouse/cash", "gs")
+            .await
+            .unwrap();
         assert_eq!(cash_bal, 10000);
     }
 }

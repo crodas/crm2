@@ -18,7 +18,10 @@ pub async fn list_products(
     State(state): State<Arc<AppState>>,
     Query(params): Query<ProductQuery>,
 ) -> Result<Json<Vec<ProductWithPrices>>, AppError> {
-    let products = state.db.list_products(params.product_type.as_deref()).await?;
+    let products = state
+        .db
+        .list_products(params.product_type.as_deref())
+        .await?;
     let prices_map = state.db.fetch_latest_prices().await?;
     let result: Vec<ProductWithPrices> = products
         .into_iter()

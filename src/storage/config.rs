@@ -1,5 +1,5 @@
-use crate::error::AppError;
 use super::{Db, Tx};
+use crate::error::AppError;
 
 impl Db {
     pub async fn get_config(&self) -> Result<Vec<(String, String)>, AppError> {

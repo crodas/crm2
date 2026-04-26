@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use ledger_core::{Amount, Asset, LedgerError, SpendingToken, Storage};
+use ledger_core::{Amount, Asset, CreditToken, LedgerError, Storage};
 
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
@@ -169,11 +169,10 @@ impl DebtStrategy for SplitAssetDebt {
 
 /// Select negative tokens (debtor side) covering `amount`.
 fn select_negative_tokens<'a>(
-    tokens: &'a [SpendingToken],
+    tokens: &'a [CreditToken],
     amount: i128,
-) -> Result<(Vec<&'a SpendingToken>, Option<i128>), Error> {
-    let mut candidates: Vec<&SpendingToken> =
-        tokens.iter().filter(|t| t.amount.raw() < 0).collect();
+) -> Result<(Vec<&'a CreditToken>, Option<i128>), Error> {
+    let mut candidates: Vec<&CreditToken> = tokens.iter().filter(|t| t.amount.raw() < 0).collect();
     candidates.sort_by(|a, b| a.amount.raw().cmp(&b.amount.raw()));
 
     let mut selected = Vec::new();
@@ -205,11 +204,10 @@ fn select_negative_tokens<'a>(
 
 /// Select positive tokens (creditor side) covering `amount`.
 fn select_positive_tokens<'a>(
-    tokens: &'a [SpendingToken],
+    tokens: &'a [CreditToken],
     amount: i128,
-) -> Result<(Vec<&'a SpendingToken>, Option<i128>), Error> {
-    let mut candidates: Vec<&SpendingToken> =
-        tokens.iter().filter(|t| t.amount.raw() > 0).collect();
+) -> Result<(Vec<&'a CreditToken>, Option<i128>), Error> {
+    let mut candidates: Vec<&CreditToken> = tokens.iter().filter(|t| t.amount.raw() > 0).collect();
     candidates.sort_by(|a, b| b.amount.raw().cmp(&a.amount.raw()));
 
     let mut selected = Vec::new();

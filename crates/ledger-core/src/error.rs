@@ -1,17 +1,19 @@
 //! Error types for ledger validation.
 
-use crate::token::EntryRef;
+use serde::{Deserialize, Serialize};
+
+use crate::token::CreditEntryRef;
 
 /// All errors that can occur during ledger operations.
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Debug, Clone, Serialize, Deserialize, thiserror::Error)]
 pub enum LedgerError {
     /// A debit references a spending token that does not exist.
     #[error("debit {0} not found in ledger")]
-    DebitNotFound(EntryRef),
+    DebitNotFound(CreditEntryRef),
 
     /// A debit references a spending token that has already been spent.
     #[error("debit {0} has already been spent")]
-    AlreadySpent(EntryRef),
+    AlreadySpent(CreditEntryRef),
 
     /// The asset named in the transaction is not registered.
     #[error("unknown asset: {0}")]
@@ -41,7 +43,7 @@ pub enum LedgerError {
     /// The debit's owner does not match the token it references.
     #[error("debit owner mismatch at {entry_ref}: expected {expected}, got {got}")]
     DebitOwnerMismatch {
-        entry_ref: EntryRef,
+        entry_ref: CreditEntryRef,
         expected: String,
         got: String,
     },
@@ -49,7 +51,7 @@ pub enum LedgerError {
     /// The debit's asset does not match the token it references.
     #[error("debit asset mismatch at {entry_ref}: expected {expected}, got {got}")]
     DebitAssetMismatch {
-        entry_ref: EntryRef,
+        entry_ref: CreditEntryRef,
         expected: String,
         got: String,
     },
@@ -57,7 +59,7 @@ pub enum LedgerError {
     /// The debit's quantity does not match the token it references.
     #[error("debit qty mismatch at {entry_ref}: expected {expected}, got {got}")]
     DebitQtyMismatch {
-        entry_ref: EntryRef,
+        entry_ref: CreditEntryRef,
         expected: i128,
         got: i128,
     },

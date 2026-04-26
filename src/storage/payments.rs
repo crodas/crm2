@@ -1,7 +1,7 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
-use super::{Db, Tx};
 
 #[derive(sqlx::FromRow)]
 struct OwesPaid {

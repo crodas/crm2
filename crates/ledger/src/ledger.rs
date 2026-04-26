@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
+    Amount, Asset, BalanceEntry, CreditToken, LedgerError, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
@@ -137,7 +137,7 @@ impl Ledger {
         &self,
         account: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         self.inner.unspent_tokens(account, requested_amount).await
     }
 
@@ -150,7 +150,7 @@ impl Ledger {
         &self,
         prefix: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         self.inner
             .unspent_tokens_prefix(prefix, requested_amount)
             .await

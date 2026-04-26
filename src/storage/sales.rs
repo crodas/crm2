@@ -1,7 +1,7 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::sale::*;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_sales(&self) -> Result<Vec<Sale>, AppError> {
@@ -20,11 +20,10 @@ impl Db {
     }
 
     pub async fn get_sale_lines(&self, sale_id: i64) -> Result<Vec<SaleLine>, AppError> {
-        let lines =
-            sqlx::query_as::<_, SaleLine>("SELECT * FROM sale_lines WHERE sale_id = ?")
-                .bind(sale_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let lines = sqlx::query_as::<_, SaleLine>("SELECT * FROM sale_lines WHERE sale_id = ?")
+            .bind(sale_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(lines)
     }
 

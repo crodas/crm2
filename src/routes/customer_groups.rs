@@ -53,7 +53,11 @@ pub async fn update_group(
     let mut tx = state.db.begin().await?;
     let existing = tx.get_customer_group(id).await?;
     let group = tx
-        .update_customer_group(id, body.default_markup_pct.unwrap_or(existing.default_markup_pct))
+        .update_customer_group(
+            id,
+            body.default_markup_pct
+                .unwrap_or(existing.default_markup_pct),
+        )
         .await?;
     tx.commit().await?;
     Ok(Json(group))

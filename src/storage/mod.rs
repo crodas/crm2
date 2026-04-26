@@ -32,7 +32,11 @@ pub struct Tx {
 
 impl Db {
     pub fn new(pool: SqlitePool, ledger: ledger::Ledger, store_id: String) -> Self {
-        Self { pool, ledger: Arc::new(ledger), store_id }
+        Self {
+            pool,
+            ledger: Arc::new(ledger),
+            store_id,
+        }
     }
 
     /// Access the underlying CRM pool (for test setup and main.rs init only).

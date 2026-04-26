@@ -22,8 +22,8 @@ pub use ledger_core;
 
 // Re-export core types for convenience.
 pub use ledger_core::{
-    Amount, Asset, BalanceEntry, Credit, DebitRef, EntryRef, LedgerError, MemoryStorage,
-    NetMovement, SpendingToken, Storage, TokenStatus, Transaction,
+    Amount, Asset, BalanceEntry, Credit, CreditEntryRef, CreditToken, DebitRef, LedgerError,
+    MemoryStorage, NetMovement, Storage, TokenStatus, Transaction,
 };
 
 // High-level API.

@@ -1,7 +1,7 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::inventory::*;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_receipts(&self) -> Result<Vec<InventoryReceipt>, AppError> {
@@ -31,10 +31,7 @@ impl Db {
         Ok(lines)
     }
 
-    pub async fn get_receipt_prices(
-        &self,
-        receipt_id: i64,
-    ) -> Result<Vec<ReceiptPrice>, AppError> {
+    pub async fn get_receipt_prices(&self, receipt_id: i64) -> Result<Vec<ReceiptPrice>, AppError> {
         let prices = sqlx::query_as::<_, ReceiptPrice>(
             "SELECT * FROM inventory_receipt_prices WHERE receipt_id = ?",
         )
@@ -150,9 +147,7 @@ impl Db {
     }
 
     /// List all ledger transactions (used for transfer history).
-    pub async fn ledger_transactions(
-        &self,
-    ) -> Result<Vec<ledger::Transaction>, AppError> {
+    pub async fn ledger_transactions(&self) -> Result<Vec<ledger::Transaction>, AppError> {
         self.ledger
             .transactions()
             .await
@@ -354,19 +349,17 @@ impl Tx {
         }
 
         // Verify warehouses exist
-        let from_wh: i64 =
-            sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
-                .bind(body.from_warehouse_id)
-                .fetch_optional(&mut *self.inner)
-                .await?
-                .ok_or_else(|| AppError::NotFound("Source warehouse not found".into()))?;
+        let from_wh: i64 = sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
+            .bind(body.from_warehouse_id)
+            .fetch_optional(&mut *self.inner)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Source warehouse not found".into()))?;
 
-        let to_wh: i64 =
-            sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
-                .bind(body.to_warehouse_id)
-                .fetch_optional(&mut *self.inner)
-                .await?
-                .ok_or_else(|| AppError::NotFound("Destination warehouse not found".into()))?;
+        let to_wh: i64 = sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
+            .bind(body.to_warehouse_id)
+            .fetch_optional(&mut *self.inner)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Destination warehouse not found".into()))?;
 
         let tx_id = format!(
             "transfer-{}-{}-{}",

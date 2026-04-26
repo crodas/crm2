@@ -87,10 +87,7 @@ pub async fn seed_dev_data(state: &AppState) -> Result<(), Box<dyn std::error::E
         1,
         "INV-2026-001",
         "Cementos Paraguayos SA",
-        &[
-            (1, 1, 200.0, 4500000),
-            (2, 1, 500.0, 1200000),
-        ],
+        &[(1, 1, 200.0, 4500000), (2, 1, 500.0, 1200000)],
         &[
             (1, 1, 6300000),
             (1, 2, 5400000),
@@ -175,7 +172,10 @@ async fn seed_receipt(
     .execute(pool)
     .await?;
 
-    let mut builder = state.db.ledger().transaction(format!("receipt-{receipt_id}"));
+    let mut builder = state
+        .db
+        .ledger()
+        .transaction(format!("receipt-{receipt_id}"));
 
     for &(product_id, warehouse_id, qty, cost) in lines {
         sqlx::query(

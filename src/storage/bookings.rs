@@ -1,8 +1,8 @@
+use super::{Db, Tx};
 use crate::error::AppError;
 use crate::models::booking::*;
 use crate::models::quote::Quote;
 use crate::version;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_bookings(&self) -> Result<Vec<Booking>, AppError> {

@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use ledger_core::{
-    Amount, SpendingToken, Storage, Transaction, TransactionBuilder as LowLevelBuilder,
+    Amount, CreditToken, Storage, Transaction, TransactionBuilder as LowLevelBuilder,
 };
 
 use crate::debt::DebtStrategy;
@@ -236,10 +236,7 @@ impl TransactionBuilder {
 ///
 /// Tokens must be pre-sorted (largest first). Returns the selected tokens
 /// and the total sum of their quantities.
-fn select_tokens(
-    tokens: &[SpendingToken],
-    needed: i128,
-) -> Result<(Vec<&SpendingToken>, i128), Error> {
+fn select_tokens(tokens: &[CreditToken], needed: i128) -> Result<(Vec<&CreditToken>, i128), Error> {
     let mut selected = Vec::new();
     let mut sum: i128 = 0;
 

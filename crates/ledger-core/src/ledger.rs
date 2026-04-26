@@ -16,7 +16,7 @@ use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::storage::Storage;
-use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
+use crate::token::{BalanceEntry, CreditEntryRef, CreditToken, TokenStatus};
 use crate::transaction::{compute_tx_id, Transaction};
 
 /// The append-only UTXO ledger engine.
@@ -130,10 +130,10 @@ impl Ledger {
         }
 
         // Validate debits against ledger state.
-        let mut spent_refs: Vec<EntryRef> = Vec::new();
+        let mut spent_refs: Vec<CreditEntryRef> = Vec::new();
 
         for debit in &tx.debits {
-            let eref = EntryRef {
+            let eref = CreditEntryRef {
                 tx_id: debit.tx_id.clone(),
                 entry_index: debit.entry_index,
             };
@@ -176,14 +176,14 @@ impl Ledger {
         }
 
         // Build new spending tokens from credits.
-        let mut new_tokens: Vec<SpendingToken> = Vec::new();
+        let mut new_tokens: Vec<CreditToken> = Vec::new();
 
         for (idx, credit) in tx.credits.iter().enumerate() {
-            let eref = EntryRef {
+            let eref = CreditEntryRef {
                 tx_id: tx.tx_id.clone(),
                 entry_index: idx as u32,
             };
-            new_tokens.push(SpendingToken {
+            new_tokens.push(CreditToken {
                 entry_ref: eref,
                 owner: credit.to.clone(),
                 amount: credit.amount.clone(),
@@ -191,12 +191,9 @@ impl Ledger {
             });
         }
 
-        // Atomically persist everything.
-        self.storage
-            .commit_tx(&tx, &new_tokens, &spent_refs)
-            .await?;
-
-        Ok(tx.tx_id)
+        // Run the commit saga: mark spent → create tokens → insert tx.
+        // On failure, completed steps are compensated in reverse order.
+        crate::saga::run_commit(self.storage.clone(), spent_refs, new_tokens, tx).await
     }
 
     /// Return the balance of a specific account for a given asset.
@@ -232,7 +229,7 @@ impl Ledger {
         &self,
         account: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         self.storage
             .unspent_by_account(account, requested_amount)
             .await
@@ -247,7 +244,7 @@ impl Ledger {
         &self,
         prefix: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         self.storage
             .unspent_by_prefix(prefix, requested_amount)
             .await

@@ -13,21 +13,21 @@ use crate::amount::Amount;
 ///
 /// Debits reference prior entries by `(tx_id, entry_index)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct EntryRef {
+pub struct CreditEntryRef {
     /// The transaction ID that created this entry.
     pub tx_id: String,
     /// Zero-based position within that transaction's credits.
     pub entry_index: u32,
 }
 
-impl fmt::Display for EntryRef {
+impl fmt::Display for CreditEntryRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}:{}", &self.tx_id[..8], self.entry_index)
     }
 }
 
 /// The current status of a spending token.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TokenStatus {
     /// Unspent — available for consumption.
     Unspent,
@@ -39,10 +39,10 @@ pub enum TokenStatus {
 ///
 /// Each token is created as a credit of a transaction and can be consumed
 /// exactly once as a debit in a later transaction.
-#[derive(Debug, Clone)]
-pub struct SpendingToken {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreditToken {
     /// Which transaction entry created this token.
-    pub entry_ref: EntryRef,
+    pub entry_ref: CreditEntryRef,
     /// The account that owns this token.
     pub owner: String,
     /// The amount (asset + quantity).

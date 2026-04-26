@@ -3,6 +3,9 @@
 //! The [`Storage`] trait abstracts persistence so the ledger can run against
 //! any backend (SQLite, Postgres, in-memory, etc.). All operations are async
 //! to support database-backed implementations.
+//!
+//! Write operations are granular — the saga layer in [`crate::saga`] composes
+//! them into an all-or-nothing commit with automatic compensation on failure.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -14,14 +17,14 @@ use crate::account::is_prefix_of;
 use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
-use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
+use crate::token::{BalanceEntry, CreditEntryRef, CreditToken, TokenStatus};
 use crate::transaction::Transaction;
 
 /// Async storage backend for the ledger.
 ///
-/// Implementations must guarantee atomicity: if `commit_tx` succeeds, all
-/// writes (transaction, tokens, spent marks, idempotency key) are durable.
-/// If it fails, none are applied.
+/// Read methods are used for validation and queries. Write methods are
+/// granular primitives composed by the saga layer into atomic commits
+/// with compensation on failure.
 #[async_trait]
 pub trait Storage: Send + Sync + Debug {
     // ── Assets ─────────────────────────────────────────────────────
@@ -40,7 +43,7 @@ pub trait Storage: Send + Sync + Debug {
     // ── Tokens ─────────────────────────────────────────────────────
 
     /// Fetch a single spending token by its entry reference.
-    async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
+    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
 
     /// Return unspent tokens owned by `account`.
     ///
@@ -51,7 +54,7 @@ pub trait Storage: Send + Sync + Debug {
         &self,
         account: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError>;
+    ) -> Result<Vec<CreditToken>, LedgerError>;
 
     /// Return unspent tokens under `prefix`.
     ///
@@ -62,21 +65,35 @@ pub trait Storage: Send + Sync + Debug {
         &self,
         prefix: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError>;
+    ) -> Result<Vec<CreditToken>, LedgerError>;
 
     /// Return aggregated balances grouped by (account, asset) for all
     /// unspent tokens under `prefix`.
     async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError>;
 
-    // ── Transactions ───────────────────────────────────────────────
+    // ── Granular write primitives ─────────────────────────────────
 
-    /// Atomically commit a transaction to storage.
-    async fn commit_tx(
-        &self,
-        tx: &Transaction,
-        new_tokens: &[SpendingToken],
-        spent_refs: &[EntryRef],
-    ) -> Result<(), LedgerError>;
+    /// Mark the given tokens as spent by `by_tx`.
+    ///
+    /// Each referenced token must exist and be unspent.
+    async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError>;
+
+    /// Compensation: unmark previously-spent tokens back to unspent.
+    async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+
+    /// Insert new spending tokens into the store.
+    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
+
+    /// Compensation: remove tokens by their entry references.
+    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+
+    /// Insert a committed transaction record and its idempotency key.
+    async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError>;
+
+    /// Compensation: remove a transaction record and its idempotency key.
+    async fn remove_tx(&self, tx_id: &str) -> Result<(), LedgerError>;
+
+    // ── Transaction queries ──────────────────────────────────────
 
     /// Load all transactions in append order.
     async fn load_transactions(&self) -> Result<Vec<Transaction>, LedgerError>;
@@ -91,7 +108,7 @@ pub trait Storage: Send + Sync + Debug {
 struct MemoryState {
     assets: HashMap<String, Asset>,
     transactions: Vec<Transaction>,
-    tokens: HashMap<EntryRef, SpendingToken>,
+    tokens: HashMap<CreditEntryRef, CreditToken>,
     idempotency_keys: HashSet<String>,
 }
 
@@ -160,7 +177,7 @@ impl Storage for MemoryStorage {
         Ok(state.idempotency_keys.contains(key))
     }
 
-    async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError> {
+    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state.tokens.get(eref).cloned())
     }
@@ -169,7 +186,7 @@ impl Storage for MemoryStorage {
         &self,
         account: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
             .tokens
@@ -187,7 +204,7 @@ impl Storage for MemoryStorage {
         &self,
         prefix: &str,
         requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    ) -> Result<Vec<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
             .tokens
@@ -229,29 +246,56 @@ impl Storage for MemoryStorage {
         Ok(entries)
     }
 
-    async fn commit_tx(
-        &self,
-        tx: &Transaction,
-        new_tokens: &[SpendingToken],
-        spent_refs: &[EntryRef],
-    ) -> Result<(), LedgerError> {
+    async fn mark_spent(&self, refs: &[CreditEntryRef], _by_tx: &str) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
-
-        // Mark spent tokens.
         let tx_index = state.transactions.len();
-        for eref in spent_refs {
+        for eref in refs {
             if let Some(token) = state.tokens.get_mut(eref) {
                 token.status = TokenStatus::Spent(tx_index);
             }
         }
+        Ok(())
+    }
 
-        // Insert new tokens.
-        for token in new_tokens {
+    async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+        let mut state = self.state.write().map_err(lock_err)?;
+        for eref in refs {
+            if let Some(token) = state.tokens.get_mut(eref) {
+                token.status = TokenStatus::Unspent;
+            }
+        }
+        Ok(())
+    }
+
+    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError> {
+        let mut state = self.state.write().map_err(lock_err)?;
+        for token in tokens {
             state.tokens.insert(token.entry_ref.clone(), token.clone());
         }
+        Ok(())
+    }
 
+    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+        let mut state = self.state.write().map_err(lock_err)?;
+        for eref in refs {
+            state.tokens.remove(eref);
+        }
+        Ok(())
+    }
+
+    async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError> {
+        let mut state = self.state.write().map_err(lock_err)?;
         state.idempotency_keys.insert(tx.idempotency_key.clone());
         state.transactions.push(tx.clone());
+        Ok(())
+    }
+
+    async fn remove_tx(&self, tx_id: &str) -> Result<(), LedgerError> {
+        let mut state = self.state.write().map_err(lock_err)?;
+        if let Some(pos) = state.transactions.iter().position(|t| t.tx_id == tx_id) {
+            let removed = state.transactions.remove(pos);
+            state.idempotency_keys.remove(&removed.idempotency_key);
+        }
         Ok(())
     }
 

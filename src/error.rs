@@ -49,7 +49,11 @@ impl std::fmt::Display for AppError {
         match self {
             AppError::NotFound(msg) => write!(f, "not found: {msg}"),
             AppError::BadRequest(msg) => write!(f, "bad request: {msg}"),
-            AppError::InsufficientStock { product_id, requested, available } => {
+            AppError::InsufficientStock {
+                product_id,
+                requested,
+                available,
+            } => {
                 write!(f, "insufficient stock for product {product_id}: requested {requested}, available {available}")
             }
             AppError::Internal(msg) => write!(f, "internal error: {msg}"),

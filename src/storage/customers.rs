@@ -1,6 +1,6 @@
+use super::{Db, Tx};
 use crate::error::AppError;
 use crate::models::customer::*;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_customer_types(&self) -> Result<Vec<CustomerType>, AppError> {
@@ -212,10 +212,7 @@ impl Tx {
         .map_err(Into::into)
     }
 
-    pub async fn get_customer_group(
-        &mut self,
-        id: i64,
-    ) -> Result<CustomerGroup, AppError> {
+    pub async fn get_customer_group(&mut self, id: i64) -> Result<CustomerGroup, AppError> {
         sqlx::query_as::<_, CustomerGroup>("SELECT * FROM customer_groups WHERE id = ?")
             .bind(id)
             .fetch_optional(&mut *self.inner)
