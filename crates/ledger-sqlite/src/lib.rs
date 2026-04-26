@@ -284,31 +284,53 @@ impl Storage for SqliteStorage {
     }
 
     async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError> {
+        if refs.is_empty() {
+            return Ok(());
+        }
+        let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "UPDATE ledger_tokens SET spent_by_tx = ? \
+             WHERE (tx_id, entry_index) IN (VALUES {values}) \
+             AND spent_by_tx IS NULL"
+        );
+        let mut q = sqlx::query(&sql).bind(by_tx);
         for eref in refs {
-            sqlx::query(
-                "UPDATE ledger_tokens SET spent_by_tx = ? WHERE tx_id = ? AND entry_index = ?",
-            )
-            .bind(by_tx)
-            .bind(&eref.tx_id)
-            .bind(eref.entry_index as i32)
-            .execute(&self.pool)
-            .await
-            .map_err(db_err)?;
+            q = q.bind(&eref.tx_id).bind(eref.entry_index as i32);
+        }
+        let result = q.execute(&self.pool).await.map_err(db_err)?;
+
+        if result.rows_affected() != refs.len() as u64 {
+            // Find the culprit — only reached on actual race.
+            for eref in refs {
+                let token = self.get_token(eref).await?;
+                match token {
+                    Some(t) if t.status != TokenStatus::Unspent => {
+                        return Err(LedgerError::AlreadySpent(eref.clone()));
+                    }
+                    _ => {}
+                }
+            }
+            return Err(LedgerError::Storage(
+                "mark_spent: unexpected row count".into(),
+            ));
         }
         Ok(())
     }
 
     async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
-        for eref in refs {
-            sqlx::query(
-                "UPDATE ledger_tokens SET spent_by_tx = NULL WHERE tx_id = ? AND entry_index = ?",
-            )
-            .bind(&eref.tx_id)
-            .bind(eref.entry_index as i32)
-            .execute(&self.pool)
-            .await
-            .map_err(db_err)?;
+        if refs.is_empty() {
+            return Ok(());
         }
+        let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "UPDATE ledger_tokens SET spent_by_tx = NULL \
+             WHERE (tx_id, entry_index) IN (VALUES {values})"
+        );
+        let mut q = sqlx::query(&sql);
+        for eref in refs {
+            q = q.bind(&eref.tx_id).bind(eref.entry_index as i32);
+        }
+        q.execute(&self.pool).await.map_err(db_err)?;
         Ok(())
     }
 
