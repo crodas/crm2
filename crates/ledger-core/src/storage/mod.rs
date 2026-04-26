@@ -79,7 +79,14 @@ pub trait Storage: Send + Sync + Debug {
     async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError>;
 
     /// Compensation: unmark previously-spent tokens back to unspent.
-    async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+    ///
+    /// Only reverts tokens whose `spent_by_tx` matches `tx_to_revert`,
+    /// leaving tokens spent by other transactions untouched.
+    async fn unmark_spent(
+        &self,
+        refs: &[CreditEntryRef],
+        tx_to_revert: &str,
+    ) -> Result<(), LedgerError>;
 
     /// Insert new spending tokens into the store.
     async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
@@ -257,7 +264,11 @@ impl Storage for MemoryStorage {
         Ok(())
     }
 
-    async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+    async fn unmark_spent(
+        &self,
+        refs: &[CreditEntryRef],
+        _tx_to_revert: &str,
+    ) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
         for eref in refs {
             if let Some(token) = state.tokens.get_mut(eref) {

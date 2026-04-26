@@ -698,7 +698,9 @@ pub async fn unmark_spent_restores_tokens(s: &dyn Storage) {
     s.mark_spent(&[eref.clone()], "some-tx")
         .await
         .expect("mark_spent");
-    s.unmark_spent(&[eref.clone()]).await.expect("unmark_spent");
+    s.unmark_spent(&[eref.clone()], "some-tx")
+        .await
+        .expect("unmark_spent");
 
     let token = s.get_token(&eref).await.unwrap().unwrap();
     assert_eq!(token.status, TokenStatus::Unspent);

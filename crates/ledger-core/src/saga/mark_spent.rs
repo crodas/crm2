@@ -39,7 +39,9 @@ impl Step<CommitCtx, LedgerError> for MarkSpentStep {
         ctx: &mut CommitCtx,
         input: &Self::Input,
     ) -> Result<CompensationOutcome, LedgerError> {
-        ctx.storage.unmark_spent(&input.spent_refs).await?;
+        ctx.storage
+            .unmark_spent(&input.spent_refs, &input.by_tx)
+            .await?;
         Ok(CompensationOutcome::Completed)
     }
 }

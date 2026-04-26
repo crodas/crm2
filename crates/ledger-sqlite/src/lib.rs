@@ -317,19 +317,25 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn unmark_spent(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+    async fn unmark_spent(
+        &self,
+        refs: &[CreditEntryRef],
+        tx_to_revert: &str,
+    ) -> Result<(), LedgerError> {
         if refs.is_empty() {
             return Ok(());
         }
         let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
         let sql = format!(
             "UPDATE ledger_tokens SET spent_by_tx = NULL \
-             WHERE (tx_id, entry_index) IN (VALUES {values})"
+             WHERE (tx_id, entry_index) IN (VALUES {values}) \
+             AND spent_by_tx = ?"
         );
         let mut q = sqlx::query(&sql);
         for eref in refs {
             q = q.bind(&eref.tx_id).bind(eref.entry_index as i32);
         }
+        q = q.bind(tx_to_revert);
         q.execute(&self.pool).await.map_err(db_err)?;
         Ok(())
     }
