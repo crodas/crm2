@@ -591,6 +591,67 @@ mod tests {
         ));
     }
 
+    /// Four credit tokens issued; one is spent by a prior transaction.
+    /// A second transaction that tries to spend all four must fail with
+    /// `AlreadySpent`, and the three remaining tokens must stay unspent.
+    #[tokio::test]
+    async fn race_one_of_four_inputs_already_spent() {
+        let ledger = setup_ledger().await;
+        let b = brush(&ledger);
+        let one_b = b.try_amount(1).unwrap();
+        let neg_one_b = one_b.negate();
+
+        // Issue 4 tokens of 1 brush each (indices 0..4 for positive credits).
+        let issue = TransactionBuilder::new("issue-4")
+            .credit("store1/inventory", &one_b)
+            .credit("@world", &neg_one_b)
+            .credit("store1/inventory", &one_b)
+            .credit("@world", &neg_one_b)
+            .credit("store1/inventory", &one_b)
+            .credit("@world", &neg_one_b)
+            .credit("store1/inventory", &one_b)
+            .credit("@world", &neg_one_b)
+            .build()
+            .expect("build issue");
+        let issue_id = ledger.commit(issue).await.expect("commit issue");
+
+        // Spend token at index 4 (third positive credit) — simulates a
+        // concurrent transaction that won the race.
+        let race_winner = TransactionBuilder::new("race-winner")
+            .debit(&issue_id, 4, "store1/inventory", &one_b)
+            .credit("customer0", &one_b)
+            .build()
+            .expect("build race winner");
+        ledger
+            .commit(race_winner)
+            .await
+            .expect("commit race winner");
+
+        // Now try to spend all 4 original tokens in one go.
+        let race_loser = TransactionBuilder::new("race-loser")
+            .debit(&issue_id, 0, "store1/inventory", &one_b)
+            .debit(&issue_id, 2, "store1/inventory", &one_b)
+            .debit(&issue_id, 4, "store1/inventory", &one_b)
+            .debit(&issue_id, 6, "store1/inventory", &one_b)
+            .credit("customer1", &b.try_amount(4).unwrap())
+            .build()
+            .expect("build race loser");
+
+        assert!(matches!(
+            ledger.commit(race_loser).await,
+            Err(LedgerError::AlreadySpent(_))
+        ));
+
+        // The 3 unspent tokens must still be available.
+        assert_eq!(
+            ledger
+                .balance("store1/inventory", "brush")
+                .await
+                .expect("balance after failed commit"),
+            3
+        );
+    }
+
     #[tokio::test]
     async fn conservation_enforced_at_build() {
         let b = brush(&setup_ledger().await);
