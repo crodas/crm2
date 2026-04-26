@@ -2,33 +2,33 @@
 
 ## Overview
 
-All queries use parameterized bindings (`?` placeholders) for SQL injection safety. Errors from SQLx are converted to `LedgerError::Storage(String)` via the `db_err()` helper.
+All queries use parameterized bindings (`?` placeholders) for SQL injection safety. Errors from SQLx are converted to `LedgerError::Storage(String)` via the `db_err()` helper. Write methods wrap their operations in explicit `sqlx::Transaction`s.
 
 ## Asset Queries
 
 ### Check Existing Asset
 
 ```sql
-SELECT precision, kind FROM ledger_assets WHERE name = ?
+SELECT precision FROM ledger_assets WHERE name = ?
 ```
 
-Used during `register_asset()` to check for conflicts before inserting. If the asset exists with matching precision and kind, the operation is a no-op. If it exists with different values, returns `AssetConflict`.
+Used during `register_asset()` to check for conflicts before inserting. If the asset exists with matching precision, the operation is a no-op. If it exists with different precision, returns `AssetConflict`.
 
 ### Insert Asset
 
 ```sql
-INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, ?)
+INSERT INTO ledger_assets (name, precision, kind) VALUES (?, ?, 'signed')
 ```
 
-Only executed after confirming the asset doesn't already exist.
+Only executed after confirming the asset doesn't already exist. Both operations run in a single transaction.
 
 ### Load All Assets
 
 ```sql
-SELECT name, precision, kind FROM ledger_assets
+SELECT name, precision FROM ledger_assets
 ```
 
-Returns all registered assets. Called during `Ledger::new()` to populate the in-memory cache.
+Returns all registered assets.
 
 ## Idempotency Check
 
@@ -40,23 +40,29 @@ Returns a row if the key exists. Uses the UNIQUE index on `idempotency_key` for 
 
 ## Token Queries
 
-### Get Token by EntryRef
+All token queries join `ledger_tokens` with `ledger_assets` to retrieve precision:
 
 ```sql
-SELECT tx_id, entry_index, owner, asset_name, qty, spent_by_tx
-FROM ledger_tokens WHERE tx_id = ? AND entry_index = ?
+SELECT t.tx_id, t.entry_index, t.owner, t.asset_name, t.qty, t.spent_by_tx,
+       a.precision
+FROM ledger_tokens t
+JOIN ledger_assets a ON a.name = t.asset_name
+```
+
+### Get Token by CreditEntryRef
+
+```sql
+... WHERE t.tx_id = ? AND t.entry_index = ?
 ```
 
 Fetches a single token by its composite primary key. Returns `None` if not found. The `spent_by_tx` column determines `TokenStatus`:
 - NULL → `TokenStatus::Unspent`
-- non-NULL → `TokenStatus::Spent(tx_index)` (where tx_index is looked up)
+- non-NULL → `TokenStatus::Spent(0)`
 
 ### Unspent Tokens by Exact Account
 
 ```sql
-SELECT tx_id, entry_index, owner, asset_name, qty
-FROM ledger_tokens
-WHERE owner = ? AND asset_name = ? AND spent_by_tx IS NULL
+... WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL
 ```
 
 Uses the `idx_ledger_tokens_unspent_account` partial index for efficient lookup. Returns only unspent tokens for the exact account (no descendants).
@@ -64,11 +70,9 @@ Uses the `idx_ledger_tokens_unspent_account` partial index for efficient lookup.
 ### Unspent Tokens by Prefix
 
 ```sql
-SELECT tx_id, entry_index, owner, asset_name, qty
-FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND asset_name = ?
-  AND spent_by_tx IS NULL
+... WHERE (t.owner = ? OR t.owner LIKE ?)
+      AND t.asset_name = ?
+      AND t.spent_by_tx IS NULL
 ```
 
 The two conditions handle:
@@ -77,32 +81,59 @@ The two conditions handle:
 
 The LIKE pattern is constructed as `{prefix}/%` in Rust code.
 
-### Unspent Tokens by Prefix (All Assets)
-
-```sql
-SELECT tx_id, entry_index, owner, asset_name, qty
-FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND spent_by_tx IS NULL
-```
-
-Same as above but without the `asset_name` filter. Returns all unspent tokens across all assets under the prefix.
-
 ### Aggregated Balances by Prefix
 
 ```sql
-SELECT owner, asset_name, SUM(qty) as balance
-FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND spent_by_tx IS NULL
-GROUP BY owner, asset_name
-HAVING SUM(qty) != 0
-ORDER BY owner, asset_name
+SELECT t.owner, t.asset_name, SUM(t.qty) as balance, a.precision
+FROM ledger_tokens t
+JOIN ledger_assets a ON a.name = t.asset_name
+WHERE (t.owner = ? OR t.owner LIKE ?)
+  AND t.spent_by_tx IS NULL
+GROUP BY t.owner, t.asset_name
+HAVING SUM(t.qty) != 0
+ORDER BY t.owner, t.asset_name
 ```
 
-Groups unspent tokens by (account, asset) and sums their quantities. The `HAVING` clause excludes zero-balance groups (which can occur when positive and negative tokens cancel out). Results are sorted for deterministic output.
+Groups unspent tokens by (account, asset) and sums their quantities. The `HAVING` clause excludes zero-balance groups. Results are sorted for deterministic output.
 
-## Transaction Persistence
+## Write Operations
+
+### Mark Spent (Batch with CAS)
+
+```sql
+UPDATE ledger_tokens SET spent_by_tx = ?
+WHERE (tx_id, entry_index) IN (VALUES (?,?), (?,?), ...)
+AND spent_by_tx IS NULL
+```
+
+Single batched UPDATE for all refs. The `AND spent_by_tx IS NULL` clause acts as a compare-and-swap guard — if any token was already spent, `rows_affected` will be less than expected and the method identifies the culprit via a follow-up query, returning `AlreadySpent`.
+
+### Unmark Spent (Batch with tx_to_revert Guard)
+
+```sql
+UPDATE ledger_tokens SET spent_by_tx = NULL
+WHERE (tx_id, entry_index) IN (VALUES (?,?), (?,?), ...)
+AND spent_by_tx = ?
+```
+
+Only reverts tokens whose `spent_by_tx` matches the specified `tx_to_revert`. Tokens spent by other transactions are left untouched.
+
+### Insert Tokens
+
+```sql
+INSERT INTO ledger_tokens (tx_id, entry_index, owner, asset_name, qty)
+VALUES (?, ?, ?, ?, ?)
+```
+
+One row per credit in the transaction. `spent_by_tx` defaults to NULL (unspent). All inserts run in a single transaction.
+
+### Remove Tokens
+
+```sql
+DELETE FROM ledger_tokens WHERE tx_id = ? AND entry_index = ?
+```
+
+One delete per ref. All deletes run in a single transaction.
 
 ### Insert Transaction
 
@@ -112,35 +143,11 @@ INSERT INTO ledger_transactions (tx_id, idempotency_key, data) VALUES (?, ?, ?)
 
 The `data` column receives a `serde_json::to_string()` serialization of the full `Transaction` struct.
 
-### Insert Token
+### Remove Transaction
 
 ```sql
-INSERT INTO ledger_tokens (tx_id, entry_index, owner, asset_name, qty) VALUES (?, ?, ?, ?, ?)
+DELETE FROM ledger_transactions WHERE tx_id = ?
 ```
-
-One row per credit in the transaction. `spent_by_tx` defaults to NULL (unspent).
-
-### Mark Token as Spent
-
-```sql
-UPDATE ledger_tokens SET spent_by_tx = ? WHERE tx_id = ? AND entry_index = ?
-```
-
-Sets `spent_by_tx` to the consuming transaction's ID. One update per debit in the transaction.
-
-### Atomic Commit
-
-All three operations (insert transaction, insert tokens, mark spent) execute within a single SQLx transaction:
-
-```rust
-let mut db_tx = pool.begin().await?;
-// INSERT INTO ledger_transactions ...
-// INSERT INTO ledger_tokens ... (for each new token)
-// UPDATE ledger_tokens SET spent_by_tx ... (for each debit)
-db_tx.commit().await?;
-```
-
-If any step fails, the database transaction rolls back and no changes are visible.
 
 ## Read Queries
 
@@ -158,12 +165,11 @@ Returns JSON blobs in append order. Each blob is deserialized into a `Transactio
 SELECT COUNT(*) as cnt FROM ledger_transactions
 ```
 
-Returns the total number of committed transactions.
-
 ## Helper: rows_to_tokens
 
-The `rows_to_tokens()` function converts SQLx result rows into `Vec<SpendingToken>`. It:
+The `rows_to_tokens()` function converts SQLx result rows into `Vec<CreditToken>`. It:
 
-1. Extracts `tx_id`, `entry_index`, `owner`, `asset_name`, `qty` from each row
-2. Uses the owner string directly as the account (plain `&str`, no wrapper type)
-3. Sets status to `TokenStatus::Unspent` (only used by unspent-query methods)
+1. Extracts `tx_id`, `entry_index`, `owner`, and `qty` from each row
+2. Reconstructs the `Asset` from `asset_name` and `precision`
+3. Builds an `Amount` via `asset.amount_unchecked(qty)`
+4. Sets status to `TokenStatus::Unspent` (only used by unspent-query methods)

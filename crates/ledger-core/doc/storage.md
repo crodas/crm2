@@ -15,42 +15,54 @@ pub trait Storage: Send + Sync + Debug {
     async fn has_idempotency_key(&self, key: &str) -> Result<bool, LedgerError>;
 
     // Token queries
-    async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
+    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
     async fn unspent_by_account(&self, account: &str, requested_amount: Option<&Amount>)
-        -> Result<Vec<SpendingToken>, LedgerError>;
+        -> Result<Vec<CreditToken>, LedgerError>;
     async fn unspent_by_prefix(&self, prefix: &str, requested_amount: Option<&Amount>)
-        -> Result<Vec<SpendingToken>, LedgerError>;
+        -> Result<Vec<CreditToken>, LedgerError>;
     async fn balances_by_prefix(&self, prefix: &str)
         -> Result<Vec<BalanceEntry>, LedgerError>;
 
-    // Transaction persistence
-    async fn commit_tx(
-        &self,
-        tx: &Transaction,
-        new_tokens: &[SpendingToken],
-        spent_refs: &[EntryRef],
-    ) -> Result<(), LedgerError>;
+    // Granular write primitives (composed by the saga layer)
+    async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError>;
+    async fn unmark_spent(&self, refs: &[CreditEntryRef], tx_to_revert: &str) -> Result<(), LedgerError>;
+    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
+    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+    async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError>;
+    async fn remove_tx(&self, tx_id: &str) -> Result<(), LedgerError>;
+
+    // Transaction queries
     async fn load_transactions(&self) -> Result<Vec<Transaction>, LedgerError>;
     async fn tx_count(&self) -> Result<usize, LedgerError>;
 }
 ```
+
+### Write Primitives & Saga
+
+Write operations are granular primitives. The saga layer in `crate::saga` composes them into an all-or-nothing commit with automatic compensation on failure:
+
+1. **Mark spent** — flag input tokens as consumed (`mark_spent`)
+2. **Create tokens** — insert new output tokens (`insert_tokens`)
+3. **Insert transaction** — persist the transaction record (`insert_tx`)
+
+If any step fails, completed steps are compensated in reverse order using `unmark_spent`, `remove_tokens`, and `remove_tx`. Each write method should wrap its operations in a database transaction for atomicity.
 
 ### Method Contracts
 
 #### `register_asset`
 
 - Must persist the asset definition durably
-- **Idempotent**: registering the same asset (name, precision, kind) twice is a silent no-op
-- Must return `AssetConflict` if the name exists with different precision or kind
+- **Idempotent**: registering the same asset (name, precision) twice is a silent no-op
+- Must return `AssetConflict` if the name exists with different precision
 
 #### `has_idempotency_key`
 
 - Returns `true` if a transaction with this key has been committed
-- Must be consistent with `commit_tx` -- if `commit_tx` succeeds, all subsequent calls must return `true` for that key
+- Must be consistent with `insert_tx` -- if `insert_tx` succeeds, all subsequent calls must return `true` for that key
 
 #### `get_token`
 
-- Returns `Some(SpendingToken)` if a token exists at the given `EntryRef`
+- Returns `Some(CreditToken)` if a token exists at the given `CreditEntryRef`
 - Returns `None` if no token exists at that reference
 - Must reflect the current spend status (Unspent or Spent)
 
@@ -72,20 +84,30 @@ pub trait Storage: Send + Sync + Debug {
 - Only includes groups with non-zero balances
 - Sorted by account, then asset name
 
-#### `commit_tx`
+#### `mark_spent`
 
-**Critical atomicity requirement**: This method must be all-or-nothing. It performs three operations that must all succeed or all fail:
+- Marks the given tokens as spent by `by_tx`
+- Each referenced token must exist and be unspent
+- Should use a CAS guard (e.g., `WHERE spent_by_tx IS NULL`) and return `AlreadySpent` if a token was already consumed
 
-1. Insert the transaction record (with tx_id, idempotency_key, and full data)
-2. Insert all new spending tokens (one per credit in the transaction)
-3. Mark all consumed tokens as spent (one per debit in the transaction)
+#### `unmark_spent`
 
-If any step fails, none of the changes must be visible. This is typically implemented using a database transaction.
+- Compensation: restores previously-spent tokens to unspent
+- Only reverts tokens whose `spent_by_tx` matches `tx_to_revert`, leaving tokens spent by other transactions untouched
+
+#### `insert_tokens` / `remove_tokens`
+
+- Insert or remove credit tokens by their entry references
+- Used as execute/compensate pair in the saga
+
+#### `insert_tx` / `remove_tx`
+
+- Insert or remove a transaction record and its idempotency key
+- Used as execute/compensate pair in the saga
 
 #### `load_transactions`
 
 - Returns all committed transactions in append order (the order they were committed)
-- Used for replaying history or auditing
 
 #### `tx_count`
 
@@ -101,7 +123,7 @@ An in-memory implementation provided for testing and single-process use cases.
 struct MemoryState {
     assets: HashMap<String, Asset>,
     transactions: Vec<Transaction>,
-    tokens: HashMap<(String, u32), SpendingToken>,  // keyed by (tx_id, entry_index)
+    tokens: HashMap<CreditEntryRef, CreditToken>,
     idempotency_keys: HashSet<String>,
 }
 
@@ -145,13 +167,13 @@ In your test file:
 ```rust
 #[cfg(test)]
 mod tests {
-    use ledger_core::storage::test_support::storage_tests;
+    use ledger_core::storage_tests;
 
     storage_tests!(async { MyStorage::connect(":memory:").await });
 }
 ```
 
-The `storage_tests!` macro generates 45+ test functions covering:
+The `storage_tests!` macro generates 40+ test functions covering:
 
 | Category | Tests |
 |----------|-------|
@@ -161,7 +183,7 @@ The `storage_tests!` macro generates 45+ test functions covering:
 | **Unspent by account** | Empty, matching, excludes spent, excludes other assets, excludes children |
 | **Unspent by prefix** | Empty, includes descendants, includes exact, excludes spent, excludes other assets, excludes non-descendants |
 | **Transactions** | Empty load, empty count, commit and load, order preservation |
-| **Atomicity** | Token and key creation, spend and create in same commit |
+| **Write primitives** | mark_spent flags tokens, unmark_spent restores, insert/remove tokens, insert/remove tx |
 | **Balances by prefix** | Empty, grouping by account/asset, summing multiple tokens, excludes spent, excludes non-descendants, omits zero balances |
 
 ### Implementing a New Backend
@@ -170,7 +192,7 @@ To create a new storage backend:
 
 1. Implement the `Storage` trait on your type
 2. Add the conformance test suite via `storage_tests!`
-3. Ensure `commit_tx` is atomic (use database transactions or equivalent)
+3. Wrap each write method in a database transaction for atomicity
 4. Handle concurrent access safely (the trait requires `Send + Sync`)
 
 The conformance suite is the source of truth for correctness -- if all tests pass, your implementation is compatible with `Ledger`.

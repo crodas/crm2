@@ -1,17 +1,17 @@
-# Spending Tokens
+# Credit Tokens
 
 ## Overview
 
-Spending tokens are the fundamental units of value in the UTXO ledger. Each token represents a discrete quantity of an asset owned by a specific account. Tokens are immutable -- once created, their owner, asset, and quantity never change. The only mutable state is the token's spend status.
+Credit tokens are the fundamental units of value in the UTXO ledger. Each token represents a discrete quantity of an asset owned by a specific account. Tokens are immutable -- once created, their owner, asset, and quantity never change. The only mutable state is the token's spend status.
 
 ## Types
 
-### EntryRef
+### CreditEntryRef
 
 A unique reference to a specific credit entry in a committed transaction:
 
 ```rust
-pub struct EntryRef {
+pub struct CreditEntryRef {
     pub tx_id: String,       // Transaction that created this entry
     pub entry_index: u32,    // Zero-based position in that transaction's credits
 }
@@ -21,7 +21,7 @@ The `(tx_id, entry_index)` pair is globally unique across the entire ledger. It 
 
 **Display format:** `"<first-8-chars-of-tx_id>:<entry_index>"`
 ```rust
-// EntryRef { tx_id: "abcdef1234567890...", entry_index: 0 }
+// CreditEntryRef { tx_id: "abcdef1234567890...", entry_index: 0 }
 // displays as: "abcdef12:0"
 ```
 
@@ -38,23 +38,22 @@ A token starts as `Unspent` when its parent transaction is committed. When a sub
 
 This transition is **irreversible** -- a spent token cannot be unspent. Attempting to debit a spent token returns `LedgerError::AlreadySpent`.
 
-### SpendingToken
+### CreditToken
 
 The complete token with all metadata:
 
 ```rust
-pub struct SpendingToken {
-    pub entry_ref: EntryRef,     // Where this token was created
-    pub owner: String,           // Account that owns it
-    pub asset_name: String,      // Asset name
-    pub qty: i128,               // Quantity (scaled by asset precision)
-    pub status: TokenStatus,     // Unspent or Spent
+pub struct CreditToken {
+    pub entry_ref: CreditEntryRef,  // Where this token was created
+    pub owner: String,              // Account that owns it
+    pub amount: Amount,             // Asset + quantity (scaled by precision)
+    pub status: TokenStatus,        // Unspent or Spent
 }
 ```
 
 **Key properties:**
 - `owner` is set at creation and never changes
-- `qty` can be negative for signed assets (representing debt obligations)
+- `amount` encapsulates the asset and quantity (can be negative for signed assets)
 - `status` is the only field that transitions (Unspent -> Spent)
 
 ### BalanceEntry
@@ -63,9 +62,8 @@ An aggregated view of unspent tokens grouped by account and asset:
 
 ```rust
 pub struct BalanceEntry {
-    pub account: String,         // Account owning tokens
-    pub asset_name: String,      // Asset name
-    pub balance: i128,           // Sum of unspent token quantities
+    pub account: String,    // Account owning tokens
+    pub amount: Amount,     // Asset + net balance
 }
 ```
 
@@ -79,11 +77,10 @@ Transaction committed
         │
         ▼
 ┌─────────────────┐
-│  SpendingToken   │
+│  CreditToken     │
 │  entry_ref: (tx1, 0)  │
 │  owner: store/cash     │
-│  asset: usd            │
-│  qty: 10000            │
+│  amount: 10000 usd     │
 │  status: Unspent       │
 └────────┬────────┘
          │
@@ -91,11 +88,10 @@ Transaction committed
          │
          ▼
 ┌─────────────────┐
-│  SpendingToken   │
+│  CreditToken     │
 │  entry_ref: (tx1, 0)  │
 │  owner: store/cash     │
-│  asset: usd            │
-│  qty: 10000            │
+│  amount: 10000 usd     │
 │  status: Spent(1)      │  ← Now spent by tx at index 1
 └─────────────────┘
 ```
@@ -106,9 +102,9 @@ Transaction committed
 
 ```rust
 // All unspent tokens for a specific account and asset
-let tokens: Vec<SpendingToken> = ledger.unspent_tokens(
+let tokens: Vec<CreditToken> = ledger.unspent_tokens(
     "store/cash",
-    "usd"
+    Some(&usd_amount)
 ).await?;
 
 // Balance (sum of unspent token quantities)
@@ -124,7 +120,6 @@ Single account queries match **exactly** -- `store` does not include `store/cash
 
 ```rust
 // All unspent tokens under a prefix for a specific asset
-let usd = Asset::new("usd", 2);
 let tokens = ledger.unspent_tokens_prefix(
     "store",
     Some(&usd.max())
@@ -147,10 +142,6 @@ let total = ledger.balance_prefix(
 let entries: Vec<BalanceEntry> = ledger.balances_by_prefix(
     "store"
 ).await?;
-// Returns: [
-//   BalanceEntry { account: "store/cash", asset: "usd", balance: 10000 },
-//   BalanceEntry { account: "store/inventory", asset: "brush", balance: 50 },
-// ]
 ```
 
 Prefix queries include the exact account **and** all descendants (paths starting with `prefix/`).
@@ -162,13 +153,12 @@ For signed assets, tokens can have negative quantities. These represent obligati
 ```rust
 // A credit sale creates a negative token (debt) and a positive token (receivable)
 TransactionBuilder::new("credit-sale")
-    .credit("customer/debt", "usd", "-50.00")       // qty = -5000
-    .credit("store/receivable", "usd", "50.00")      // qty = 5000
-    .build(&assets)?;
+    .credit("customer/debt", &neg_amount)
+    .credit("store/receivable", &pos_amount)
+    .build()?;
 ```
 
 Negative tokens:
-- Are valid only for `AssetKind::Signed` assets
 - Participate in balance calculations (a -50.00 and +30.00 token sum to -20.00)
 - Can be consumed as debits, just like positive tokens
 - Settlement involves debiting both the negative and positive tokens

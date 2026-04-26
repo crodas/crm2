@@ -8,7 +8,7 @@ Every transaction, once committed, is permanent. There are no updates or deletio
 
 ### UTXO Model
 
-Inspired by Bitcoin's transaction model, `ledger-core` tracks value as discrete spending tokens rather than mutable account balances. Each token:
+Inspired by Bitcoin's transaction model, `ledger-core` tracks value as discrete credit tokens rather than mutable account balances. Each token:
 
 - Is created by exactly one transaction (as a credit entry)
 - Can be spent by at most one subsequent transaction (as a debit entry)
@@ -30,14 +30,13 @@ When a transaction includes a negative credit (representing a debt obligation), 
 
 ```
                      TransactionBuilder
-                     ├── .debit(tx_id, index, owner, asset, qty)
-                     ├── .credit(to, asset, qty)
-                     └── .build(&assets)
+                     ├── .debit(tx_id, index, owner, amount)
+                     ├── .credit(to, amount)
+                     └── .build()
                             │
                             ▼
                      ┌──────────────┐
                      │  Validation  │
-                     │  - assets    │
                      │  - signs     │
                      │  - balance   │
                      └──────┬───────┘
@@ -51,15 +50,14 @@ When a transaction includes a negative credit (representing a debt obligation), 
                      │    match     │
                      │  - spend     │
                      │    check     │
-                     │  - atomic    │
-                     │    persist   │
                      └──────┬───────┘
                             │
                             ▼
                      ┌──────────────┐
-                     │   Storage    │
-                     │  commit_tx() │
-                     │  (atomic)    │
+                     │    Saga      │
+                     │  mark_spent  │
+                     │  insert_tok  │
+                     │  insert_tx   │
                      └──────────────┘
 ```
 
@@ -68,8 +66,6 @@ When a transaction includes a negative credit (representing a debt obligation), 
 Validation is split across two layers to keep concerns separate:
 
 1. **TransactionBuilder::build()** -- Structural validation that can be checked without storage access:
-   - Asset registration
-   - Unsigned asset sign constraints
    - Per-asset conservation (debits == credits)
    - Dual-sided debt pairing
 
@@ -82,6 +78,18 @@ Validation is split across two layers to keep concerns separate:
    - Transaction ID verification
 
 This separation means that a `Transaction` returned by `.build()` is structurally valid but not yet committed -- it must pass through `commit()` to become durable.
+
+### Saga-Based Commit Pipeline
+
+After validation, `Ledger::commit()` delegates to a three-step saga:
+
+1. **Mark spent** — flag input tokens as consumed
+2. **Create tokens** — insert new output tokens
+3. **Insert transaction** — persist the transaction record
+
+If any step fails, completed steps are compensated in reverse order. Each storage write method wraps its operations in a database transaction for per-step atomicity.
+
+If compensation itself fails, a `CompensationFailed` error is returned (and logged) to signal the ledger may be inconsistent.
 
 ## Lock-Free Asset Registry
 
@@ -106,7 +114,7 @@ This means:
 
 The `Storage` trait defines the persistence contract. All operations are async to support database-backed implementations. The trait requires `Send + Sync + Debug` for use behind `Arc<dyn Storage>`.
 
-The key invariant is that `commit_tx()` must be atomic: either all writes (transaction record, new tokens, spent markers) succeed, or none do. This is the storage layer's responsibility to guarantee.
+Write operations are granular primitives (`mark_spent`, `insert_tokens`, `insert_tx`) composed by the saga layer into atomic commits with compensation on failure. Each write method should wrap its operations in a database transaction.
 
 Two implementations are provided:
 - `MemoryStorage` (in this crate) -- for testing and single-process use

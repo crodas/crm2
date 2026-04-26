@@ -80,6 +80,14 @@ pub enum LedgerError {
         incoming: String,
     },
 
+    /// Saga compensation failed — the ledger may be in an inconsistent state.
+    #[error("compensation failed at step {step}: {original} (compensation: {compensation})")]
+    CompensationFailed {
+        original: Box<LedgerError>,
+        compensation: Box<LedgerError>,
+        step: usize,
+    },
+
     /// Storage backend error.
     #[error("storage error: {0}")]
     Storage(String),

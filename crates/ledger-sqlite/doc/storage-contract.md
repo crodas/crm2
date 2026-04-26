@@ -9,12 +9,12 @@
 The `Storage` trait requires:
 - `Send + Sync` -- safe to share across async tasks
 - `Debug` -- printable for diagnostics
-- Atomic `commit_tx` -- all-or-nothing transaction persistence
+- Granular write methods, each wrapped in its own database transaction
 
 `SqliteStorage` meets all three:
 - `SqlitePool` is `Send + Sync`
 - Custom `Debug` impl uses `finish_non_exhaustive()` to avoid printing pool internals
-- `commit_tx` uses SQLx transactions for atomicity
+- Every write method uses `pool.begin()` / `tx.commit()` for atomicity
 
 ## Construction
 
@@ -38,33 +38,45 @@ let storage = SqliteStorage::from_pool(existing_pool).await?;
 
 Reuses an existing `SqlitePool`. This is the typical pattern in the CRM app, where the ledger tables coexist with application tables in the same database. Migrations still run on the shared pool.
 
-## Atomicity Guarantee
+## Atomicity
 
-The `commit_tx` method wraps three operations in a single database transaction:
+Every write method wraps its operations in a `sqlx::Transaction`:
 
+- **`register_asset`** — SELECT + INSERT in one transaction
+- **`mark_spent`** — batch UPDATE with CAS guard + fallback reads in one transaction
+- **`unmark_spent`** — batch UPDATE in one transaction
+- **`insert_tokens`** — all INSERTs in one transaction
+- **`remove_tokens`** — all DELETEs in one transaction
+- **`insert_tx`** — single INSERT in one transaction
+- **`remove_tx`** — single DELETE in one transaction
+
+The saga layer composes these methods into a three-step commit (mark spent → create tokens → insert transaction) with automatic compensation on failure.
+
+### CAS Guard on mark_spent
+
+`mark_spent` uses a compare-and-swap pattern at the SQL level:
+
+```sql
+UPDATE ledger_tokens SET spent_by_tx = ?
+WHERE (tx_id, entry_index) IN (VALUES (?,?), (?,?), ...)
+AND spent_by_tx IS NULL
 ```
-BEGIN
-  1. INSERT INTO ledger_transactions (tx record)
-  2. INSERT INTO ledger_tokens (new tokens, one per credit)
-  3. UPDATE ledger_tokens SET spent_by_tx = ? (mark consumed tokens)
-COMMIT
+
+If `rows_affected != refs.len()`, at least one token was already spent. A follow-up query identifies the culprit and returns `LedgerError::AlreadySpent`.
+
+### tx_to_revert Guard on unmark_spent
+
+`unmark_spent` only reverts tokens spent by the specified transaction:
+
+```sql
+UPDATE ledger_tokens SET spent_by_tx = NULL
+WHERE (tx_id, entry_index) IN (VALUES (?,?), (?,?), ...)
+AND spent_by_tx = ?
 ```
 
-If any step fails (constraint violation, I/O error), SQLx rolls back the entire transaction. This guarantees:
-- A committed transaction's tokens are always visible
-- Spent markers are always set when the spending transaction exists
-- No partial state (e.g., transaction inserted but tokens missing)
+This prevents accidentally unmarking tokens spent by a different (legitimate) transaction during compensation.
 
 ## Type Conversions
-
-### AssetKind <-> String
-
-| Rust | SQL |
-|------|-----|
-| `AssetKind::Signed` | `"signed"` |
-| `AssetKind::Unsigned` | `"unsigned"` |
-
-Conversion functions: `kind_to_str()` and `str_to_kind()`.
 
 ### Quantity: i128 <-> i64
 
@@ -73,9 +85,9 @@ Quantities are stored as SQLite `INTEGER` (i64). The Rust code uses `qty as i64`
 ### TokenStatus
 
 - `spent_by_tx IS NULL` → `TokenStatus::Unspent`
-- `spent_by_tx = "some_tx_id"` → `TokenStatus::Spent(tx_index)`
+- `spent_by_tx = "some_tx_id"` → `TokenStatus::Spent(0)`
 
-For `get_token()`, the spend status includes the transaction index. For unspent query methods, status is always `Unspent` (the query filters out spent tokens).
+For `get_token()`, the spend status is determined by the presence of `spent_by_tx`. For unspent query methods, status is always `Unspent` (the query filters out spent tokens).
 
 ### Transaction Serialization
 
@@ -88,12 +100,12 @@ The crate uses `ledger-core`'s `storage_tests!` macro to run the full conformanc
 ```rust
 #[cfg(test)]
 mod tests {
-    use ledger_core::storage::test_support::storage_tests;
-    storage_tests!(async { SqliteStorage::connect(":memory:").await });
+    use ledger_core::storage_tests;
+    storage_tests!(async { SqliteStorage::connect("sqlite::memory:").await.expect("connect") });
 }
 ```
 
-This generates 45+ tests covering all Storage trait methods, ensuring SqliteStorage is fully compatible with the Ledger engine.
+This generates 40+ tests covering all Storage trait methods, ensuring SqliteStorage is fully compatible with the Ledger engine.
 
 ## Error Mapping
 

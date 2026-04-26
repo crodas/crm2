@@ -8,18 +8,17 @@ All errors in `ledger-core` are represented by the `LedgerError` enum. Each vari
 
 | Variant | When | Fields |
 |---------|------|--------|
-| `DebitNotFound(EntryRef)` | A debit references a token that does not exist in storage | The entry ref that was not found |
-| `AlreadySpent(EntryRef)` | A debit references a token that has already been consumed | The entry ref of the spent token |
+| `DebitNotFound(CreditEntryRef)` | A debit references a token that does not exist in storage | The entry ref that was not found |
+| `AlreadySpent(CreditEntryRef)` | A debit references a token that has already been consumed | The entry ref of the spent token |
 
-These errors occur during `Ledger::commit()` when debit references are resolved against storage.
+These errors occur during `Ledger::commit()` when debit references are resolved against storage, or from the CAS guard in `mark_spent`.
 
 ### Asset Errors
 
 | Variant | When | Fields |
 |---------|------|--------|
 | `UnknownAsset(String)` | A transaction references an asset that hasn't been registered | The unknown asset name |
-| `AssetConflict { name, existing, incoming }` | Re-registering an asset with different precision or kind | Asset name, existing definition string, incoming definition string |
-| `NegativeUnsigned { asset, qty }` | An unsigned asset has a negative quantity in a credit | Asset name, the negative quantity string |
+| `AssetConflict { name, existing, incoming }` | Re-registering an asset with different precision | Asset name, existing definition string, incoming definition string |
 | `InvalidQty(String)` | A quantity string failed to parse (not a valid decimal) | The invalid quantity string |
 
 Asset errors occur during `TransactionBuilder::build()` except for `AssetConflict` which occurs during `register_asset()`.
@@ -50,11 +49,19 @@ These errors occur during `TransactionBuilder::build()`. Conservation is only ch
 
 | Variant | When | Fields |
 |---------|------|--------|
-| `DebitOwnerMismatch { entry_ref, expected, got }` | The token's owner doesn't match the debit's `owner` field | Entry ref, expected owner, actual owner |
-| `DebitAssetMismatch { entry_ref, expected, got }` | The token's asset doesn't match the debit's `asset_name` field | Entry ref, expected asset, actual asset |
-| `DebitQtyMismatch { entry_ref, expected, got }` | The token's quantity doesn't match the debit's `qty` field | Entry ref, expected qty, actual qty |
+| `DebitOwnerMismatch { entry_ref, expected, got }` | The token's owner doesn't match the debit's `from` field | Entry ref, expected owner, actual owner |
+| `DebitAssetMismatch { entry_ref, expected, got }` | The token's asset doesn't match the debit's asset | Entry ref, expected asset, actual asset |
+| `DebitQtyMismatch { entry_ref, expected, got }` | The token's quantity doesn't match the debit's quantity | Entry ref, expected qty, actual qty |
 
 These three errors provide precise diagnostics when a debit references the right token but with wrong expectations. They occur during `Ledger::commit()`.
+
+### Saga Errors
+
+| Variant | When | Fields |
+|---------|------|--------|
+| `CompensationFailed { original, compensation, step }` | A saga step failed and its compensation also failed | Boxed original error, boxed compensation error, step index |
+
+This error signals that the ledger may be in an inconsistent state. It is logged via `tracing::error!` before being returned.
 
 ### Storage Errors
 
@@ -69,11 +76,8 @@ This is the catch-all for backend-specific errors. Storage implementations conve
 ### Building Transactions
 
 ```rust
-match builder.build(&assets) {
+match builder.build() {
     Ok(tx) => { /* proceed to commit */ }
-    Err(LedgerError::UnknownAsset(name)) => {
-        // Asset not registered -- register it first
-    }
     Err(LedgerError::ConservationViolated { asset, debit_sum, credit_sum }) => {
         // Debits and credits don't balance
     }
@@ -91,6 +95,9 @@ match ledger.commit(tx).await {
     }
     Err(LedgerError::DuplicateIdempotencyKey(key)) => {
         // Transaction already committed (safe retry detected)
+    }
+    Err(LedgerError::CompensationFailed { original, compensation, step }) => {
+        // Saga failed and rollback also failed — ledger may be inconsistent
     }
     Err(e) => { /* other commit error */ }
 }

@@ -74,8 +74,23 @@ pub(crate) async fn run_commit(
     match execution.start().await {
         legend::execution::ExecutionResult::Completed(_) => Ok(tx_id),
         legend::execution::ExecutionResult::Failed(_, err) => Err(err),
-        legend::execution::ExecutionResult::CompensationFailed { original_error, .. } => {
-            Err(original_error)
+        legend::execution::ExecutionResult::CompensationFailed {
+            original_error,
+            compensation_error,
+            failed_at,
+            ..
+        } => {
+            tracing::error!(
+                step = failed_at,
+                %original_error,
+                %compensation_error,
+                "saga compensation failed — ledger may be inconsistent"
+            );
+            Err(LedgerError::CompensationFailed {
+                original: Box::new(original_error),
+                compensation: Box::new(compensation_error),
+                step: failed_at,
+            })
         }
         legend::execution::ExecutionResult::Paused(_) => {
             unreachable!("commit saga never pauses")
