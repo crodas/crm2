@@ -2,7 +2,7 @@
 
 ## Overview
 
-Credit tokens are the fundamental units of value in the UTXO ledger. Each token represents a discrete quantity of an asset owned by a specific account. Tokens are immutable -- once created, their owner, asset, and quantity never change. The only mutable state is the token's spend status.
+Credit tokens are the fundamental units of value in the UTXO ledger. Each token represents a discrete quantity of an asset owned by a specific account. Tokens are immutable -- once created, their owner, asset, and quantity never change. The only mutable state is the credit token's spend status.
 
 ## Types
 
@@ -17,7 +17,7 @@ pub struct CreditEntryRef {
 }
 ```
 
-The `(tx_id, entry_index)` pair is globally unique across the entire ledger. It serves as the token's primary key.
+The `(tx_id, entry_index)` pair is globally unique across the entire ledger. It serves as the credit token's primary key.
 
 **Display format:** `"<first-8-chars-of-tx_id>:<entry_index>"`
 ```rust
@@ -25,16 +25,16 @@ The `(tx_id, entry_index)` pair is globally unique across the entire ledger. It 
 // displays as: "abcdef12:0"
 ```
 
-### TokenStatus
+### CreditTokenStatus
 
 ```rust
-pub enum TokenStatus {
+pub enum CreditTokenStatus {
     Unspent,        // Available for consumption in a future transaction
     Spent(usize),   // Consumed by the transaction at this index in the ledger
 }
 ```
 
-A token starts as `Unspent` when its parent transaction is committed. When a subsequent transaction references it as a debit, the token transitions to `Spent(tx_index)` where `tx_index` is the ordinal position of the spending transaction in the append-only ledger.
+A token starts as `Unspent` when its parent transaction is committed. When a subsequent transaction references it as a debit, the credit token transitions to `Spent(tx_index)` where `tx_index` is the ordinal position of the spending transaction in the append-only ledger.
 
 This transition is **irreversible** -- a spent token cannot be unspent. Attempting to debit a spent token returns `LedgerError::AlreadySpent`.
 
@@ -47,7 +47,7 @@ pub struct CreditToken {
     pub entry_ref: CreditEntryRef,  // Where this token was created
     pub owner: String,              // Account that owns it
     pub amount: Amount,             // Asset + quantity (scaled by precision)
-    pub status: TokenStatus,        // Unspent or Spent
+    pub status: CreditTokenStatus,        // Unspent or Spent
 }
 ```
 
@@ -58,7 +58,7 @@ pub struct CreditToken {
 
 ### BalanceEntry
 
-An aggregated view of unspent tokens grouped by account and asset:
+An aggregated view of unspent credit tokens grouped by account and asset:
 
 ```rust
 pub struct BalanceEntry {
@@ -69,7 +69,7 @@ pub struct BalanceEntry {
 
 Returned by `balances_by_prefix()` queries. Zero-balance entries are excluded.
 
-## Token Lifecycle
+## Credit Token Lifecycle
 
 ```
 Transaction committed
@@ -101,7 +101,7 @@ Transaction committed
 ### Single Account Queries
 
 ```rust
-// All unspent tokens for a specific account and asset
+// All unspent credit tokens for a specific account and asset
 let tokens: Vec<CreditToken> = ledger.unspent_tokens(
     "store/cash",
     Some(&usd_amount)
@@ -119,14 +119,14 @@ Single account queries match **exactly** -- `store` does not include `store/cash
 ### Prefix Queries
 
 ```rust
-// All unspent tokens under a prefix for a specific asset
+// All unspent credit tokens under a prefix for a specific asset
 let tokens = ledger.unspent_tokens_prefix(
     "store",
     Some(&usd.max())
 ).await?;
 // Includes: store, store/cash, store/receivables/sale_1, etc.
 
-// All unspent tokens under a prefix across ALL assets
+// All unspent credit tokens under a prefix across ALL assets
 let all = ledger.unspent_tokens_prefix(
     "store",
     None
@@ -146,7 +146,7 @@ let entries: Vec<BalanceEntry> = ledger.balances_by_prefix(
 
 Prefix queries include the exact account **and** all descendants (paths starting with `prefix/`).
 
-## Negative Tokens
+## Negative Credit Tokens
 
 For signed assets, tokens can have negative quantities. These represent obligations or debt positions:
 
@@ -163,11 +163,11 @@ Negative tokens:
 - Can be consumed as debits, just like positive tokens
 - Settlement involves debiting both the negative and positive tokens
 
-## Token Counting & Fragmentation
+## Credit Token Counting & Fragmentation
 
-Each credit in a committed transaction creates exactly one token. Over time, patterns like change generation and partial settlements create many small tokens. This is called **UTXO fragmentation**.
+Each credit in a committed transaction creates exactly one credit token. Over time, patterns like change generation and partial settlements create many small credit tokens. This is called **UTXO fragmentation**.
 
-For example, if you receive 100 units as one token and spend 30, you get:
+For example, if you receive 100 units as one credit token and spend 30, you get:
 - Original 100-unit token: Spent
 - New 30-unit token: Unspent (sent to recipient)
 - New 70-unit token: Unspent (change back to sender)

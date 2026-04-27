@@ -58,7 +58,7 @@
 <div class="tabs">
   <button class="tab active" data-panel="balances">Balances</button>
   <button class="tab" data-panel="transactions">Transactions</button>
-  <button class="tab" data-panel="tokens">Tokens</button>
+  <button class="tab" data-panel="credit-tokens">Credit Tokens</button>
   <button class="tab" data-panel="assets">Assets</button>
 </div>
 
@@ -73,11 +73,11 @@
   <div id="transactions-content"><div class="loading">Loading transactions...</div></div>
 </div>
 
-<div id="tokens" class="panel">
+<div id="credit-tokens" class="panel">
   <div class="filter">
-    <input type="text" id="token-filter" placeholder="Filter by account, asset, or status..." oninput="filterTokens()">
+    <input type="text" id="credit-token-filter" placeholder="Filter by account, asset, or status..." oninput="filterCreditTokens()">
   </div>
-  <div id="tokens-content"><div class="loading">Loading tokens...</div></div>
+  <div id="credit-tokens-content"><div class="loading">Loading credit tokens...</div></div>
 </div>
 
 <div id="assets" class="panel">
@@ -86,7 +86,7 @@
 
 <script>
 let allBalances = [];
-let allTokens = [];
+let allCreditTokens = [];
 let allAssets = {};
 
 document.querySelectorAll('.tab').forEach(tab => {
@@ -100,36 +100,36 @@ document.querySelectorAll('.tab').forEach(tab => {
 
 async function load() {
   try {
-    const [balRes, txRes, tokenRes, assetRes] = await Promise.all([
+    const [balRes, txRes, creditTokenRes, assetRes] = await Promise.all([
       fetch('/api/balances'),
       fetch('/api/transactions'),
-      fetch('/api/tokens'),
+      fetch('/api/credit-tokens'),
       fetch('/api/assets'),
     ]);
 
-    if (!balRes.ok || !txRes.ok || !tokenRes.ok || !assetRes.ok) throw new Error('API request failed');
+    if (!balRes.ok || !txRes.ok || !creditTokenRes.ok || !assetRes.ok) throw new Error('API request failed');
 
     const balances = await balRes.json();
     const transactions = await txRes.json();
-    const tokens = await tokenRes.json();
+    const creditTokens = await creditTokenRes.json();
     const assets = await assetRes.json();
 
     allAssets = assets;
     allBalances = balances;
-    allTokens = tokens;
-    const unspent = tokens.filter(t => !t.spent_by).length;
-    const spent = tokens.length - unspent;
+    allCreditTokens = creditTokens;
+    const unspent = creditTokens.filter(t => !t.spent_by).length;
+    const spent = creditTokens.length - unspent;
 
     document.getElementById('stats').textContent =
-      `${balances.length} account balances \u00b7 ${transactions.length} transactions \u00b7 ${tokens.length} tokens (${unspent} unspent, ${spent} spent) \u00b7 ${Object.keys(assets).length} assets`;
+      `${balances.length} account balances \u00b7 ${transactions.length} transactions \u00b7 ${creditTokens.length} credit tokens (${unspent} unspent, ${spent} spent) \u00b7 ${Object.keys(assets).length} assets`;
 
     renderBalances(balances);
     renderTransactions(transactions);
-    renderTokens(tokens);
+    renderCreditTokens(creditTokens);
     renderAssets(assets);
   } catch (e) {
     document.getElementById('stats').textContent = 'Error loading data';
-    ['balances-content', 'transactions-content', 'tokens-content', 'assets-content'].forEach(id => {
+    ['balances-content', 'transactions-content', 'credit-tokens-content', 'assets-content'].forEach(id => {
       document.getElementById(id).innerHTML = '<div class="error">Failed to load: ' + esc(e.message) + '</div>';
     });
   }
@@ -255,12 +255,12 @@ function renderTransactions(txs) {
     '<table><thead><tr><th>TX ID</th><th>Idempotency Key</th><th>Debits</th><th>Credits</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
-function renderTokens(tokens) {
-  if (tokens.length === 0) {
-    document.getElementById('tokens-content').innerHTML = '<div class="loading">No tokens found.</div>';
+function renderCreditTokens(creditTokens) {
+  if (creditTokens.length === 0) {
+    document.getElementById('credit-tokens-content').innerHTML = '<div class="loading">No credit tokens found.</div>';
     return;
   }
-  const rows = tokens.map(t => {
+  const rows = creditTokens.map(t => {
     const statusBadge = t.spent_by
       ? '<span class="badge badge-spent">spent</span>'
       : '<span class="badge badge-unspent">unspent</span>';
@@ -276,19 +276,19 @@ function renderTokens(tokens) {
       '<td>' + spentBy + '</td>' +
     '</tr>';
   }).join('');
-  document.getElementById('tokens-content').innerHTML =
+  document.getElementById('credit-tokens-content').innerHTML =
     '<table><thead><tr><th>Entry Ref</th><th>Owner</th><th>Asset</th><th style="text-align:right">Amount</th><th>Status</th><th>Spent By</th></tr></thead><tbody>' + rows + '</tbody></table>';
 }
 
-function filterTokens() {
-  const q = document.getElementById('token-filter').value.toLowerCase();
-  const filtered = allTokens.filter(t =>
+function filterCreditTokens() {
+  const q = document.getElementById('credit-token-filter').value.toLowerCase();
+  const filtered = allCreditTokens.filter(t =>
     t.owner.toLowerCase().includes(q) ||
     t.asset_name.toLowerCase().includes(q) ||
     (q === 'spent' && t.spent_by) ||
     (q === 'unspent' && !t.spent_by)
   );
-  renderTokens(filtered);
+  renderCreditTokens(filtered);
 }
 
 function renderAssets(assets) {

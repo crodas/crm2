@@ -26,7 +26,7 @@ pub enum Error {
 
 #### `InsufficientBalance`
 
-Raised by `TransactionBuilder::build()` when token selection cannot find enough unspent tokens to cover a debit request.
+Raised by `TransactionBuilder::build()` when token selection cannot find enough unspent credit tokens to cover a debit request.
 
 ```rust
 // store/cash has 50.00 usd

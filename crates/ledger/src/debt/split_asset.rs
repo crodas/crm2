@@ -2,8 +2,8 @@
 //!
 //! Debt is represented on a *separate* signed asset named `{base}.d` (e.g.,
 //! `gs.d` for debts denominated in `gs`). Issue creates paired credits on the
-//! debt asset. Settlement *consumes* the debt tokens via explicit UTXO debits,
-//! with change outputs for partial payments.
+//! debt asset. Settlement *consumes* the debt credit tokens via explicit UTXO
+//! debits, with change outputs for partial payments.
 
 use std::sync::Arc;
 
@@ -117,39 +117,39 @@ impl DebtStrategy for SplitAssetDebt {
         let creditor = resolve_template(&self.creditor_template, from, to);
         let debt_asset = Self::debt_asset(amount.asset());
 
-        // Select negative tokens from debtor.
+        // Select negative credit tokens from debtor.
         let filter = debt_asset.max();
-        let debtor_tokens = self
+        let debtor_credits = self
             .storage
             .unspent_by_account(&debtor, Some(&filter))
             .await?;
         let (selected_debtor, debtor_change) =
-            select_negative_tokens(&debtor_tokens, amount.raw())?;
+            select_negative_credits(&debtor_credits, amount.raw())?;
 
-        // Select positive tokens from creditor.
-        let creditor_tokens = self
+        // Select positive credit tokens from creditor.
+        let creditor_credits = self
             .storage
             .unspent_by_account(&creditor, Some(&filter))
             .await?;
         let (selected_creditor, creditor_change) =
-            select_positive_tokens(&creditor_tokens, amount.raw())?;
+            select_positive_credits(&creditor_credits, amount.raw())?;
 
-        // Add debits for selected tokens via debit_raw.
+        // Add debits for selected credit tokens via debit_raw.
         let mut b = builder;
-        for token in &selected_debtor {
+        for credit in &selected_debtor {
             b = b.debit_raw(
-                &token.entry_ref.tx_id,
-                token.entry_ref.entry_index,
+                &credit.entry_ref.tx_id,
+                credit.entry_ref.entry_index,
                 &debtor,
-                &token.amount,
+                &credit.amount,
             );
         }
-        for token in &selected_creditor {
+        for credit in &selected_creditor {
             b = b.debit_raw(
-                &token.entry_ref.tx_id,
-                token.entry_ref.entry_index,
+                &credit.entry_ref.tx_id,
+                credit.entry_ref.entry_index,
                 &creditor,
-                &token.amount,
+                &credit.amount,
             );
         }
 
@@ -167,23 +167,23 @@ impl DebtStrategy for SplitAssetDebt {
     }
 }
 
-/// Select negative tokens (debtor side) covering `amount`.
-fn select_negative_tokens<'a>(
-    tokens: &'a [CreditToken],
+/// Select negative credit tokens (debtor side) covering `amount`.
+fn select_negative_credits<'a>(
+    credits: &'a [CreditToken],
     amount: i128,
 ) -> Result<(Vec<&'a CreditToken>, Option<i128>), Error> {
-    let mut candidates: Vec<&CreditToken> = tokens.iter().filter(|t| t.amount.raw() < 0).collect();
+    let mut candidates: Vec<&CreditToken> = credits.iter().filter(|t| t.amount.raw() < 0).collect();
     candidates.sort_by(|a, b| a.amount.raw().cmp(&b.amount.raw()));
 
     let mut selected = Vec::new();
     let mut abs_sum: i128 = 0;
 
-    for token in candidates {
+    for credit in candidates {
         if abs_sum >= amount {
             break;
         }
-        selected.push(token);
-        abs_sum += token.amount.raw().unsigned_abs() as i128;
+        selected.push(credit);
+        abs_sum += credit.amount.raw().unsigned_abs() as i128;
     }
 
     if abs_sum < amount {
@@ -202,23 +202,23 @@ fn select_negative_tokens<'a>(
     Ok((selected, change))
 }
 
-/// Select positive tokens (creditor side) covering `amount`.
-fn select_positive_tokens<'a>(
-    tokens: &'a [CreditToken],
+/// Select positive credit tokens (creditor side) covering `amount`.
+fn select_positive_credits<'a>(
+    credits: &'a [CreditToken],
     amount: i128,
 ) -> Result<(Vec<&'a CreditToken>, Option<i128>), Error> {
-    let mut candidates: Vec<&CreditToken> = tokens.iter().filter(|t| t.amount.raw() > 0).collect();
+    let mut candidates: Vec<&CreditToken> = credits.iter().filter(|t| t.amount.raw() > 0).collect();
     candidates.sort_by(|a, b| b.amount.raw().cmp(&a.amount.raw()));
 
     let mut selected = Vec::new();
     let mut sum: i128 = 0;
 
-    for token in candidates {
+    for credit in candidates {
         if sum >= amount {
             break;
         }
-        selected.push(token);
-        sum += token.amount.raw();
+        selected.push(credit);
+        sum += credit.amount.raw();
     }
 
     if sum < amount {

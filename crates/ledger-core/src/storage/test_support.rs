@@ -22,7 +22,7 @@
 //! ```
 
 use crate::{
-    Asset, CreditEntryRef, CreditToken, LedgerError, Storage, TokenStatus, Transaction,
+    Asset, CreditEntryRef, CreditToken, LedgerError, Storage, CreditTokenStatus, Transaction,
     TransactionBuilder,
 };
 
@@ -65,13 +65,13 @@ fn make_issuance(
         },
         owner: account.to_string(),
         amount,
-        status: TokenStatus::Unspent,
+        status: CreditTokenStatus::Unspent,
     }];
 
     (tx, tokens)
 }
 
-/// Build a transfer that spends one token and creates a new one.
+/// Build a transfer that spends one credit token and creates a new one.
 fn make_transfer(
     key: &str,
     spent_ref: &CreditEntryRef,
@@ -94,7 +94,7 @@ fn make_transfer(
         },
         owner: to.to_string(),
         amount,
-        status: TokenStatus::Unspent,
+        status: CreditTokenStatus::Unspent,
     }];
 
     let spent = vec![spent_ref.clone()];
@@ -111,7 +111,7 @@ async fn commit(
     if !spent.is_empty() {
         s.mark_spent(spent, &tx.tx_id).await.expect("mark_spent");
     }
-    s.insert_tokens(tokens).await.expect("insert_tokens");
+    s.insert_credit_tokens(tokens).await.expect("insert_tokens");
     s.insert_tx(tx).await.expect("insert_tx");
 }
 
@@ -194,14 +194,14 @@ pub async fn key_absent_for_uncommitted(s: &dyn Storage) {
     assert!(!s.has_idempotency_key("other-key").await.expect("has_key"));
 }
 
-// ── Token tests ──────────────────────────────────────────────────────
+// ── Credit token tests ───────────────────────────────────────────────
 
 pub async fn get_token_nonexistent(s: &dyn Storage) {
     let eref = CreditEntryRef {
         tx_id: "nonexistent".to_string(),
         entry_index: 0,
     };
-    assert!(s.get_token(&eref).await.expect("get_token").is_none());
+    assert!(s.get_credit_token(&eref).await.expect("get_token").is_none());
 }
 
 pub async fn get_token_after_commit(s: &dyn Storage) {
@@ -210,14 +210,14 @@ pub async fn get_token_after_commit(s: &dyn Storage) {
     let eref = tokens[0].entry_ref.clone();
     commit(s, &tx, &tokens, &[]).await;
 
-    let token = s
-        .get_token(&eref)
+    let credit = s
+        .get_credit_token(&eref)
         .await
-        .expect("get_token")
-        .expect("token should exist");
-    assert_eq!(token.amount.raw(), 5);
-    assert_eq!(token.amount.asset_name(), "brush");
-    assert_eq!(token.status, TokenStatus::Unspent);
+        .expect("get_credit_token")
+        .expect("credit token should exist");
+    assert_eq!(credit.amount.raw(), 5);
+    assert_eq!(credit.amount.asset_name(), "brush");
+    assert_eq!(credit.status, CreditTokenStatus::Unspent);
 }
 
 pub async fn token_marked_spent(s: &dyn Storage) {
@@ -229,12 +229,12 @@ pub async fn token_marked_spent(s: &dyn Storage) {
     let (tx2, tokens2, spent) = make_transfer("xfer-001", &eref, "a", "b", &brush(), 5);
     commit(s, &tx2, &tokens2, &spent).await;
 
-    let token = s
-        .get_token(&eref)
+    let credit = s
+        .get_credit_token(&eref)
         .await
-        .expect("get_token")
-        .expect("token should exist");
-    assert!(matches!(token.status, TokenStatus::Spent(_)));
+        .expect("get_credit_token")
+        .expect("credit token should exist");
+    assert!(matches!(credit.status, CreditTokenStatus::Spent(_)));
 }
 
 // ── Unspent by account tests ─────────────────────────────────────────
@@ -437,13 +437,12 @@ pub async fn commit_creates_tokens_and_key(s: &dyn Storage) {
     let eref = tokens[0].entry_ref.clone();
     commit(s, &tx, &tokens, &[]).await;
 
-    let token = s
-        .get_token(&eref)
+    let credit = s
+        .get_credit_token(&eref)
         .await
-        .expect("get_token")
-        .expect("token should exist");
-    assert_eq!(token.amount.raw(), 5);
-
+        .expect("get_credit_token")
+        .expect("credit token should exist");
+    assert_eq!(credit.amount.raw(), 5);
     assert!(s.has_idempotency_key("issue-001").await.expect("has_key"));
     assert_eq!(s.tx_count().await.expect("tx_count"), 1);
 }
@@ -459,18 +458,18 @@ pub async fn commit_spends_and_creates(s: &dyn Storage) {
     commit(s, &tx2, &tokens2, &spent).await;
 
     let a = s
-        .get_token(&eref_a)
+        .get_credit_token(&eref_a)
         .await
         .expect("get_token A")
         .expect("A should exist");
-    assert!(matches!(a.status, TokenStatus::Spent(_)));
+    assert!(matches!(a.status, CreditTokenStatus::Spent(_)));
 
     let b = s
-        .get_token(&eref_b)
+        .get_credit_token(&eref_b)
         .await
         .expect("get_token B")
         .expect("B should exist");
-    assert_eq!(b.status, TokenStatus::Unspent);
+    assert_eq!(b.status, CreditTokenStatus::Unspent);
 
     assert!(s
         .unspent_by_account("a", Some(&brush().max()))
@@ -648,7 +647,7 @@ pub async fn balances_prefix_excludes_non_descendants(s: &dyn Storage) {
 
 pub async fn balances_prefix_omits_zero_balances(s: &dyn Storage) {
     register_test_assets(s).await;
-    // Create and fully spend a token — net balance is 0
+    // Create and fully spend a credit token — net balance is 0
     let (tx1, tokens1) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens1[0].entry_ref.clone();
     commit(s, &tx1, &tokens1, &[]).await;
@@ -671,27 +670,27 @@ pub async fn mark_spent_flags_tokens(s: &dyn Storage) {
     register_test_assets(s).await;
     let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens[0].entry_ref.clone();
-    s.insert_tokens(&tokens).await.expect("insert_tokens");
+    s.insert_credit_tokens(&tokens).await.expect("insert_tokens");
     s.insert_tx(&tx).await.expect("insert_tx");
 
     // Token starts unspent
-    let token = s.get_token(&eref).await.unwrap().unwrap();
-    assert_eq!(token.status, TokenStatus::Unspent);
+    let credit = s.get_credit_token(&eref).await.unwrap().unwrap();
+    assert_eq!(credit.status, CreditTokenStatus::Unspent);
 
     // Mark as spent
     s.mark_spent(&[eref.clone()], "some-tx")
         .await
         .expect("mark_spent");
 
-    let token = s.get_token(&eref).await.unwrap().unwrap();
-    assert!(matches!(token.status, TokenStatus::Spent(_)));
+    let credit = s.get_credit_token(&eref).await.unwrap().unwrap();
+    assert!(matches!(credit.status, CreditTokenStatus::Spent(_)));
 }
 
 pub async fn unmark_spent_restores_tokens(s: &dyn Storage) {
     register_test_assets(s).await;
     let (tx, tokens) = make_issuance("issue-001", "a", &brush(), 5);
     let eref = tokens[0].entry_ref.clone();
-    s.insert_tokens(&tokens).await.expect("insert_tokens");
+    s.insert_credit_tokens(&tokens).await.expect("insert_tokens");
     s.insert_tx(&tx).await.expect("insert_tx");
 
     // Mark then unmark
@@ -702,8 +701,8 @@ pub async fn unmark_spent_restores_tokens(s: &dyn Storage) {
         .await
         .expect("unmark_spent");
 
-    let token = s.get_token(&eref).await.unwrap().unwrap();
-    assert_eq!(token.status, TokenStatus::Unspent);
+    let credit = s.get_credit_token(&eref).await.unwrap().unwrap();
+    assert_eq!(credit.status, CreditTokenStatus::Unspent);
 
     // Token should be visible in unspent queries again
     let unspent = s
@@ -719,15 +718,15 @@ pub async fn insert_and_remove_tokens(s: &dyn Storage) {
     let eref = tokens[0].entry_ref.clone();
 
     // Insert
-    s.insert_tokens(&tokens).await.expect("insert_tokens");
-    let token = s.get_token(&eref).await.unwrap().unwrap();
-    assert_eq!(token.amount.raw(), 5);
+    s.insert_credit_tokens(&tokens).await.expect("insert_tokens");
+    let credit = s.get_credit_token(&eref).await.unwrap().unwrap();
+    assert_eq!(credit.amount.raw(), 5);
 
     // Remove
-    s.remove_tokens(&[eref.clone()])
+    s.remove_credit_tokens(&[eref.clone()])
         .await
         .expect("remove_tokens");
-    assert!(s.get_token(&eref).await.unwrap().is_none());
+    assert!(s.get_credit_token(&eref).await.unwrap().is_none());
 }
 
 pub async fn insert_and_remove_tx(s: &dyn Storage) {

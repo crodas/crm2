@@ -1,4 +1,4 @@
-# Token Selection
+# Credit Token Selection
 
 ## Overview
 
@@ -8,13 +8,13 @@ When building a transaction with `ledger::TransactionBuilder`, callers specify "
 
 The token selection algorithm is **greedy largest-first**:
 
-1. **Query** all unspent tokens for the specified account and asset from storage
+1. **Query** all unspent credit tokens for the specified account and asset from storage
 2. **Sort** tokens by quantity in descending order (largest first)
 3. **Accumulate** tokens until the sum meets or exceeds the requested amount
 4. **Generate change** if the accumulated sum exceeds the requested amount
 
 ```
-Unspent tokens for store/cash (usd):
+Unspent credit tokens for store/cash (usd):
   Token A: 5000  (50.00)
   Token B: 3000  (30.00)
   Token C: 1000  (10.00)
@@ -58,7 +58,7 @@ let builder = ledger.transaction("settle-001")
     .debit_raw(&tx_id, 0, "customer/debt", "usd", -5000);  // Explicit token ref
 ```
 
-The `debit_raw()` method adds a pre-selected debit that bypasses token selection. This is used by debt strategies that need to reference specific tokens (e.g., `SplitAssetDebt` consuming specific debt tokens).
+The `debit_raw()` method adds a pre-selected debit that bypasses token selection. This is used by debt strategies that need to reference specific tokens (e.g., `SplitAssetDebt` consuming specific debt credit tokens).
 
 ### Build
 
@@ -94,7 +94,7 @@ Change is credited to the **same account** that was debited. The change credit i
 
 ## Insufficient Balance
 
-If the available unspent tokens don't cover the requested amount:
+If the available unspent credit tokens don't cover the requested amount:
 
 ```rust
 let result = ledger.transaction("tx-001")

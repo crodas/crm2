@@ -2,8 +2,8 @@
 //!
 //! Models the ledger commit as a three-step saga using [`legend`]:
 //!
-//! 1. **Mark spent** — flag input tokens as spent (compensate: unmark).
-//! 2. **Create tokens** — insert new output tokens (compensate: remove).
+//! 1. **Mark spent** — flag input credit tokens as spent (compensate: unmark).
+//! 2. **Create credit tokens** — insert new output credit tokens (compensate: remove).
 //! 3. **Insert transaction** — persist the transaction record (compensate: remove).
 //!
 //! If any step fails, previously completed steps are compensated in reverse
@@ -17,20 +17,20 @@
 //! builds and executes against a [`CommitCtx`].
 
 mod context;
-mod create_tokens;
+mod create_credit_tokens;
 mod insert_tx;
 mod mark_spent;
 
 use std::sync::Arc;
 
 use context::CommitCtx;
-use create_tokens::{CreateTokensInput, CreateTokensStep};
+use create_credit_tokens::{CreateCreditTokensInput, CreateCreditTokensStep};
 use insert_tx::{InsertTxInput, InsertTxStep};
 use mark_spent::{MarkSpentInput, MarkSpentStep};
 
 use crate::error::LedgerError;
 use crate::storage::Storage;
-use crate::token::{CreditEntryRef, CreditToken};
+use crate::credit_token::{CreditEntryRef, CreditToken};
 use crate::transaction::Transaction;
 
 // ── Saga definition ────────────────────────────────────────────────
@@ -42,19 +42,19 @@ use crate::transaction::Transaction;
 legend::legend! {
     CommitSaga<CommitCtx, LedgerError> {
         mark_spent: MarkSpentStep,
-        create_tokens: CreateTokensStep,
+        create_credit_tokens: CreateCreditTokensStep,
         insert_tx: InsertTxStep,
     }
 }
 
-/// Run the commit saga: mark spent → create tokens → insert transaction.
+/// Run the commit saga: mark spent → create credit tokens → insert transaction.
 ///
 /// On failure, all completed steps are compensated in reverse order so
 /// storage is left unchanged.
 pub(crate) async fn run_commit(
     storage: Arc<dyn Storage>,
     spent_refs: Vec<CreditEntryRef>,
-    new_tokens: Vec<CreditToken>,
+    new_credits: Vec<CreditToken>,
     tx: Transaction,
 ) -> Result<String, LedgerError> {
     let tx_id = tx.tx_id.clone();
@@ -64,7 +64,7 @@ pub(crate) async fn run_commit(
             spent_refs,
             by_tx: tx_id.clone(),
         },
-        create_tokens: CreateTokensInput { tokens: new_tokens },
+        create_credit_tokens: CreateCreditTokensInput { credit_tokens: new_credits },
         insert_tx: InsertTxInput { tx },
     });
 

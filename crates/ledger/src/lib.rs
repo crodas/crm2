@@ -1,9 +1,9 @@
 //! # Ledger
 //!
-//! High-level UTXO ledger with automatic token selection and debt operations.
+//! High-level UTXO ledger with automatic credit token selection and debt operations.
 //!
 //! Re-exports core types from [`ledger_core`] and adds:
-//! - [`TransactionBuilder`] — automatic token selection for debits, plus
+//! - [`TransactionBuilder`] — automatic credit token selection for debits, plus
 //!   [`issue`](TransactionBuilder::issue),
 //!   [`create_debt`](TransactionBuilder::create_debt), and
 //!   [`settle_debt`](TransactionBuilder::settle_debt)
@@ -23,7 +23,7 @@ pub use ledger_core;
 // Re-export core types for convenience.
 pub use ledger_core::{
     Amount, Asset, BalanceEntry, Credit, CreditEntryRef, CreditToken, DebitRef, LedgerError,
-    MemoryStorage, NetMovement, Storage, TokenStatus, Transaction,
+    MemoryStorage, NetMovement, Storage, CreditTokenStatus, Transaction,
 };
 
 // High-level API.

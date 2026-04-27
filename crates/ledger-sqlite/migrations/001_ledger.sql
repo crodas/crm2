@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS ledger_transactions (
     data            TEXT NOT NULL  -- JSON-serialized Transaction
 );
 
-CREATE TABLE IF NOT EXISTS ledger_tokens (
+CREATE TABLE IF NOT EXISTS ledger_credit_tokens (
     tx_id       TEXT    NOT NULL,
     entry_index INTEGER NOT NULL,
     owner       TEXT    NOT NULL,
@@ -21,8 +21,8 @@ CREATE TABLE IF NOT EXISTS ledger_tokens (
     PRIMARY KEY (tx_id, entry_index)
 );
 
-CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_account
-    ON ledger_tokens (owner, asset_name) WHERE spent_by_tx IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_credit_tokens_unspent_account
+    ON ledger_credit_tokens (owner, asset_name) WHERE spent_by_tx IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_prefix
-    ON ledger_tokens (asset_name) WHERE spent_by_tx IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_credit_tokens_unspent_prefix
+    ON ledger_credit_tokens (asset_name) WHERE spent_by_tx IS NULL;

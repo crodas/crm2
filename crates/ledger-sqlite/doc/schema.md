@@ -52,12 +52,12 @@ CREATE TABLE IF NOT EXISTS ledger_transactions (
 - `idempotency_key` UNIQUE prevents duplicate submissions
 - `data` stores the full `Transaction` as JSON rather than normalizing debits/credits into separate tables. This simplifies the schema and makes `load_transactions()` a single query. The trade-off is that querying individual debits/credits requires deserialization.
 
-### ledger_tokens
+### ledger_credit_tokens
 
-Stores spending tokens (the UTXO set).
+Stores credit tokens (the UTXO set).
 
 ```sql
-CREATE TABLE IF NOT EXISTS ledger_tokens (
+CREATE TABLE IF NOT EXISTS ledger_credit_tokens (
     tx_id       TEXT    NOT NULL,
     entry_index INTEGER NOT NULL,
     owner       TEXT    NOT NULL,
@@ -78,35 +78,35 @@ CREATE TABLE IF NOT EXISTS ledger_tokens (
 | `spent_by_tx` | TEXT | NULL | Transaction ID that consumed this token, NULL if unspent |
 
 **Design decisions:**
-- Composite primary key `(tx_id, entry_index)` mirrors `EntryRef` in code
-- `spent_by_tx` is NULL for unspent tokens. When a token is consumed, this is set to the consuming transaction's `tx_id`
+- Composite primary key `(tx_id, entry_index)` mirrors `CreditEntryRef` in code
+- `spent_by_tx` is NULL for unspent credit tokens. When a credit token is consumed, this is set to the consuming transaction's `tx_id`
 - `qty` is stored as `INTEGER` (SQLite i64), not `TEXT`. This limits quantities to i64 range but enables SQL aggregation (`SUM(qty)`)
 - No foreign key to `ledger_transactions` to avoid circular dependency issues during atomic commits
 
 ## Indexes
 
-### idx_ledger_tokens_unspent_account
+### idx_ledger_credit_tokens_unspent_account
 
 ```sql
-CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_account
-    ON ledger_tokens (owner, asset_name) WHERE spent_by_tx IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_credit_tokens_unspent_account
+    ON ledger_credit_tokens (owner, asset_name) WHERE spent_by_tx IS NULL;
 ```
 
-A **partial index** covering only unspent tokens. Optimizes the two most common queries:
+A **partial index** covering only unspent credit tokens. Optimizes the two most common queries:
 - `unspent_by_account(_, Some(_))`: exact match on `(owner, asset_name)`
 - `unspent_by_prefix(_, Some(_))`: range scan on `owner` with exact `asset_name`
 
 As tokens are spent, they fall out of this index, keeping it compact.
 
-### idx_ledger_tokens_unspent_prefix
+### idx_ledger_credit_tokens_unspent_prefix
 
 ```sql
-CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_prefix
-    ON ledger_tokens (asset_name) WHERE spent_by_tx IS NULL;
+CREATE INDEX IF NOT EXISTS idx_ledger_credit_tokens_unspent_prefix
+    ON ledger_credit_tokens (asset_name) WHERE spent_by_tx IS NULL;
 ```
 
 Optimizes queries that filter by asset across multiple owners:
-- `unspent_by_prefix(_, None)`: all unspent tokens under a prefix (all assets)
+- `unspent_by_prefix(_, None)`: all unspent credit tokens under a prefix (all assets)
 - `balances_by_prefix()`: aggregated balances
 
 ## Quantity Storage

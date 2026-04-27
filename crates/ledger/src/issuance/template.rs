@@ -24,7 +24,7 @@ pub struct TemplateIssuanceStrategy {
 }
 
 impl TemplateIssuanceStrategy {
-    /// Create a strategy that issues tokens from the given source account.
+    /// Create a strategy that issues credit tokens from the given source account.
     ///
     /// The source receives a negative credit (tracking total issuance).
     pub fn new(source: impl Into<String>) -> Self {

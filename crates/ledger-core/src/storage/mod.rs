@@ -17,7 +17,7 @@ use crate::account::is_prefix_of;
 use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
-use crate::token::{BalanceEntry, CreditEntryRef, CreditToken, TokenStatus};
+use crate::credit_token::{BalanceEntry, CreditEntryRef, CreditToken, CreditTokenStatus};
 use crate::transaction::Transaction;
 
 /// Async storage backend for the ledger.
@@ -40,10 +40,10 @@ pub trait Storage: Send + Sync + Debug {
     /// Return `true` if this idempotency key has already been committed.
     async fn has_idempotency_key(&self, key: &str) -> Result<bool, LedgerError>;
 
-    // ── Tokens ─────────────────────────────────────────────────────
+    // ── Credit tokens ─────────────────────────────────────────────
 
-    /// Fetch a single spending token by its entry reference.
-    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
+    /// Fetch a single credit token by its entry reference.
+    async fn get_credit_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
 
     /// Return unspent tokens owned by `account`.
     ///
@@ -75,7 +75,7 @@ pub trait Storage: Send + Sync + Debug {
 
     /// Mark the given tokens as spent by `by_tx`.
     ///
-    /// Each referenced token must exist and be unspent.
+    /// Each referenced credit token must exist and be unspent.
     async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError>;
 
     /// Compensation: unmark previously-spent tokens back to unspent.
@@ -88,11 +88,11 @@ pub trait Storage: Send + Sync + Debug {
         tx_to_revert: &str,
     ) -> Result<(), LedgerError>;
 
-    /// Insert new spending tokens into the store.
-    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
+    /// Insert new credit tokens into the store.
+    async fn insert_credit_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
 
-    /// Compensation: remove tokens by their entry references.
-    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+    /// Compensation: remove credit tokens by their entry references.
+    async fn remove_credit_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
 
     /// Insert a committed transaction record and its idempotency key.
     async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError>;
@@ -115,7 +115,7 @@ pub trait Storage: Send + Sync + Debug {
 struct MemoryState {
     assets: HashMap<String, Asset>,
     transactions: Vec<Transaction>,
-    tokens: HashMap<CreditEntryRef, CreditToken>,
+    credit_tokens: HashMap<CreditEntryRef, CreditToken>,
     idempotency_keys: HashSet<String>,
 }
 
@@ -139,7 +139,7 @@ impl MemoryStorage {
             state: RwLock::new(MemoryState {
                 assets: HashMap::new(),
                 transactions: Vec::new(),
-                tokens: HashMap::new(),
+                credit_tokens: HashMap::new(),
                 idempotency_keys: HashSet::new(),
             }),
         }
@@ -184,9 +184,9 @@ impl Storage for MemoryStorage {
         Ok(state.idempotency_keys.contains(key))
     }
 
-    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError> {
+    async fn get_credit_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
-        Ok(state.tokens.get(eref).cloned())
+        Ok(state.credit_tokens.get(eref).cloned())
     }
 
     async fn unspent_by_account(
@@ -196,10 +196,10 @@ impl Storage for MemoryStorage {
     ) -> Result<Vec<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
-            .tokens
+            .credit_tokens
             .values()
             .filter(|t| {
-                t.status == TokenStatus::Unspent
+                t.status == CreditTokenStatus::Unspent
                     && t.owner == account
                     && requested_amount.map_or(true, |a| t.amount.asset_name() == a.asset_name())
             })
@@ -214,10 +214,10 @@ impl Storage for MemoryStorage {
     ) -> Result<Vec<CreditToken>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         Ok(state
-            .tokens
+            .credit_tokens
             .values()
             .filter(|t| {
-                t.status == TokenStatus::Unspent
+                t.status == CreditTokenStatus::Unspent
                     && is_prefix_of(prefix, &t.owner)
                     && requested_amount.map_or(true, |a| t.amount.asset_name() == a.asset_name())
             })
@@ -228,8 +228,8 @@ impl Storage for MemoryStorage {
     async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
         let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
-        for t in state.tokens.values() {
-            if t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {
+        for t in state.credit_tokens.values() {
+            if t.status == CreditTokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {
                 let key = (t.owner.clone(), t.amount.asset_name().to_string());
                 let entry = map
                     .entry(key)
@@ -257,8 +257,8 @@ impl Storage for MemoryStorage {
         let mut state = self.state.write().map_err(lock_err)?;
         let tx_index = state.transactions.len();
         for eref in refs {
-            if let Some(token) = state.tokens.get_mut(eref) {
-                token.status = TokenStatus::Spent(tx_index);
+            if let Some(credit) = state.credit_tokens.get_mut(eref) {
+                credit.status = CreditTokenStatus::Spent(tx_index);
             }
         }
         Ok(())
@@ -271,25 +271,25 @@ impl Storage for MemoryStorage {
     ) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
         for eref in refs {
-            if let Some(token) = state.tokens.get_mut(eref) {
-                token.status = TokenStatus::Unspent;
+            if let Some(credit) = state.credit_tokens.get_mut(eref) {
+                credit.status = CreditTokenStatus::Unspent;
             }
         }
         Ok(())
     }
 
-    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError> {
+    async fn insert_credit_tokens(&self, credit_tokens: &[CreditToken]) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
-        for token in tokens {
-            state.tokens.insert(token.entry_ref.clone(), token.clone());
+        for credit in credit_tokens {
+            state.credit_tokens.insert(credit.entry_ref.clone(), credit.clone());
         }
         Ok(())
     }
 
-    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+    async fn remove_credit_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
         for eref in refs {
-            state.tokens.remove(eref);
+            state.credit_tokens.remove(eref);
         }
         Ok(())
     }

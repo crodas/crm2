@@ -14,7 +14,7 @@ Inspired by Bitcoin's transaction model, `ledger-core` tracks value as discrete 
 - Can be spent by at most one subsequent transaction (as a debit entry)
 - Has an immutable owner, asset, and quantity
 
-Balances are derived by summing unspent tokens, never stored directly. This means the balance is always consistent with the transaction history -- there is no possibility of a balance drifting out of sync with its underlying entries.
+Balances are derived by summing unspent credit tokens, never stored directly. This means the balance is always consistent with the transaction history -- there is no possibility of a balance drifting out of sync with its underlying entries.
 
 ### Conservation Law
 
@@ -114,7 +114,7 @@ This means:
 
 The `Storage` trait defines the persistence contract. All operations are async to support database-backed implementations. The trait requires `Send + Sync + Debug` for use behind `Arc<dyn Storage>`.
 
-Write operations are granular primitives (`mark_spent`, `insert_tokens`, `insert_tx`) composed by the saga layer into atomic commits with compensation on failure. Each write method should wrap its operations in a database transaction.
+Write operations are granular primitives (`mark_spent`, `insert_credit_tokens`, `insert_tx`) composed by the saga layer into atomic commits with compensation on failure. Each write method should wrap its operations in a database transaction.
 
 Two implementations are provided:
 - `MemoryStorage` (in this crate) -- for testing and single-process use

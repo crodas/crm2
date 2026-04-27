@@ -2,7 +2,7 @@
 
 ## Overview
 
-A `Transaction` represents an atomic, validated movement of value in the ledger. It consumes zero or more existing spending tokens (debits) and produces one or more new tokens (credits). Transactions are built using `TransactionBuilder`, which enforces all structural invariants before producing a sealed `Transaction`.
+A `Transaction` represents an atomic, validated movement of value in the ledger. It consumes zero or more existing credit tokens (debits) and produces one or more new credit tokens (credits). Transactions are built using `TransactionBuilder`, which enforces all structural invariants before producing a sealed `Transaction`.
 
 ## Types
 
@@ -12,7 +12,7 @@ A reference to a prior credit entry being consumed:
 
 ```rust
 pub struct DebitRef {
-    pub tx_id: String,         // Transaction that created the token
+    pub tx_id: String,         // Transaction that created the credit token
     pub entry_index: u32,      // Position in that transaction's credits
     pub owner: String,         // Expected owner (verified at commit)
     pub asset_name: String,    // Expected asset (verified at commit)
@@ -24,7 +24,7 @@ The `owner`, `asset_name`, and `qty` fields are expectations -- they are checked
 
 ### Credit
 
-A new spending token to be created:
+A new credit token to be created:
 
 ```rust
 pub struct Credit {
@@ -72,7 +72,7 @@ builder.credit("customer/goods", "brush", "5")
 builder.credit("customer/debt", "usd", "-10.00")  // Negative for debt (signed assets only)
 ```
 
-Credits create new spending tokens owned by the specified account. The `.credit()` and `.debit()` methods return `Self` for chaining (they are infallible).
+Credits create new credit tokens owned by the specified account. The `.credit()` and `.debit()` methods return `Self` for chaining (they are infallible).
 
 ### Building
 
@@ -186,7 +186,7 @@ TransactionBuilder::new("internal-transfer-001")
 
 ### Transfer with Change
 
-When a token is larger than needed, the excess is credited back to the source.
+When a credit token is larger than needed, the excess is credited back to the source.
 
 ```rust
 // Token at (tx_id, 0) has qty "100.00"
@@ -212,7 +212,7 @@ TransactionBuilder::new("credit-sale-001")
 
 ### Debt Settlement
 
-Consumes debt tokens and cash tokens to close out obligations.
+Consumes debt credit tokens and cash tokens to close out obligations.
 
 ```rust
 TransactionBuilder::new("settle-001")

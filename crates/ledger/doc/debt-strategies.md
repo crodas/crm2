@@ -35,7 +35,7 @@ The core ledger enforces only the conservation law (debits == credits per asset)
 
 Strategies decide:
 - What assets to use (same asset vs. separate `.d` asset)
-- What signs to use (positive/negative credits vs. explicit debt tokens)
+- What signs to use (positive/negative credits vs. explicit debt credit tokens)
 - How to select tokens for settlement (greedy, FIFO, etc.)
 - Whether settlement consumes tokens or creates offsetting entries
 
@@ -43,7 +43,7 @@ As long as the resulting transaction satisfies the core conservation invariant, 
 
 ### Why `issue` is Sync and `settle` is Async
 
-Issuing debt only adds credits to the builder -- no storage queries needed. Settlement, however, may need to query unspent tokens (e.g., `SplitAssetDebt` must find and select debt tokens to consume). Hence `settle` is async.
+Issuing debt only adds credits to the builder -- no storage queries needed. Settlement, however, may need to query unspent credit tokens (e.g., `SplitAssetDebt` must find and select debt credit tokens to consume). Hence `settle` is async.
 
 ### Path Templates
 
@@ -100,7 +100,7 @@ Settlement creates **offsetting** credits rather than consuming prior tokens. Th
 | **Simplicity** | No extra asset registration. No token selection for settlement. |
 | **Single balance query** | Net position is directly readable: `balance("customer/debt", "usd")` |
 | **Mixed transactions** | Debt entries mix naturally with product debits in the same transaction |
-| **No UTXO fragmentation** | Settlement creates new tokens instead of splitting existing ones |
+| **No UTXO fragmentation** | Settlement creates new credit tokens instead of splitting existing ones |
 
 ### Disadvantages
 
@@ -109,7 +109,7 @@ Settlement creates **offsetting** credits rather than consuming prior tokens. Th
 | **Unbounded tokens** | Tokens are never consumed -- they accumulate forever |
 | **No double-spend protection** | The same debt can be "settled" multiple times (balance goes positive) |
 | **Ambiguity** | Negative balance could mean debt or an accounting error -- no structural distinction |
-| **Audit complexity** | Tracing the lifecycle of a specific debt requires scanning all tokens |
+| **Audit complexity** | Tracing the lifecycle of a specific debt requires scanning all credit tokens |
 
 ### When to Use
 
@@ -167,16 +167,16 @@ SplitAssetDebt::register_debt_asset(&ledger, &usd_asset).await?;
 //   store/receivable: +4000  (remaining receivable)
 ```
 
-### Token Selection Algorithm
+### Credit Token Selection Algorithm
 
 **Debtor side** (negative tokens):
-1. Query unspent tokens for debtor account on `{asset}.d`
+1. Query unspent credit tokens for debtor account on `{asset}.d`
 2. Filter for negative quantities only
 3. Sort ascending (most negative first)
 4. Accumulate until `abs(sum) >= amount`
 
 **Creditor side** (positive tokens):
-1. Query unspent tokens for creditor account on `{asset}.d`
+1. Query unspent credit tokens for creditor account on `{asset}.d`
 2. Filter for positive quantities only
 3. Sort descending (largest first)
 4. Accumulate until `sum >= amount`
@@ -209,7 +209,7 @@ let receivable = strategy.owed_to(&ledger, "customer-1", &usd_asset).await?;
 |--------------|--------|
 | **Extra asset** | Must register `{base}.d` asset before issuing debt |
 | **UTXO fragmentation** | Partial payments create change tokens on both sides |
-| **Storage coupling** | Needs `Arc<dyn Storage>` at construction (for token queries during settlement) |
+| **Storage coupling** | Needs `Arc<dyn Storage>` at construction (for credit token queries during settlement) |
 | **Complexity** | Token selection for both sides adds implementation and cognitive overhead |
 
 ### When to Use

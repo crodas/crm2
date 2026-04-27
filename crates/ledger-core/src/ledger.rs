@@ -14,9 +14,9 @@ use arc_swap::ArcSwap;
 
 use crate::amount::Amount;
 use crate::asset::Asset;
+use crate::credit_token::{BalanceEntry, CreditEntryRef, CreditToken, CreditTokenStatus};
 use crate::error::LedgerError;
 use crate::storage::Storage;
-use crate::token::{BalanceEntry, CreditEntryRef, CreditToken, TokenStatus};
 use crate::transaction::{compute_tx_id, Transaction};
 
 /// The append-only UTXO ledger engine.
@@ -105,7 +105,7 @@ impl Ledger {
     ///
     /// The transaction must have been built via [`TransactionBuilder::build`],
     /// which guarantees balance invariants. This method checks only ledger
-    /// state: idempotency, token existence, single-spend, and field matching.
+    /// state: idempotency, credit token existence, single-spend, and field matching.
     ///
     /// Returns the transaction ID on success.
     pub async fn commit(&self, tx: Transaction) -> Result<String, LedgerError> {
@@ -138,36 +138,36 @@ impl Ledger {
                 entry_index: debit.entry_index,
             };
 
-            let token = self
+            let credit_to_spend = self
                 .storage
-                .get_token(&eref)
+                .get_credit_token(&eref)
                 .await?
                 .ok_or_else(|| LedgerError::DebitNotFound(eref.clone()))?;
 
-            if token.status != TokenStatus::Unspent {
+            if credit_to_spend.status != CreditTokenStatus::Unspent {
                 return Err(LedgerError::AlreadySpent(eref));
             }
 
-            if debit.from.as_str() != token.owner.as_str() {
+            if debit.from.as_str() != credit_to_spend.owner.as_str() {
                 return Err(LedgerError::DebitOwnerMismatch {
                     entry_ref: eref,
-                    expected: token.owner.to_string(),
+                    expected: credit_to_spend.owner.to_string(),
                     got: debit.from.to_string(),
                 });
             }
 
-            if debit.amount.asset_name() != token.amount.asset_name() {
+            if debit.amount.asset_name() != credit_to_spend.amount.asset_name() {
                 return Err(LedgerError::DebitAssetMismatch {
                     entry_ref: eref,
-                    expected: token.amount.asset_name().to_string(),
+                    expected: credit_to_spend.amount.asset_name().to_string(),
                     got: debit.amount.asset_name().to_string(),
                 });
             }
 
-            if debit.amount.raw() != token.amount.raw() {
+            if debit.amount.raw() != credit_to_spend.amount.raw() {
                 return Err(LedgerError::DebitQtyMismatch {
                     entry_ref: eref,
-                    expected: token.amount.raw(),
+                    expected: credit_to_spend.amount.raw(),
                     got: debit.amount.raw(),
                 });
             }
@@ -175,25 +175,25 @@ impl Ledger {
             spent_refs.push(eref);
         }
 
-        // Build new spending tokens from credits.
-        let mut new_tokens: Vec<CreditToken> = Vec::new();
+        // Build new credit tokens from credits.
+        let mut new_credits: Vec<CreditToken> = Vec::new();
 
         for (idx, credit) in tx.credits.iter().enumerate() {
             let eref = CreditEntryRef {
                 tx_id: tx.tx_id.clone(),
                 entry_index: idx as u32,
             };
-            new_tokens.push(CreditToken {
+            new_credits.push(CreditToken {
                 entry_ref: eref,
                 owner: credit.to.clone(),
                 amount: credit.amount.clone(),
-                status: TokenStatus::Unspent,
+                status: CreditTokenStatus::Unspent,
             });
         }
 
-        // Run the commit saga: mark spent → create tokens → insert tx.
+        // Run the commit saga: mark spent → create credit tokens → insert tx.
         // On failure, completed steps are compensated in reverse order.
-        crate::saga::run_commit(self.storage.clone(), spent_refs, new_tokens, tx).await
+        crate::saga::run_commit(self.storage.clone(), spent_refs, new_credits, tx).await
     }
 
     /// Return the balance of a specific account for a given asset.
@@ -615,7 +615,7 @@ mod tests {
             .expect("build issue");
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
-        // Spend token at index 4 (third positive credit) — simulates a
+        // Spend credit token at index 4 (third positive credit) — simulates a
         // concurrent transaction that won the race.
         let race_winner = TransactionBuilder::new("race-winner")
             .debit(&issue_id, 4, "store1/inventory", &one_b)

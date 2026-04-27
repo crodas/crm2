@@ -29,14 +29,14 @@ use crate::error::LedgerError;
 /// A reference to a prior credit being consumed as a debit.
 ///
 /// The caller must supply all fields; the engine verifies them against the
-/// actual stored token at commit time.
+/// actual stored credit token at commit time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DebitRef {
-    /// Transaction that created the token being spent.
+    /// Transaction that created the credit token being spent.
     pub tx_id: String,
     /// Position within that transaction's credits.
     pub entry_index: u32,
-    /// Expected owner of the token (verified at commit time).
+    /// Expected owner of the credit token (verified at commit time).
     pub from: String,
     /// Expected amount (verified at commit time).
     pub amount: Amount,
@@ -72,7 +72,7 @@ pub struct Transaction {
 
 /// A net movement for one (account, asset) pair within a transaction.
 ///
-/// Collapses UTXO mechanics: full-token debits and change credits are
+/// Collapses UTXO mechanics: full credit token debits and change credits are
 /// aggregated into a single net value per account per asset. Zero-net
 /// entries (e.g. change that exactly restores the original balance) are
 /// excluded.
@@ -158,7 +158,7 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add a credit (a new spending token to create).
+    /// Add a credit (a new credit token to create).
     pub fn credit(mut self, to: impl Into<String>, amount: &Amount) -> Self {
         self.credits.push(Credit {
             to: to.into(),

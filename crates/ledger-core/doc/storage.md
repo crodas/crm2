@@ -15,7 +15,7 @@ pub trait Storage: Send + Sync + Debug {
     async fn has_idempotency_key(&self, key: &str) -> Result<bool, LedgerError>;
 
     // Token queries
-    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
+    async fn get_credit_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError>;
     async fn unspent_by_account(&self, account: &str, requested_amount: Option<&Amount>)
         -> Result<Vec<CreditToken>, LedgerError>;
     async fn unspent_by_prefix(&self, prefix: &str, requested_amount: Option<&Amount>)
@@ -26,8 +26,8 @@ pub trait Storage: Send + Sync + Debug {
     // Granular write primitives (composed by the saga layer)
     async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError>;
     async fn unmark_spent(&self, refs: &[CreditEntryRef], tx_to_revert: &str) -> Result<(), LedgerError>;
-    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
-    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
+    async fn insert_credit_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError>;
+    async fn remove_credit_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError>;
     async fn insert_tx(&self, tx: &Transaction) -> Result<(), LedgerError>;
     async fn remove_tx(&self, tx_id: &str) -> Result<(), LedgerError>;
 
@@ -42,10 +42,10 @@ pub trait Storage: Send + Sync + Debug {
 Write operations are granular primitives. The saga layer in `crate::saga` composes them into an all-or-nothing commit with automatic compensation on failure:
 
 1. **Mark spent** — flag input tokens as consumed (`mark_spent`)
-2. **Create tokens** — insert new output tokens (`insert_tokens`)
+2. **Create tokens** — insert new output tokens (`insert_credit_tokens`)
 3. **Insert transaction** — persist the transaction record (`insert_tx`)
 
-If any step fails, completed steps are compensated in reverse order using `unmark_spent`, `remove_tokens`, and `remove_tx`. Each write method should wrap its operations in a database transaction for atomicity.
+If any step fails, completed steps are compensated in reverse order using `unmark_spent`, `remove_credit_tokens`, and `remove_tx`. Each write method should wrap its operations in a database transaction for atomicity.
 
 ### Method Contracts
 
@@ -60,21 +60,21 @@ If any step fails, completed steps are compensated in reverse order using `unmar
 - Returns `true` if a transaction with this key has been committed
 - Must be consistent with `insert_tx` -- if `insert_tx` succeeds, all subsequent calls must return `true` for that key
 
-#### `get_token`
+#### `get_credit_token`
 
-- Returns `Some(CreditToken)` if a token exists at the given `CreditEntryRef`
-- Returns `None` if no token exists at that reference
+- Returns `Some(CreditToken)` if a credit token exists at the given `CreditEntryRef`
+- Returns `None` if no credit token exists at that reference
 - Must reflect the current spend status (Unspent or Spent)
 
 #### `unspent_by_account`
 
-- `Some(amount)` — returns all tokens with `status == Unspent` for the **exact** account and the amount's asset
-- `None` — returns all unspent tokens for the account across all assets
+- `Some(amount)` — returns all credit tokens with `status == Unspent` for the **exact** account and the amount's asset
+- `None` — returns all unspent credit tokens for the account across all assets
 - Must **not** include descendant accounts (e.g., `store` does not include `store/cash`)
 
 #### `unspent_by_prefix`
 
-- `Some(amount)` — returns all tokens with `status == Unspent` where the owner matches the prefix **or** is a descendant, filtered by the amount's asset
+- `Some(amount)` — returns all credit tokens with `status == Unspent` where the owner matches the prefix **or** is a descendant, filtered by the amount's asset
 - `None` — same but across all assets
 - Prefix matching: owner == prefix OR owner starts with `{prefix}/`
 
@@ -88,14 +88,14 @@ If any step fails, completed steps are compensated in reverse order using `unmar
 
 - Marks the given tokens as spent by `by_tx`
 - Each referenced token must exist and be unspent
-- Should use a CAS guard (e.g., `WHERE spent_by_tx IS NULL`) and return `AlreadySpent` if a token was already consumed
+- Should use a CAS guard (e.g., `WHERE spent_by_tx IS NULL`) and return `AlreadySpent` if a credit token was already consumed
 
 #### `unmark_spent`
 
-- Compensation: restores previously-spent tokens to unspent
+- Compensation: restores previously-spent credit tokens to unspent
 - Only reverts tokens whose `spent_by_tx` matches `tx_to_revert`, leaving tokens spent by other transactions untouched
 
-#### `insert_tokens` / `remove_tokens`
+#### `insert_credit_tokens` / `remove_credit_tokens`
 
 - Insert or remove credit tokens by their entry references
 - Used as execute/compensate pair in the saga
@@ -123,7 +123,7 @@ An in-memory implementation provided for testing and single-process use cases.
 struct MemoryState {
     assets: HashMap<String, Asset>,
     transactions: Vec<Transaction>,
-    tokens: HashMap<CreditEntryRef, CreditToken>,
+    credit_tokens: HashMap<CreditEntryRef, CreditToken>,
     idempotency_keys: HashSet<String>,
 }
 

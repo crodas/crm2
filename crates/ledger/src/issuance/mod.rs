@@ -1,8 +1,8 @@
 //! Pluggable issuance strategies for the UTXO ledger.
 //!
-//! An [`IssuanceStrategy`] decides how to represent token issuance within a
-//! transaction — crediting the destination account and debiting a source
-//! (e.g., `@world`) to maintain conservation.
+//! An [`IssuanceStrategy`] decides how to represent credit token issuance
+//! within a transaction — crediting the destination account and debiting a
+//! source (e.g., `@world`) to maintain conservation.
 
 mod template;
 
@@ -13,7 +13,7 @@ use ledger_core::Amount;
 use crate::builder::TransactionBuilder;
 use crate::error::Error;
 
-/// Strategy for issuing new tokens into the ledger.
+/// Strategy for issuing new credit tokens into the ledger.
 ///
 /// Implementations add balanced credit entries (positive + negative) so that
 /// `sum(debits) == sum(credits)` holds for every transaction.

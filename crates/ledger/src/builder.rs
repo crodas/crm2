@@ -1,4 +1,4 @@
-//! High-level transaction builder with automatic token selection and
+//! High-level transaction builder with automatic credit token selection and
 //! optional debt operations.
 
 use std::sync::Arc;
@@ -17,7 +17,7 @@ struct DebitRequest {
     amount: Amount,
 }
 
-/// A pre-selected debit that bypasses token selection.
+/// A pre-selected debit that bypasses credit token selection.
 struct RawDebit {
     tx_id: String,
     entry_index: u32,
@@ -26,16 +26,17 @@ struct RawDebit {
 }
 
 /// High-level transaction builder that automatically selects unspent
-/// tokens for debits and generates change credits.
+/// credit tokens for debits and generates change credits.
 ///
 /// Created via [`Ledger::transaction`](crate::Ledger::transaction).
 ///
-/// # Token selection
+/// # Credit token selection
 ///
-/// For each debit, the builder queries storage for unspent tokens matching
-/// the account and asset, selects the largest tokens first until the
-/// requested amount is covered, and auto-generates a change credit back
-/// to the source account if the selected tokens exceed the request.
+/// For each debit, the builder queries storage for unspent credit tokens
+/// matching the account and asset, selects the largest credit tokens first
+/// until the requested amount is covered, and auto-generates a change
+/// credit back to the source account if the selected credit tokens exceed
+/// the request.
 ///
 /// # Debt operations
 ///
@@ -72,7 +73,7 @@ impl TransactionBuilder {
 
     /// Debit `amount` from `account`.
     ///
-    /// The builder will automatically select unspent tokens at build time.
+    /// The builder will automatically select unspent credit tokens at build time.
     pub fn debit(mut self, from: impl Into<String>, amount: &Amount) -> Self {
         self.debits.push(DebitRequest {
             account: from.into(),
@@ -87,10 +88,11 @@ impl TransactionBuilder {
         self
     }
 
-    /// Add a pre-selected debit, bypassing automatic token selection.
+    /// Add a pre-selected debit, bypassing automatic credit token selection.
     ///
-    /// Use this when you have already performed token selection externally
-    /// (e.g., debt settlement selects tokens with negative quantities).
+    /// Use this when you have already performed credit token selection
+    /// externally (e.g., debt settlement selects credit tokens with negative
+    /// quantities).
     pub fn debit_raw(
         mut self,
         tx_id: impl Into<String>,
@@ -138,7 +140,7 @@ impl TransactionBuilder {
 
     // ── Issuance operations ──────────────────────────────────────────
 
-    /// Issue tokens to `to` using the configured [`IssuanceStrategy`] (default: @world).
+    /// Issue credit tokens to `to` using the configured [`IssuanceStrategy`] (default: @world).
     ///
     /// Adds a positive credit to `to` and a balancing negative credit to the
     /// strategy's source account, maintaining conservation.
@@ -151,9 +153,9 @@ impl TransactionBuilder {
         Ok(self)
     }
 
-    /// Issue tokens to `to` with a custom source account.
+    /// Issue credit tokens to `to` with a custom source account.
     ///
-    /// Use when tokens come from a specific provider, bank, or supplier
+    /// Use when credit tokens come from a specific provider, bank, or supplier
     /// instead of the default @world.
     ///
     /// ```ignore
@@ -170,11 +172,11 @@ impl TransactionBuilder {
 
     // ── Build ─────────────────────────────────────────────────────────
 
-    /// Build the transaction with automatic token selection.
+    /// Build the transaction with automatic credit token selection.
     ///
-    /// Queries storage for unspent tokens, selects them greedily (largest
-    /// first), and generates change credits as needed. Then delegates to
-    /// the low-level [`TransactionBuilder`] for validation.
+    /// Queries storage for unspent credit tokens, selects them greedily
+    /// (largest first), and generates change credits as needed. Then
+    /// delegates to the low-level [`TransactionBuilder`] for validation.
     pub async fn build(self) -> Result<Transaction, Error> {
         let mut low = LowLevelBuilder::new(self.idempotency_key);
 
@@ -183,17 +185,17 @@ impl TransactionBuilder {
             low = low.credit(to, amount);
         }
 
-        // Token selection for each debit.
+        // Credit token selection for each debit.
         for req in &self.debits {
-            let mut tokens = self
+            let mut credits = self
                 .storage
                 .unspent_by_account(&req.account, Some(&req.amount))
                 .await?;
 
             // Sort largest first for greedy selection.
-            tokens.sort_by(|a, b| b.amount.raw().cmp(&a.amount.raw()));
+            credits.sort_by(|a, b| b.amount.raw().cmp(&a.amount.raw()));
 
-            let (selected, total) = select_tokens(&tokens, req.amount.raw())?;
+            let (selected, total) = select_credits(&credits, req.amount.raw())?;
 
             if selected.is_empty() {
                 return Err(Error::InsufficientBalance {
@@ -204,13 +206,13 @@ impl TransactionBuilder {
                 });
             }
 
-            // Add a DebitRef for each selected token.
-            for token in &selected {
+            // Add a DebitRef for each selected credit token.
+            for credit in &selected {
                 low = low.debit(
-                    &token.entry_ref.tx_id,
-                    token.entry_ref.entry_index,
+                    &credit.entry_ref.tx_id,
+                    credit.entry_ref.entry_index,
                     &req.account,
-                    &token.amount,
+                    &credit.amount,
                 );
             }
 
@@ -222,7 +224,7 @@ impl TransactionBuilder {
             }
         }
 
-        // Pass through pre-selected raw debits without token selection.
+        // Pass through pre-selected raw debits without credit token selection.
         for raw in &self.raw_debits {
             low = low.debit(&raw.tx_id, raw.entry_index, &raw.from, &raw.amount);
         }
@@ -232,26 +234,26 @@ impl TransactionBuilder {
     }
 }
 
-/// Greedily select tokens until `needed` is covered.
+/// Greedily select credit tokens until `needed` is covered.
 ///
-/// Tokens must be pre-sorted (largest first). Returns the selected tokens
-/// and the total sum of their quantities.
-fn select_tokens(tokens: &[CreditToken], needed: i128) -> Result<(Vec<&CreditToken>, i128), Error> {
+/// Credit tokens must be pre-sorted (largest first). Returns the selected
+/// credit tokens and the total sum of their quantities.
+fn select_credits(credits: &[CreditToken], needed: i128) -> Result<(Vec<&CreditToken>, i128), Error> {
     let mut selected = Vec::new();
     let mut sum: i128 = 0;
 
-    for token in tokens {
+    for credit in credits {
         if sum >= needed {
             break;
         }
-        selected.push(token);
-        sum += token.amount.raw();
+        selected.push(credit);
+        sum += credit.amount.raw();
     }
 
     if sum < needed {
         return Err(Error::InsufficientBalance {
-            account: tokens.first().map(|t| t.owner.clone()).unwrap_or_default(),
-            asset: tokens
+            account: credits.first().map(|t| t.owner.clone()).unwrap_or_default(),
+            asset: credits
                 .first()
                 .map(|t| t.amount.asset_name().to_string())
                 .unwrap_or_default(),

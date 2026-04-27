@@ -6,7 +6,7 @@ The `ledger` crate is a thin, ergonomic wrapper around `ledger-core`. It adds th
 
 1. **Automatic token selection** -- callers specify "spend X from account A" and the builder figures out which tokens to consume
 2. **Pluggable debt strategies** -- different representations of debt (signed positions vs. split assets) without changing core ledger invariants
-3. **Pluggable issuance strategies** -- automatic `@world` balancing when minting new tokens
+3. **Pluggable issuance strategies** -- automatic `@world` balancing when minting new credit tokens
 
 All core functionality -- transaction validation, token management, balance queries, storage -- is delegated to `ledger-core::Ledger` via the `inner` field.
 
@@ -22,11 +22,11 @@ pub struct Ledger {
 
 - `inner`: The core ledger engine. All query and commit operations delegate here.
 - `debt_strategy`: Optional strategy for issuing and settling debt. When set, builders created by `transaction()` expose `create_debt()` and `settle_debt()`. When `None`, those builder methods return `Error::NoDebtStrategy`.
-- `issuance_strategy`: Strategy for minting new tokens. Default: `TemplateIssuanceStrategy::new("@world")`.
+- `issuance_strategy`: Strategy for minting new credit tokens. Default: `TemplateIssuanceStrategy::new("@world")`.
 
 ### IssuanceStrategy
 
-Every transaction must satisfy `sum(debits) == sum(credits)` per asset -- no exceptions. When minting new tokens, the `IssuanceStrategy` automatically creates a balancing negative credit at a source account (e.g., `@world`). The builder exposes two methods:
+Every transaction must satisfy `sum(debits) == sum(credits)` per asset -- no exceptions. When minting new credit tokens, the `IssuanceStrategy` automatically creates a balancing negative credit at a source account (e.g., `@world`). The builder exposes two methods:
 
 - `issue(to, amount)` -- uses the configured strategy (default: `@world`)
 - `issue_from(source, to, amount)` -- uses a custom source (e.g., `"bank/chase"`, `"supplier/acme"`)
@@ -37,7 +37,7 @@ Every transaction must satisfy `sum(debits) == sum(credits)` per asset -- no exc
 
 The core ledger enforces universal invariants (conservation, double-spend prevention) that must hold regardless of how transactions are constructed. Token selection and debt modeling are higher-level concerns that belong in a separate layer:
 
-- Token selection needs storage access to query unspent tokens, which `TransactionBuilder` in core deliberately avoids (it's storage-agnostic)
+- Token selection needs storage access to query unspent credit tokens, which `TransactionBuilder` in core deliberately avoids (it's storage-agnostic)
 - Debt strategies inject domain-specific credits/debits that the core doesn't need to understand
 - Different applications may want different token selection algorithms or debt models
 
@@ -90,6 +90,6 @@ ledger (this crate)
       ledger-core (dependency)
         ├── Ledger, TransactionBuilder, Transaction
         ├── Storage, MemoryStorage
-        ├── Asset, Amount, SpendingToken
+        ├── Asset, Amount, CreditToken
         └── LedgerError
 ```

@@ -9,7 +9,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, CreditEntryRef, CreditToken, LedgerError, Storage, TokenStatus,
+    Amount, Asset, BalanceEntry, CreditEntryRef, CreditToken, LedgerError, Storage, CreditTokenStatus,
     Transaction,
 };
 
@@ -64,11 +64,11 @@ fn asset_from_row(row: &sqlx::sqlite::SqliteRow) -> Asset {
     Asset::new(name, precision as u8)
 }
 
-/// SQL fragment that joins ledger_tokens with ledger_assets.
-const TOKEN_SELECT: &str =
+/// SQL fragment that joins ledger_credit_tokens with ledger_assets.
+const CREDIT_TOKEN_SELECT: &str =
     "SELECT t.tx_id, t.entry_index, t.owner, t.asset_name, t.qty, t.spent_by_tx,
             a.precision
-     FROM ledger_tokens t
+     FROM ledger_credit_tokens t
      JOIN ledger_assets a ON a.name = t.asset_name";
 
 #[async_trait]
@@ -129,8 +129,8 @@ impl Storage for SqliteStorage {
         Ok(row.is_some())
     }
 
-    async fn get_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError> {
-        let sql = format!("{TOKEN_SELECT} WHERE t.tx_id = ? AND t.entry_index = ?");
+    async fn get_credit_token(&self, eref: &CreditEntryRef) -> Result<Option<CreditToken>, LedgerError> {
+        let sql = format!("{CREDIT_TOKEN_SELECT} WHERE t.tx_id = ? AND t.entry_index = ?");
         let row = sqlx::query(&sql)
             .bind(&eref.tx_id)
             .bind(eref.entry_index as i32)
@@ -144,8 +144,8 @@ impl Storage for SqliteStorage {
                 let owner: String = row.get("owner");
                 let spent_by_tx: Option<String> = row.get("spent_by_tx");
                 let status = match spent_by_tx {
-                    None => TokenStatus::Unspent,
-                    Some(_) => TokenStatus::Spent(0),
+                    None => CreditTokenStatus::Unspent,
+                    Some(_) => CreditTokenStatus::Spent(0),
                 };
                 let asset = asset_from_row(&row);
                 let qty = row.get::<i64, _>("qty") as i128;
@@ -166,7 +166,7 @@ impl Storage for SqliteStorage {
     ) -> Result<Vec<CreditToken>, LedgerError> {
         let rows = if let Some(req) = requested_amount {
             let sql = format!(
-                "{TOKEN_SELECT} WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL"
+                "{CREDIT_TOKEN_SELECT} WHERE t.owner = ? AND t.asset_name = ? AND t.spent_by_tx IS NULL"
             );
             sqlx::query(&sql)
                 .bind(account)
@@ -175,7 +175,7 @@ impl Storage for SqliteStorage {
                 .await
                 .map_err(db_err)?
         } else {
-            let sql = format!("{TOKEN_SELECT} WHERE t.owner = ? AND t.spent_by_tx IS NULL");
+            let sql = format!("{CREDIT_TOKEN_SELECT} WHERE t.owner = ? AND t.spent_by_tx IS NULL");
             sqlx::query(&sql)
                 .bind(account)
                 .fetch_all(&self.pool)
@@ -183,7 +183,7 @@ impl Storage for SqliteStorage {
                 .map_err(db_err)?
         };
 
-        rows_to_tokens(rows)
+        rows_to_credit_tokens(rows)
     }
 
     async fn unspent_by_prefix(
@@ -194,14 +194,14 @@ impl Storage for SqliteStorage {
         let rows = if prefix.is_empty() {
             if let Some(req) = requested_amount {
                 let sql =
-                    format!("{TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL");
+                    format!("{CREDIT_TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL");
                 sqlx::query(&sql)
                     .bind(req.asset_name())
                     .fetch_all(&self.pool)
                     .await
                     .map_err(db_err)?
             } else {
-                let sql = format!("{TOKEN_SELECT} WHERE t.spent_by_tx IS NULL");
+                let sql = format!("{CREDIT_TOKEN_SELECT} WHERE t.spent_by_tx IS NULL");
                 sqlx::query(&sql)
                     .fetch_all(&self.pool)
                     .await
@@ -211,7 +211,7 @@ impl Storage for SqliteStorage {
             let like_pattern = format!("{prefix}/%");
             if let Some(req) = requested_amount {
                 let sql = format!(
-                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                    "{CREDIT_TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
                        AND t.asset_name = ?
                        AND t.spent_by_tx IS NULL"
                 );
@@ -224,7 +224,7 @@ impl Storage for SqliteStorage {
                     .map_err(db_err)?
             } else {
                 let sql = format!(
-                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
+                    "{CREDIT_TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
                        AND t.spent_by_tx IS NULL"
                 );
                 sqlx::query(&sql)
@@ -236,7 +236,7 @@ impl Storage for SqliteStorage {
             }
         };
 
-        rows_to_tokens(rows)
+        rows_to_credit_tokens(rows)
     }
 
     async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
@@ -244,7 +244,7 @@ impl Storage for SqliteStorage {
             sqlx::query(
                 "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
                         a.precision
-                 FROM ledger_tokens t
+                 FROM ledger_credit_tokens t
                  JOIN ledger_assets a ON a.name = t.asset_name
                  WHERE t.spent_by_tx IS NULL
                  GROUP BY t.owner, t.asset_name
@@ -259,7 +259,7 @@ impl Storage for SqliteStorage {
             sqlx::query(
                 "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
                         a.precision
-                 FROM ledger_tokens t
+                 FROM ledger_credit_tokens t
                  JOIN ledger_assets a ON a.name = t.asset_name
                  WHERE (t.owner = ? OR t.owner LIKE ?)
                    AND t.spent_by_tx IS NULL
@@ -295,7 +295,7 @@ impl Storage for SqliteStorage {
 
         let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "UPDATE ledger_tokens SET spent_by_tx = ? \
+            "UPDATE ledger_credit_tokens SET spent_by_tx = ? \
              WHERE (tx_id, entry_index) IN (VALUES {values}) \
              AND spent_by_tx IS NULL"
         );
@@ -307,7 +307,7 @@ impl Storage for SqliteStorage {
 
         if result.rows_affected() != refs.len() as u64 {
             // Find the culprit — only reached on actual race.
-            let check_sql = format!("{TOKEN_SELECT} WHERE t.tx_id = ? AND t.entry_index = ?");
+            let check_sql = format!("{CREDIT_TOKEN_SELECT} WHERE t.tx_id = ? AND t.entry_index = ?");
             for eref in refs {
                 let row = sqlx::query(&check_sql)
                     .bind(&eref.tx_id)
@@ -343,7 +343,7 @@ impl Storage for SqliteStorage {
 
         let values = refs.iter().map(|_| "(?,?)").collect::<Vec<_>>().join(",");
         let sql = format!(
-            "UPDATE ledger_tokens SET spent_by_tx = NULL \
+            "UPDATE ledger_credit_tokens SET spent_by_tx = NULL \
              WHERE (tx_id, entry_index) IN (VALUES {values}) \
              AND spent_by_tx = ?"
         );
@@ -358,18 +358,18 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn insert_tokens(&self, tokens: &[CreditToken]) -> Result<(), LedgerError> {
+    async fn insert_credit_tokens(&self, credit_tokens: &[CreditToken]) -> Result<(), LedgerError> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
-        for token in tokens {
+        for credit in credit_tokens {
             sqlx::query(
-                "INSERT INTO ledger_tokens (tx_id, entry_index, owner, asset_name, qty)
+                "INSERT INTO ledger_credit_tokens (tx_id, entry_index, owner, asset_name, qty)
                  VALUES (?, ?, ?, ?, ?)",
             )
-            .bind(&token.entry_ref.tx_id)
-            .bind(token.entry_ref.entry_index as i32)
-            .bind(&token.owner)
-            .bind(token.amount.asset_name())
-            .bind(token.amount.raw() as i64)
+            .bind(&credit.entry_ref.tx_id)
+            .bind(credit.entry_ref.entry_index as i32)
+            .bind(&credit.owner)
+            .bind(credit.amount.asset_name())
+            .bind(credit.amount.raw() as i64)
             .execute(&mut *tx)
             .await
             .map_err(db_err)?;
@@ -378,10 +378,10 @@ impl Storage for SqliteStorage {
         Ok(())
     }
 
-    async fn remove_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
+    async fn remove_credit_tokens(&self, refs: &[CreditEntryRef]) -> Result<(), LedgerError> {
         let mut tx = self.pool.begin().await.map_err(db_err)?;
         for eref in refs {
-            sqlx::query("DELETE FROM ledger_tokens WHERE tx_id = ? AND entry_index = ?")
+            sqlx::query("DELETE FROM ledger_credit_tokens WHERE tx_id = ? AND entry_index = ?")
                 .bind(&eref.tx_id)
                 .bind(eref.entry_index as i32)
                 .execute(&mut *tx)
@@ -443,7 +443,7 @@ impl Storage for SqliteStorage {
     }
 }
 
-fn rows_to_tokens(rows: Vec<sqlx::sqlite::SqliteRow>) -> Result<Vec<CreditToken>, LedgerError> {
+fn rows_to_credit_tokens(rows: Vec<sqlx::sqlite::SqliteRow>) -> Result<Vec<CreditToken>, LedgerError> {
     rows.into_iter()
         .map(|row| {
             let tx_id: String = row.get("tx_id");
@@ -458,7 +458,7 @@ fn rows_to_tokens(rows: Vec<sqlx::sqlite::SqliteRow>) -> Result<Vec<CreditToken>
                 },
                 owner,
                 amount: asset.amount_unchecked(qty),
-                status: TokenStatus::Unspent,
+                status: CreditTokenStatus::Unspent,
             })
         })
         .collect()

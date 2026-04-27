@@ -1,4 +1,4 @@
-//! High-level ledger with automatic token selection and optional debt support.
+//! High-level ledger with automatic credit token selection and optional debt support.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -13,8 +13,8 @@ use crate::debt::DebtStrategy;
 use crate::issuance::IssuanceStrategy;
 
 /// High-level ledger wrapping [`ledger_core::Ledger`] with automatic
-/// token selection via [`TransactionBuilder`] and optional debt handling
-/// via a pluggable [`DebtStrategy`].
+/// credit token selection via [`TransactionBuilder`] and optional debt
+/// handling via a pluggable [`DebtStrategy`].
 ///
 /// # Debt support
 ///
@@ -73,7 +73,7 @@ impl Ledger {
 
     // ── Transaction building ─────────────────────────────────────────
 
-    /// Start building a high-level transaction with automatic token selection.
+    /// Start building a high-level transaction with automatic credit token selection.
     pub fn transaction(&self, idempotency_key: impl Into<String>) -> TransactionBuilder {
         TransactionBuilder::new(
             idempotency_key.into(),
@@ -128,11 +128,11 @@ impl Ledger {
         self.inner.balance_prefix(prefix, asset_name).await
     }
 
-    /// Return unspent tokens owned by the given account.
+    /// Return unspent credit tokens owned by the given account.
     ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
+    /// - `Some(amount)` — only credit tokens matching the amount's asset;
+    ///   errors if the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent credit tokens across all assets.
     pub async fn unspent_tokens(
         &self,
         account: &str,
@@ -141,11 +141,11 @@ impl Ledger {
         self.inner.unspent_tokens(account, requested_amount).await
     }
 
-    /// Return unspent tokens under a prefix.
+    /// Return unspent credit tokens under a prefix.
     ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
+    /// - `Some(amount)` — only credit tokens matching the amount's asset;
+    ///   errors if the available sum is less than `amount.raw()`.
+    /// - `None` — all unspent credit tokens across all assets.
     pub async fn unspent_tokens_prefix(
         &self,
         prefix: &str,
@@ -157,7 +157,7 @@ impl Ledger {
     }
 
     /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under a prefix.
+    /// unspent credit tokens under a prefix.
     pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
         self.inner.balances_by_prefix(prefix).await
     }

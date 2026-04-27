@@ -5,7 +5,7 @@ use ledger_core::LedgerError;
 /// Errors from the high-level ledger API.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Not enough unspent tokens to cover the requested debit.
+    /// Not enough unspent credit tokens to cover the requested debit.
     #[error("insufficient balance for {account} / {asset}: need {required}, have {available}")]
     InsufficientBalance {
         account: String,
@@ -18,7 +18,7 @@ pub enum Error {
     #[error("debt amount must be positive")]
     NonPositiveAmount,
 
-    /// Not enough debt tokens to cover the settlement.
+    /// Not enough debt credit tokens to cover the settlement.
     #[error("insufficient debt: need {required}, have {available}")]
     InsufficientDebt { required: i128, available: i128 },
 

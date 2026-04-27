@@ -69,7 +69,7 @@ pub trait DebtStrategy: Send + Sync {
     ///
     /// `from` is the debit-side identifier, `to` is the credit-side identifier.
     /// `amount` is always positive — the strategy selects and consumes the
-    /// appropriate debt tokens. The caller is responsible for adding the
+    /// appropriate debt credit tokens. The caller is responsible for adding the
     /// cash leg (debit payment source, credit cash account).
     async fn settle(
         &self,

@@ -53,7 +53,7 @@ struct TransactionResponse {
 }
 
 #[derive(Serialize)]
-struct TokenResponse {
+struct CreditTokenResponse {
     tx_id: String,
     entry_index: u32,
     owner: String,
@@ -123,16 +123,16 @@ async fn list_transactions(State(ledger): State<Arc<Ledger>>) -> Json<Vec<Transa
     Json(responses)
 }
 
-async fn list_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TokenResponse>> {
+async fn list_credit_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<CreditTokenResponse>> {
     let txs = ledger.transactions().await.unwrap_or_default();
-    let mut tokens: HashMap<(String, u32), TokenResponse> = HashMap::new();
+    let mut credit_tokens: HashMap<(String, u32), CreditTokenResponse> = HashMap::new();
 
     for tx in &txs {
         for (i, c) in tx.credits.iter().enumerate() {
             let idx = i as u32;
-            tokens.insert(
+            credit_tokens.insert(
                 (tx.tx_id.clone(), idx),
-                TokenResponse {
+                CreditTokenResponse {
                     tx_id: tx.tx_id.clone(),
                     entry_index: idx,
                     owner: c.to.clone(),
@@ -144,13 +144,13 @@ async fn list_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TokenRespons
             );
         }
         for d in &tx.debits {
-            if let Some(token) = tokens.get_mut(&(d.tx_id.clone(), d.entry_index)) {
-                token.spent_by = Some(tx.tx_id.clone());
+            if let Some(credit) = credit_tokens.get_mut(&(d.tx_id.clone(), d.entry_index)) {
+                credit.spent_by = Some(tx.tx_id.clone());
             }
         }
     }
 
-    let mut result: Vec<TokenResponse> = tokens.into_values().collect();
+    let mut result: Vec<CreditTokenResponse> = credit_tokens.into_values().collect();
     result.sort_by(|a, b| {
         a.tx_id
             .cmp(&b.tx_id)
@@ -189,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/", get(viewer))
         .route("/api/balances", get(list_balances))
         .route("/api/transactions", get(list_transactions))
-        .route("/api/tokens", get(list_tokens))
+        .route("/api/credit-tokens", get(list_credit_tokens))
         .route("/api/assets", get(list_assets))
         .with_state(ledger);
 

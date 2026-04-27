@@ -4,12 +4,12 @@
 
 All errors in `ledger-core` are represented by the `LedgerError` enum. Each variant corresponds to a specific validation failure or operational error.
 
-### Token Errors
+### Credit Token Errors
 
 | Variant | When | Fields |
 |---------|------|--------|
-| `DebitNotFound(CreditEntryRef)` | A debit references a token that does not exist in storage | The entry ref that was not found |
-| `AlreadySpent(CreditEntryRef)` | A debit references a token that has already been consumed | The entry ref of the spent token |
+| `DebitNotFound(CreditEntryRef)` | A debit references a credit token that does not exist in storage | The entry ref that was not found |
+| `AlreadySpent(CreditEntryRef)` | A debit references a credit token that has already been consumed | The entry ref of the spent token |
 
 These errors occur during `Ledger::commit()` when debit references are resolved against storage, or from the CAS guard in `mark_spent`.
 
