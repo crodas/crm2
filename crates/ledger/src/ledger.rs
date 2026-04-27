@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, CreditToken, LedgerError, Storage, Transaction,
+    Amount, Asset, CreditToken, LedgerError, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
@@ -114,18 +114,20 @@ impl Ledger {
 
     // ── Queries ──────────────────────────────────────────────────────
 
-    /// Return the balance of a specific account for a given asset.
-    pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
-        self.inner.balance(account, asset_name).await
+    /// Return the balance of a specific account across all assets.
+    pub async fn balance(
+        &self,
+        account: &str,
+    ) -> Result<HashMap<Asset, Amount>, LedgerError> {
+        self.inner.balance(account).await
     }
 
     /// Return the aggregate balance of all accounts under a prefix.
     pub async fn balance_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
-        self.inner.balance_prefix(prefix, asset_name).await
+    ) -> Result<HashMap<Asset, Amount>, LedgerError> {
+        self.inner.balance_prefix(prefix).await
     }
 
     /// Return unspent credit tokens owned by the given account.
@@ -156,9 +158,12 @@ impl Ledger {
             .await
     }
 
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent credit tokens under a prefix.
-    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
+    /// Return aggregated balances grouped by account, then by asset name,
+    /// for all unspent credit tokens under a prefix.
+    pub async fn balances_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, HashMap<Asset, Amount>>, LedgerError> {
         self.inner.balances_by_prefix(prefix).await
     }
 

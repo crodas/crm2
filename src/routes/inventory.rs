@@ -260,18 +260,18 @@ mod tests {
         let from_bal = state
             .db
             .ledger()
-            .balance("warehouse/1", "product:1")
+            .balance("warehouse/1")
             .await
             .unwrap();
         let to_bal = state
             .db
             .ledger()
-            .balance("warehouse/2", "product:1")
+            .balance("warehouse/2")
             .await
             .unwrap();
 
-        assert_eq!(from_bal, 6000);
-        assert_eq!(to_bal, 4000);
+        assert_eq!(from_bal["product:1"].raw(), 6000);
+        assert_eq!(to_bal["product:1"].raw(), 4000);
     }
 
     #[tokio::test]

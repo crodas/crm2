@@ -10,7 +10,9 @@
 //! | `usd`        | 2         | `10.00`     |
 //! | `cement_kg`  | 3         | `250.000`   |
 
+use std::borrow::Borrow;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
@@ -164,13 +166,28 @@ impl Asset {
     }
 }
 
+/// Equality is based on name only — the asset registry guarantees that
+/// each name maps to exactly one precision, so this is safe and lets
+/// `HashMap<Asset, _>` be indexed with `&str` via `Borrow<str>`.
 impl PartialEq for Asset {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.precision == other.precision
+        self.name == other.name
     }
 }
 
 impl Eq for Asset {}
+
+impl Hash for Asset {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+    }
+}
+
+impl Borrow<str> for Asset {
+    fn borrow(&self) -> &str {
+        &self.name
+    }
+}
 
 impl fmt::Display for Asset {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

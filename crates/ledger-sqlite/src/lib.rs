@@ -9,7 +9,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::Row;
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, CreditEntryRef, CreditToken, LedgerError, Storage, CreditTokenStatus,
+    Amount, Asset, CreditEntryRef, CreditToken, LedgerError, Storage, CreditTokenStatus,
     Transaction,
 };
 
@@ -239,7 +239,10 @@ impl Storage for SqliteStorage {
         rows_to_credit_tokens(rows)
     }
 
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
+    async fn balances_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, HashMap<Asset, Amount>>, LedgerError> {
         let rows = if prefix.is_empty() {
             sqlx::query(
                 "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
@@ -274,17 +277,18 @@ impl Storage for SqliteStorage {
             .map_err(db_err)?
         };
 
-        rows.into_iter()
-            .map(|row| {
-                let owner: String = row.get("owner");
-                let balance: i64 = row.get("balance");
-                let asset = asset_from_row(&row);
-                Ok(BalanceEntry {
-                    account: owner,
-                    amount: asset.amount_unchecked(balance as i128),
-                })
-            })
-            .collect()
+        let mut result: HashMap<String, HashMap<Asset, Amount>> = HashMap::new();
+        for row in rows {
+            let owner: String = row.get("owner");
+            let balance: i64 = row.get("balance");
+            let asset = asset_from_row(&row);
+            let amount = asset.amount_unchecked(balance as i128);
+            result
+                .entry(owner)
+                .or_default()
+                .insert(asset, amount);
+        }
+        Ok(result)
     }
 
     async fn mark_spent(&self, refs: &[CreditEntryRef], by_tx: &str) -> Result<(), LedgerError> {

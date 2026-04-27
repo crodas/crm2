@@ -582,26 +582,13 @@ pub async fn balances_prefix_groups_by_account_and_asset(s: &dyn Storage) {
         .await
         .expect("balances_by_prefix");
 
-    // Should have 3 entries: (w1/p1, brush), (w2/p1, brush), (w1/p1, usd)
-    assert_eq!(result.len(), 3);
+    // Should have 3 (account, asset) pairs across all accounts
+    let total: usize = result.values().map(|m| m.len()).sum();
+    assert_eq!(total, 3);
 
-    let w1_brush = result
-        .iter()
-        .find(|e| e.account == "store/w1/product/1" && e.amount.asset_name() == "brush")
-        .expect("w1 brush entry");
-    assert_eq!(w1_brush.amount.raw(), 5);
-
-    let w2_brush = result
-        .iter()
-        .find(|e| e.account == "store/w2/product/1" && e.amount.asset_name() == "brush")
-        .expect("w2 brush entry");
-    assert_eq!(w2_brush.amount.raw(), 3);
-
-    let w1_usd = result
-        .iter()
-        .find(|e| e.account == "store/w1/product/1" && e.amount.asset_name() == "usd")
-        .expect("w1 usd entry");
-    assert_eq!(w1_usd.amount.raw(), 1000);
+    assert_eq!(result["store/w1/product/1"]["brush"].raw(), 5);
+    assert_eq!(result["store/w2/product/1"]["brush"].raw(), 3);
+    assert_eq!(result["store/w1/product/1"]["usd"].raw(), 1000);
 }
 
 pub async fn balances_prefix_sums_multiple_tokens(s: &dyn Storage) {
@@ -613,8 +600,7 @@ pub async fn balances_prefix_sums_multiple_tokens(s: &dyn Storage) {
     commit(s, &tx2, &tokens2, &[]).await;
 
     let result = s.balances_by_prefix("a").await.expect("balances_by_prefix");
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].amount.raw(), 8);
+    assert_eq!(result["a/sub"]["brush"].raw(), 8);
 }
 
 pub async fn balances_prefix_excludes_spent(s: &dyn Storage) {
@@ -659,9 +645,8 @@ pub async fn balances_prefix_omits_zero_balances(s: &dyn Storage) {
     let result = s.balances_by_prefix("a").await.expect("balances_by_prefix");
 
     // @a has 0 balance (spent), @a/sub has 5 — only @a/sub should appear
-    assert_eq!(result.len(), 1);
-    assert_eq!(result[0].account, "a/sub");
-    assert_eq!(result[0].amount.raw(), 5);
+    assert!(!result.contains_key("a"), "zero-balance account should be omitted");
+    assert_eq!(result["a/sub"]["brush"].raw(), 5);
 }
 
 // ── Granular write primitive tests ──────────────────────────────────

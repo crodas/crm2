@@ -188,8 +188,8 @@ mod tests {
         assert_eq!(sale["payment_status"], "credit");
         assert_eq!(sale["total_amount"], 100.0);
 
-        let bal = state.db.ledger().balance("customer/1", "gs").await.unwrap();
-        assert_eq!(bal, -10000);
+        let bal = state.db.ledger().balance("customer/1").await.unwrap();
+        assert_eq!(bal["gs"].raw(), -10000);
     }
 
     #[tokio::test]
@@ -206,18 +206,18 @@ mod tests {
         let bal = state
             .db
             .ledger()
-            .balance("customer/1/debt", "gs")
+            .balance("customer/1/debt")
             .await
             .unwrap();
-        assert_eq!(bal, 0);
+        assert_eq!(bal.get("gs").map_or(0, |a| a.raw()), 0);
 
         let cash_bal = state
             .db
             .ledger()
-            .balance("warehouse/cash", "gs")
+            .balance("warehouse/cash")
             .await
             .unwrap();
-        assert_eq!(cash_bal, 10000);
+        assert_eq!(cash_bal["gs"].raw(), 10000);
     }
 
     #[tokio::test]
@@ -279,17 +279,17 @@ mod tests {
         let bal = state
             .db
             .ledger()
-            .balance("customer/1/debt", "gs")
+            .balance("customer/1/debt")
             .await
             .unwrap();
-        assert_eq!(bal, 0);
+        assert_eq!(bal.get("gs").map_or(0, |a| a.raw()), 0);
 
         let cash_bal = state
             .db
             .ledger()
-            .balance("warehouse/cash", "gs")
+            .balance("warehouse/cash")
             .await
             .unwrap();
-        assert_eq!(cash_bal, 10000);
+        assert_eq!(cash_bal["gs"].raw(), 10000);
     }
 }

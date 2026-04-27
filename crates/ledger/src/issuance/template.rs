@@ -81,8 +81,8 @@ mod tests {
         let tx = builder.build().await.unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("store/cash", "gs").await.unwrap(), 5000);
-        assert_eq!(ledger.balance("@world", "gs").await.unwrap(), -5000);
+        assert_eq!(ledger.balance("store/cash").await.unwrap()["gs"].raw(), 5000);
+        assert_eq!(ledger.balance("@world").await.unwrap()["gs"].raw(), -5000);
     }
 
     #[tokio::test]

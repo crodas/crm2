@@ -64,16 +64,18 @@ struct CreditTokenResponse {
 }
 
 async fn list_balances(State(ledger): State<Arc<Ledger>>) -> Json<Vec<BalanceResponse>> {
-    let entries = ledger.balances_by_prefix("").await.unwrap_or_default();
-    let balances = entries
-        .into_iter()
-        .map(|e| BalanceResponse {
-            account: e.account,
-            asset_name: e.amount.asset_name().to_string(),
-            raw: e.amount.raw(),
-            display: e.amount.to_decimal_string(),
-        })
-        .collect();
+    let accounts = ledger.balances_by_prefix("").await.unwrap_or_default();
+    let mut balances = Vec::new();
+    for (account, assets) in accounts {
+        for (asset, amount) in assets {
+            balances.push(BalanceResponse {
+                account: account.clone(),
+                asset_name: asset.name().to_string(),
+                raw: amount.raw(),
+                display: amount.to_decimal_string(),
+            });
+        }
+    }
     Json(balances)
 }
 

@@ -68,40 +68,38 @@ impl Db {
 
         let stock: Vec<StockLevel> = entries
             .iter()
-            .filter(|e| e.amount.asset_name().starts_with("product:"))
-            .filter_map(|e| {
-                let path = e.account.as_str();
-                let parts: Vec<&str> = path.split('/').collect();
-                if parts.len() != 2 || parts[0] != "store" {
-                    return None;
-                }
-                let wh_id: i64 = parts[1].parse().ok()?;
-                let pid: i64 = e
-                    .amount
-                    .asset_name()
-                    .strip_prefix("product:")?
-                    .parse()
-                    .ok()?;
-
-                if let Some(filter_pid) = product_id {
-                    if pid != filter_pid {
+            .flat_map(|(account, assets)| {
+                assets.iter().filter_map(move |(asset, amount)| {
+                    if !asset.name().starts_with("product:") {
                         return None;
                     }
-                }
-                if let Some(filter_wid) = warehouse_id {
-                    if wh_id != filter_wid {
+                    let parts: Vec<&str> = account.split('/').collect();
+                    if parts.len() != 2 || parts[0] != "store" {
                         return None;
                     }
-                }
+                    let wh_id: i64 = parts[1].parse().ok()?;
+                    let pid: i64 = asset.name().strip_prefix("product:")?.parse().ok()?;
 
-                let precision = e.amount.asset().precision() as u32;
-                let divisor = 10_f64.powi(precision as i32);
-                let total_quantity = e.amount.raw() as f64 / divisor;
+                    if let Some(filter_pid) = product_id {
+                        if pid != filter_pid {
+                            return None;
+                        }
+                    }
+                    if let Some(filter_wid) = warehouse_id {
+                        if wh_id != filter_wid {
+                            return None;
+                        }
+                    }
 
-                Some(StockLevel {
-                    product_id: pid,
-                    warehouse_id: wh_id,
-                    total_quantity,
+                    let precision = amount.asset().precision() as u32;
+                    let divisor = 10_f64.powi(precision as i32);
+                    let total_quantity = amount.raw() as f64 / divisor;
+
+                    Some(StockLevel {
+                        product_id: pid,
+                        warehouse_id: wh_id,
+                        total_quantity,
+                    })
                 })
             })
             .collect();
@@ -140,10 +138,12 @@ impl Db {
     /// Get the payable balance for a specific receipt from the ledger.
     pub async fn receipt_outstanding(&self, receipt_id: i64) -> Result<i128, AppError> {
         let payable_account = format!("warehouse/payables/{receipt_id}");
-        self.ledger
-            .balance(&payable_account, "gs")
+        let balances = self
+            .ledger
+            .balance(&payable_account)
             .await
-            .map_err(|e| AppError::Internal(e.to_string()))
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        Ok(balances.get("gs").map_or(0, |a| a.raw()))
     }
 
     /// List all ledger transactions (used for transfer history).

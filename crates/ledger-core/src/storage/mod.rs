@@ -17,7 +17,7 @@ use crate::account::is_prefix_of;
 use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
-use crate::credit_token::{BalanceEntry, CreditEntryRef, CreditToken, CreditTokenStatus};
+use crate::credit_token::{CreditEntryRef, CreditToken, CreditTokenStatus};
 use crate::transaction::Transaction;
 
 /// Async storage backend for the ledger.
@@ -67,9 +67,12 @@ pub trait Storage: Send + Sync + Debug {
         requested_amount: Option<&Amount>,
     ) -> Result<Vec<CreditToken>, LedgerError>;
 
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under `prefix`.
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError>;
+    /// Return aggregated balances grouped by account, then by asset name,
+    /// for all unspent tokens under `prefix`.
+    async fn balances_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, HashMap<Asset, Amount>>, LedgerError>;
 
     // ── Granular write primitives ─────────────────────────────────
 
@@ -161,7 +164,7 @@ impl Storage for MemoryStorage {
     async fn register_asset(&self, asset: &Asset) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
         if let Some(existing) = state.assets.get(asset.name()) {
-            if existing == asset {
+            if existing.name() == asset.name() && existing.precision() == asset.precision() {
                 return Ok(());
             }
             return Err(LedgerError::AssetConflict {
@@ -225,32 +228,32 @@ impl Storage for MemoryStorage {
             .collect())
     }
 
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
+    async fn balances_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, HashMap<Asset, Amount>>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
-        let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
+        let mut map: HashMap<String, HashMap<Asset, i128>> = HashMap::new();
         for t in state.credit_tokens.values() {
             if t.status == CreditTokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {
-                let key = (t.owner.clone(), t.amount.asset_name().to_string());
-                let entry = map
-                    .entry(key)
-                    .or_insert_with(|| (t.amount.asset().clone(), 0));
-                entry.1 += t.amount.raw();
+                *map.entry(t.owner.clone())
+                    .or_default()
+                    .entry(t.amount.asset().clone())
+                    .or_insert(0) += t.amount.raw();
             }
         }
-        let mut entries: Vec<BalanceEntry> = map
+        Ok(map
             .into_iter()
-            .filter(|(_, (_, balance))| *balance != 0)
-            .map(|((account, _asset_name), (asset, balance))| BalanceEntry {
-                account,
-                amount: Amount::new_unchecked(asset, balance),
+            .map(|(account, assets)| {
+                let amounts: HashMap<Asset, Amount> = assets
+                    .into_iter()
+                    .filter(|(_, raw)| *raw != 0)
+                    .map(|(asset, raw)| (asset.clone(), Amount::new_unchecked(asset, raw)))
+                    .collect();
+                (account, amounts)
             })
-            .collect();
-        entries.sort_by(|a, b| {
-            a.account
-                .cmp(&b.account)
-                .then(a.amount.asset_name().cmp(b.amount.asset_name()))
-        });
-        Ok(entries)
+            .filter(|(_, amounts)| !amounts.is_empty())
+            .collect())
     }
 
     async fn mark_spent(&self, refs: &[CreditEntryRef], _by_tx: &str) -> Result<(), LedgerError> {

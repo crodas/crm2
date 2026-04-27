@@ -14,10 +14,22 @@ use arc_swap::ArcSwap;
 
 use crate::amount::Amount;
 use crate::asset::Asset;
-use crate::credit_token::{BalanceEntry, CreditEntryRef, CreditToken, CreditTokenStatus};
+use crate::credit_token::{CreditEntryRef, CreditToken, CreditTokenStatus};
 use crate::error::LedgerError;
 use crate::storage::Storage;
 use crate::transaction::{compute_tx_id, Transaction};
+
+/// Aggregate a list of credit tokens into a map of asset name → net Amount.
+fn aggregate_balances(tokens: Vec<CreditToken>) -> HashMap<Asset, Amount> {
+    let mut map: HashMap<Asset, i128> = HashMap::new();
+    for t in &tokens {
+        *map.entry(t.amount.asset().clone()).or_insert(0) += t.amount.raw();
+    }
+    map.into_iter()
+        .filter(|(_, raw)| *raw != 0)
+        .map(|(asset, raw)| (asset.clone(), Amount::new_unchecked(asset, raw)))
+        .collect()
+}
 
 /// The append-only UTXO ledger engine.
 ///
@@ -55,8 +67,10 @@ use crate::transaction::{compute_tx_id, Transaction};
 /// ledger.commit(transfer).await.unwrap();
 ///
 /// // Check balances.
-/// assert_eq!(ledger.balance("store1/inventory", "brush").await.unwrap(), 2);
-/// assert_eq!(ledger.balance("customer1", "brush").await.unwrap(), 5);
+/// let inv = ledger.balance("store1/inventory").await.unwrap();
+/// assert_eq!(inv["brush"].raw(), 2);
+/// let cust = ledger.balance("customer1").await.unwrap();
+/// assert_eq!(cust["brush"].raw(), 5);
 /// # });
 /// ```
 #[derive(Debug, Clone)]
@@ -196,28 +210,22 @@ impl Ledger {
         crate::saga::run_commit(self.storage.clone(), spent_refs, new_credits, tx).await
     }
 
-    /// Return the balance of a specific account for a given asset.
-    pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
-        let filter = Asset::new(asset_name, 0).max();
-        let tokens = self
-            .storage
-            .unspent_by_account(account, Some(&filter))
-            .await?;
-        Ok(tokens.iter().map(|t| t.amount.raw()).sum())
+    /// Return the balance of a specific account across all assets.
+    pub async fn balance(
+        &self,
+        account: &str,
+    ) -> Result<HashMap<Asset, Amount>, LedgerError> {
+        let tokens = self.storage.unspent_by_account(account, None).await?;
+        Ok(aggregate_balances(tokens))
     }
 
     /// Return the aggregate balance of all accounts under a prefix.
     pub async fn balance_prefix(
         &self,
         prefix: &str,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
-        let filter = Asset::new(asset_name, 0).max();
-        let tokens = self
-            .storage
-            .unspent_by_prefix(prefix, Some(&filter))
-            .await?;
-        Ok(tokens.iter().map(|t| t.amount.raw()).sum())
+    ) -> Result<HashMap<Asset, Amount>, LedgerError> {
+        let tokens = self.storage.unspent_by_prefix(prefix, None).await?;
+        Ok(aggregate_balances(tokens))
     }
 
     /// Return unspent tokens owned by the given account.
@@ -250,9 +258,12 @@ impl Ledger {
             .await
     }
 
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under a prefix.
-    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
+    /// Return aggregated balances grouped by account, then by asset name,
+    /// for all unspent tokens under a prefix.
+    pub async fn balances_by_prefix(
+        &self,
+        prefix: &str,
+    ) -> Result<HashMap<String, HashMap<Asset, Amount>>, LedgerError> {
         self.storage.balances_by_prefix(prefix).await
     }
 
@@ -312,9 +323,10 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("store1/inventory", "brush")
+                .balance("store1/inventory")
                 .await
-                .expect("query balance"),
+                .expect("query balance")["brush"]
+                .raw(),
             5
         );
     }
@@ -342,16 +354,18 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("store1/inventory", "brush")
+                .balance("store1/inventory")
                 .await
-                .expect("store brush balance"),
+                .expect("store brush balance")["brush"]
+                .raw(),
             2
         );
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "brush")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust brush balance"),
+                .expect("cust brush balance")["brush"]
+                .raw(),
             5
         );
     }
@@ -381,23 +395,26 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "brush")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust_sale brush balance"),
+                .expect("cust_sale brush balance")["brush"]
+                .raw(),
             5
         );
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "usd")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust_sale usd balance"),
+                .expect("cust_sale usd balance")["usd"]
+                .raw(),
             -1000
         );
         assert_eq!(
             ledger
-                .balance("store1/receivables/sale_1", "usd")
+                .balance("store1/receivables/sale_1")
                 .await
-                .expect("store_recv usd balance"),
+                .expect("store_recv usd balance")["usd"]
+                .raw(),
             1000
         );
     }
@@ -452,30 +469,34 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("store1/cash", "usd")
+                .balance("store1/cash")
                 .await
-                .expect("store_cash usd balance"),
+                .expect("store_cash usd balance")["usd"]
+                .raw(),
             600
         );
         assert_eq!(
             ledger
-                .balance("customer1/cash", "usd")
+                .balance("customer1/cash")
                 .await
-                .expect("cust_cash usd balance"),
+                .expect("cust_cash usd balance")["usd"]
+                .raw(),
             400
         );
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "usd")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust_sale usd balance"),
+                .expect("cust_sale usd balance")["usd"]
+                .raw(),
             -400
         );
         assert_eq!(
             ledger
-                .balance("store1/receivables/sale_1", "usd")
+                .balance("store1/receivables/sale_1")
                 .await
-                .expect("store_recv usd balance"),
+                .expect("store_recv usd balance")["usd"]
+                .raw(),
             400
         );
 
@@ -495,37 +516,45 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("store1/cash", "usd")
+                .balance("store1/cash")
                 .await
-                .expect("store_cash usd balance"),
+                .expect("store_cash usd balance")["usd"]
+                .raw(),
             1000
         );
         assert_eq!(
             ledger
-                .balance("customer1/cash", "usd")
+                .balance("customer1/cash")
                 .await
-                .expect("cust_cash usd balance"),
+                .expect("cust_cash usd balance")
+                .get("usd")
+                .map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "usd")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust_sale usd balance"),
+                .expect("cust_sale usd balance")
+                .get("usd")
+                .map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
             ledger
-                .balance("store1/receivables/sale_1", "usd")
+                .balance("store1/receivables/sale_1")
                 .await
-                .expect("store_recv usd balance"),
+                .expect("store_recv usd balance")
+                .get("usd")
+                .map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
             ledger
-                .balance("customer1/sale_1", "brush")
+                .balance("customer1/sale_1")
                 .await
-                .expect("cust_sale brush balance"),
+                .expect("cust_sale brush balance")["brush"]
+                .raw(),
             5
         );
     }
@@ -553,9 +582,10 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance_prefix("store1", "usd")
+                .balance_prefix("store1")
                 .await
-                .expect("prefix usd prefix balance"),
+                .expect("prefix usd prefix balance")["usd"]
+                .raw(),
             1000
         );
     }
@@ -645,9 +675,10 @@ mod tests {
         // The 3 unspent tokens must still be available.
         assert_eq!(
             ledger
-                .balance("store1/inventory", "brush")
+                .balance("store1/inventory")
                 .await
-                .expect("balance after failed commit"),
+                .expect("balance after failed commit")["brush"]
+                .raw(),
             3
         );
     }
@@ -725,16 +756,18 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("store1/inventory", "brush")
+                .balance("store1/inventory")
                 .await
-                .expect("inv brush balance"),
+                .expect("inv brush balance")["brush"]
+                .raw(),
             10
         );
         assert_eq!(
             ledger
-                .balance("store1/cash", "usd")
+                .balance("store1/cash")
                 .await
-                .expect("cash usd balance"),
+                .expect("cash usd balance")["usd"]
+                .raw(),
             5000
         );
     }
@@ -762,15 +795,15 @@ mod tests {
         ledger.commit(split).await.expect("commit split");
 
         assert_eq!(
-            ledger.balance("a", "brush").await.expect("a brush balance"),
+            ledger.balance("a").await.expect("a brush balance")["brush"].raw(),
             2
         );
         assert_eq!(
-            ledger.balance("b", "brush").await.expect("b brush balance"),
+            ledger.balance("b").await.expect("b brush balance")["brush"].raw(),
             3
         );
         assert_eq!(
-            ledger.balance("c", "brush").await.expect("c brush balance"),
+            ledger.balance("c").await.expect("c brush balance")["brush"].raw(),
             5
         );
     }
@@ -824,9 +857,9 @@ mod tests {
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
 
-        let sum = ledger.balance("a", "usd").await.expect("a usd balance")
-            + ledger.balance("b", "usd").await.expect("b usd balance");
-        assert_eq!(sum, 10000);
+        let a_usd = ledger.balance("a").await.expect("a usd balance")["usd"].raw();
+        let b_usd = ledger.balance("b").await.expect("b usd balance")["usd"].raw();
+        assert_eq!(a_usd + b_usd, 10000);
     }
 
     #[tokio::test]
@@ -843,27 +876,31 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("debtor", "usd")
+                .balance("debtor")
                 .await
-                .expect("debtor usd balance"),
+                .expect("debtor usd balance")["usd"]
+                .raw(),
             -5000
         );
         assert_eq!(
             ledger
-                .balance("creditor", "usd")
+                .balance("creditor")
                 .await
-                .expect("creditor usd balance"),
+                .expect("creditor usd balance")["usd"]
+                .raw(),
             5000
         );
-        let sum = ledger
-            .balance("debtor", "usd")
+        let debtor_usd = ledger
+            .balance("debtor")
             .await
-            .expect("debtor usd balance")
-            + ledger
-                .balance("creditor", "usd")
-                .await
-                .expect("creditor usd balance");
-        assert_eq!(sum, 0);
+            .expect("debtor usd balance")["usd"]
+            .raw();
+        let creditor_usd = ledger
+            .balance("creditor")
+            .await
+            .expect("creditor usd balance")["usd"]
+            .raw();
+        assert_eq!(debtor_usd + creditor_usd, 0);
     }
 
     #[tokio::test]
@@ -897,16 +934,19 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("debtor", "usd")
+                .balance("debtor")
                 .await
-                .expect("debtor usd balance"),
+                .expect("debtor usd balance")
+                .get("usd")
+                .map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
             ledger
-                .balance_prefix("creditor", "usd")
+                .balance_prefix("creditor")
                 .await
-                .expect("creditor_prefix usd prefix balance"),
+                .expect("creditor_prefix usd prefix balance")["usd"]
+                .raw(),
             5000
         );
     }
@@ -943,16 +983,19 @@ mod tests {
         ledger.commit(xfer).await.expect("commit xfer");
 
         assert_eq!(
-            ledger.balance("a", "brush").await.expect("a brush balance"),
+            ledger.balance("a").await.expect("a brush balance").get("brush").map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
-            ledger.balance("b", "brush").await.expect("b brush balance"),
+            ledger.balance("b").await.expect("b brush balance")["brush"].raw(),
             10
         );
-        assert_eq!(ledger.balance("a", "usd").await.expect("a usd balance"), 0);
         assert_eq!(
-            ledger.balance("b", "usd").await.expect("b usd balance"),
+            ledger.balance("a").await.expect("a usd balance").get("usd").map_or(0, |a| a.raw()),
+            0
+        );
+        assert_eq!(
+            ledger.balance("b").await.expect("b usd balance")["usd"].raw(),
             2000
         );
     }
@@ -1026,16 +1069,18 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("customer1", "usd")
+                .balance("customer1")
                 .await
-                .expect("cust usd balance"),
+                .expect("cust usd balance")["usd"]
+                .raw(),
             -1000
         );
         assert_eq!(
             ledger
-                .balance("customer1", "brush")
+                .balance("customer1")
                 .await
-                .expect("cust brush balance"),
+                .expect("cust brush balance")["brush"]
+                .raw(),
             2
         );
 
@@ -1065,16 +1110,18 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("customer1", "usd")
+                .balance("customer1")
                 .await
-                .expect("cust usd balance"),
+                .expect("cust usd balance")["usd"]
+                .raw(),
             -500
         );
         assert_eq!(
             ledger
-                .balance_prefix("store1", "usd")
+                .balance_prefix("store1")
                 .await
-                .expect("store usd prefix balance"),
+                .expect("store usd prefix balance")["usd"]
+                .raw(),
             1000
         );
 
@@ -1097,23 +1144,27 @@ mod tests {
 
         assert_eq!(
             ledger
-                .balance("customer1", "usd")
+                .balance("customer1")
                 .await
-                .expect("cust usd balance"),
+                .expect("cust usd balance")
+                .get("usd")
+                .map_or(0, |a| a.raw()),
             0
         );
         assert_eq!(
             ledger
-                .balance("customer1", "brush")
+                .balance("customer1")
                 .await
-                .expect("cust brush balance"),
+                .expect("cust brush balance")["brush"]
+                .raw(),
             2
         );
         assert_eq!(
             ledger
-                .balance_prefix("store1", "usd")
+                .balance_prefix("store1")
                 .await
-                .expect("store usd prefix balance"),
+                .expect("store usd prefix balance")["usd"]
+                .raw(),
             1000
         );
     }

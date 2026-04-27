@@ -117,8 +117,8 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("customer/1", "gs").await.unwrap(), -10000);
-        assert_eq!(ledger.balance("store/1", "gs").await.unwrap(), 10000);
+        assert_eq!(ledger.balance("customer/1").await.unwrap()["gs"].raw(), -10000);
+        assert_eq!(ledger.balance("store/1").await.unwrap()["gs"].raw(), 10000);
     }
 
     #[tokio::test]
@@ -144,8 +144,8 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("customer/1", "gs").await.unwrap(), 0);
-        assert_eq!(ledger.balance("store/1", "gs").await.unwrap(), 0);
+        assert_eq!(ledger.balance("customer/1").await.unwrap().get("gs").map_or(0, |a| a.raw()), 0);
+        assert_eq!(ledger.balance("store/1").await.unwrap().get("gs").map_or(0, |a| a.raw()), 0);
     }
 
     #[tokio::test]
@@ -171,8 +171,8 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("customer/1", "gs").await.unwrap(), -4000);
-        assert_eq!(ledger.balance("store/1", "gs").await.unwrap(), 4000);
+        assert_eq!(ledger.balance("customer/1").await.unwrap()["gs"].raw(), -4000);
+        assert_eq!(ledger.balance("store/1").await.unwrap()["gs"].raw(), 4000);
     }
 
     #[tokio::test]
@@ -202,10 +202,10 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("store/inventory", "brush").await.unwrap(), 7);
-        assert_eq!(ledger.balance("customer/1", "brush").await.unwrap(), 3);
-        assert_eq!(ledger.balance("customer/1", "gs").await.unwrap(), -5000);
-        assert_eq!(ledger.balance("store/1", "gs").await.unwrap(), 5000);
+        assert_eq!(ledger.balance("store/inventory").await.unwrap()["brush"].raw(), 7);
+        assert_eq!(ledger.balance("customer/1").await.unwrap()["brush"].raw(), 3);
+        assert_eq!(ledger.balance("customer/1").await.unwrap()["gs"].raw(), -5000);
+        assert_eq!(ledger.balance("store/1").await.unwrap()["gs"].raw(), 5000);
     }
 
     #[tokio::test]
@@ -235,9 +235,9 @@ mod tests {
             .unwrap();
         ledger.commit(tx).await.unwrap();
 
-        assert_eq!(ledger.balance("customer/1", "gs").await.unwrap(), -5000);
-        assert_eq!(ledger.balance("store/1", "gs").await.unwrap(), 5000);
-        assert_eq!(ledger.balance("store/cash", "gs").await.unwrap(), 5000);
+        assert_eq!(ledger.balance("customer/1").await.unwrap()["gs"].raw(), -5000);
+        assert_eq!(ledger.balance("store/1").await.unwrap()["gs"].raw(), 5000);
+        assert_eq!(ledger.balance("store/cash").await.unwrap()["gs"].raw(), 5000);
     }
 
     #[tokio::test]
