@@ -50,7 +50,7 @@ fn make_issuance(
     asset: &Asset,
     raw: i128,
 ) -> (Transaction, Vec<SpendingToken>) {
-    let amount = asset.try_amount(raw).expect("valid amount for fixture");
+    let amount = asset.try_amount(raw);
     let neg = amount.negate();
     let tx = TransactionBuilder::new(key)
         .credit(account, &amount)
@@ -80,7 +80,7 @@ fn make_transfer(
     asset: &Asset,
     raw: i128,
 ) -> (Transaction, Vec<SpendingToken>, Vec<EntryRef>) {
-    let amount = asset.try_amount(raw).expect("valid amount for fixture");
+    let amount = asset.try_amount(raw);
     let tx = TransactionBuilder::new(key)
         .debit(&spent_ref.tx_id, spent_ref.entry_index, from, &amount)
         .credit(to, &amount)

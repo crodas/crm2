@@ -36,27 +36,27 @@ Quantities are stored internally as `i128` integers scaled by `10^precision`. Th
 | `brush` | 0 | `"5"` | `5` |
 | `btc` | 8 | `"0.00100000"` | `100000` |
 
-### `from_cents(qty: i128) -> String`
+### `from_cents(qty: i128) -> Amount`
 
-Converts a scaled integer back to its decimal string representation. Always includes trailing zeros up to the asset's precision.
+Creates an `Amount` from a raw scaled integer. Use `to_string()` on the resulting `Amount` for its decimal representation.
 
 ```rust
-let usd = Asset::new("usd", 2, AssetKind::Signed);
-assert_eq!(usd.from_cents(1050), "10.50");
-assert_eq!(usd.from_cents(100), "1.00");
-assert_eq!(usd.from_cents(-500), "-5.00");
+let usd = Asset::new("usd", 2);
+assert_eq!(usd.from_cents(1050).to_string(), "10.50");
+assert_eq!(usd.from_cents(100).to_string(), "1.00");
+assert_eq!(usd.from_cents(-500).to_string(), "-5.00");
 ```
 
 For precision 0, returns the integer directly:
 
 ```rust
-let brush = Asset::new("brush", 0, AssetKind::Unsigned);
-assert_eq!(brush.from_cents(5), "5");
+let brush = Asset::new("brush", 0);
+assert_eq!(brush.from_cents(5).to_string(), "5");
 ```
 
-### `parse_qty(s: &str) -> Result<i128, ParseQtyError>`
+### `parse_qty(s: &str) -> Result<Amount, ParseQtyError>`
 
-Parses a decimal string into a scaled integer. Validates that the string does not exceed the asset's precision.
+Parses a decimal string into an `Amount`. Validates that the string does not exceed the asset's precision.
 
 ```rust
 let usd = Asset::new("usd", 2, AssetKind::Signed);

@@ -218,7 +218,7 @@ impl Storage for MemoryStorage {
             .filter(|(_, (_, balance))| *balance != 0)
             .map(|((account, _asset_name), (asset, balance))| BalanceEntry {
                 account,
-                amount: Amount::new_unchecked(asset, balance),
+                amount: Amount::new(asset, balance),
             })
             .collect();
         entries.sort_by(|a, b| {

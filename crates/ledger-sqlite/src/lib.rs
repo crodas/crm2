@@ -148,7 +148,7 @@ impl Storage for SqliteStorage {
                 Ok(Some(SpendingToken {
                     entry_ref: eref.clone(),
                     owner,
-                    amount: asset.amount_unchecked(qty),
+                    amount: asset.from_cents(qty),
                     status,
                 }))
             }
@@ -277,7 +277,7 @@ impl Storage for SqliteStorage {
                 let asset = asset_from_row(&row);
                 Ok(BalanceEntry {
                     account: owner,
-                    amount: asset.amount_unchecked(balance as i128),
+                    amount: asset.from_cents(balance as i128),
                 })
             })
             .collect()
@@ -373,7 +373,7 @@ fn rows_to_tokens(rows: Vec<sqlx::sqlite::SqliteRow>) -> Result<Vec<SpendingToke
                     entry_index: entry_index as u32,
                 },
                 owner,
-                amount: asset.amount_unchecked(qty),
+                amount: asset.from_cents(qty),
                 status: TokenStatus::Unspent,
             })
         })

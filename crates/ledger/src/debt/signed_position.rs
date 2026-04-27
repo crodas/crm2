@@ -89,7 +89,7 @@ mod tests {
     }
 
     fn gs_amount(raw: i128) -> Amount {
-        Asset::new("gs", 0).try_amount(raw).unwrap()
+        Asset::new("gs", 0).try_amount(raw)
     }
 
     #[tokio::test]
@@ -179,8 +179,8 @@ mod tests {
     async fn mixed_tx_with_product_debits() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
-        let b10 = brush.try_amount(10).unwrap();
-        let b3 = brush.try_amount(3).unwrap();
+        let b10 = brush.try_amount(10);
+        let b3 = brush.try_amount(3);
 
         let tx = ledger
             .transaction("issue-inv")
@@ -212,7 +212,7 @@ mod tests {
     async fn settle_with_cash_credit() {
         let ledger = setup_ledger().await;
         let gs = ledger.asset("gs").unwrap();
-        let gs5000 = gs.try_amount(5000).unwrap();
+        let gs5000 = gs.try_amount(5000);
 
         let tx = ledger
             .transaction("debt-001")
@@ -249,7 +249,7 @@ mod tests {
             .create_debt("1", "1", &gs_amount(0));
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
-        let neg = Asset::new("gs", 0).try_amount(-100).unwrap();
+        let neg = Asset::new("gs", 0).try_amount(-100);
         let result = ledger.transaction("bad2").create_debt("1", "1", &neg);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }

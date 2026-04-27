@@ -124,7 +124,7 @@ pub async fn list_transfers(
                         .strip_prefix("product:")?
                         .parse()
                         .ok()?;
-                    let qty: f64 = c.amount.to_decimal_string().parse().ok()?;
+                    let qty: f64 = c.amount.to_string().parse().ok()?;
                     Some(serde_json::json!({
                         "product_id": product_id,
                         "quantity": qty,
@@ -219,10 +219,7 @@ mod tests {
 
     async fn seed_stock(state: &AppState, warehouse_id: i64, product_id: i64, qty: f64) {
         let account = format!("warehouse/{warehouse_id}");
-        let asset = state
-            .db
-            .asset(&format!("product:{product_id}"))
-            .unwrap();
+        let asset = state.db.asset(&format!("product:{product_id}")).unwrap();
         let amount = asset.parse_amount(&format!("{qty:.3}")).unwrap();
         let tx = state
             .db
@@ -260,8 +257,18 @@ mod tests {
         let resp = app.oneshot(transfer_request(1, 2, 1, 4.0)).await.unwrap();
         assert_eq!(resp.status(), 200);
 
-        let from_bal = state.db.ledger().balance("warehouse/1", "product:1").await.unwrap();
-        let to_bal = state.db.ledger().balance("warehouse/2", "product:1").await.unwrap();
+        let from_bal = state
+            .db
+            .ledger()
+            .balance("warehouse/1", "product:1")
+            .await
+            .unwrap();
+        let to_bal = state
+            .db
+            .ledger()
+            .balance("warehouse/2", "product:1")
+            .await
+            .unwrap();
 
         assert_eq!(from_bal, 6000);
         assert_eq!(to_bal, 4000);

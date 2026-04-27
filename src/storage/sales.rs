@@ -1,7 +1,7 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::sale::*;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_sales(&self) -> Result<Vec<Sale>, AppError> {
@@ -20,11 +20,10 @@ impl Db {
     }
 
     pub async fn get_sale_lines(&self, sale_id: i64) -> Result<Vec<SaleLine>, AppError> {
-        let lines =
-            sqlx::query_as::<_, SaleLine>("SELECT * FROM sale_lines WHERE sale_id = ?")
-                .bind(sale_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let lines = sqlx::query_as::<_, SaleLine>("SELECT * FROM sale_lines WHERE sale_id = ?")
+            .bind(sale_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(lines)
     }
 
@@ -114,9 +113,7 @@ impl Tx {
             .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
 
         if payment_method.is_none() {
-            let debt_amount = gs
-                .try_amount(total.cents().into())
-                .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+            let debt_amount = gs.try_amount(total.cents().into());
             builder = builder
                 .create_debt(&customer_id.to_string(), &self.store_id, &debt_amount)
                 .map_err(|e| AppError::Internal(format!("create debt: {e}")))?;
@@ -154,9 +151,7 @@ impl Tx {
 
         // If paid immediately: credit cash + record payment
         if let Some(method) = payment_method {
-            let cash_amount = gs
-                .try_amount(total.cents().into())
-                .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+            let cash_amount = gs.try_amount(total.cents().into());
             let cash_tx = self
                 .ledger
                 .transaction(format!("sale-{}-cash", sale.id))
@@ -206,9 +201,7 @@ impl Tx {
             .ledger
             .asset("gs")
             .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
-        let gs_amount = gs
-            .try_amount(amount)
-            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+        let gs_amount = gs.try_amount(amount);
 
         let ledger_tx = self
             .ledger

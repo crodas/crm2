@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::inventory::{LatestPrice, LatestPriceQuery};
 use crate::models::product::*;
-use super::{Db, Tx};
 
 #[derive(sqlx::FromRow)]
 struct PriceRow {
@@ -77,11 +77,10 @@ impl Db {
     }
 
     pub async fn warehouse_exists(&self, id: i64) -> Result<bool, AppError> {
-        let row: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<i64> = sqlx::query_scalar("SELECT id FROM warehouses WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row.is_some())
     }
 
@@ -189,11 +188,13 @@ impl Tx {
         Ok(product)
     }
 
-    pub async fn create_warehouse(&mut self, body: &CreateWarehouse) -> Result<Warehouse, AppError> {
-        let max_order: Option<i64> =
-            sqlx::query_scalar("SELECT MAX(sort_order) FROM warehouses")
-                .fetch_one(&mut *self.inner)
-                .await?;
+    pub async fn create_warehouse(
+        &mut self,
+        body: &CreateWarehouse,
+    ) -> Result<Warehouse, AppError> {
+        let max_order: Option<i64> = sqlx::query_scalar("SELECT MAX(sort_order) FROM warehouses")
+            .fetch_one(&mut *self.inner)
+            .await?;
         let next_order = max_order.unwrap_or(0) + 1;
 
         let warehouse = sqlx::query_as::<_, Warehouse>(

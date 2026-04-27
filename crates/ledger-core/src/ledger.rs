@@ -37,7 +37,7 @@ use crate::transaction::{compute_tx_id, Transaction};
 /// ledger.register_asset(brush.clone()).await.unwrap();
 ///
 /// // Issue 7 brushes into store inventory.
-/// let seven = brush.try_amount(7).unwrap();
+/// let seven = brush.try_amount(7);
 /// let issue = TransactionBuilder::new("issue-001")
 ///     .credit("store1/inventory", &seven)
 ///     .credit("@world", &seven.negate())
@@ -47,9 +47,9 @@ use crate::transaction::{compute_tx_id, Transaction};
 ///
 /// // Transfer 5 brushes to a customer, returning 2 as change.
 /// let transfer = TransactionBuilder::new("sale-001")
-///     .debit(&tx_id, 0, "store1/inventory", &brush.try_amount(7).unwrap())
-///     .credit("customer1", &brush.try_amount(5).unwrap())
-///     .credit("store1/inventory", &brush.try_amount(2).unwrap())
+///     .debit(&tx_id, 0, "store1/inventory", &brush.try_amount(7))
+///     .credit("customer1", &brush.try_amount(5))
+///     .credit("store1/inventory", &brush.try_amount(2))
 ///     .build()
 ///     .unwrap();
 /// ledger.commit(transfer).await.unwrap();
@@ -304,7 +304,7 @@ mod tests {
     async fn issue_inventory() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
-        let five_b = b.try_amount(5).unwrap();
+        let five_b = b.try_amount(5);
 
         let tx = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &five_b)
@@ -326,7 +326,7 @@ mod tests {
     async fn transfer_with_change() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
-        let seven_b = b.try_amount(7).unwrap();
+        let seven_b = b.try_amount(7);
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &seven_b)
@@ -336,9 +336,9 @@ mod tests {
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let transfer = TransactionBuilder::new("sale-001")
-            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(7).unwrap())
-            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
-            .credit("store1/inventory", &b.try_amount(2).unwrap())
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(7))
+            .credit("customer1/sale_1", &b.try_amount(5))
+            .credit("store1/inventory", &b.try_amount(2))
             .build()
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
@@ -364,7 +364,7 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let five_b = b.try_amount(5).unwrap();
+        let five_b = b.try_amount(5);
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &five_b)
@@ -374,10 +374,10 @@ mod tests {
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let sale = TransactionBuilder::new("credit-sale-001")
-            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
-            .credit("customer1/sale_1", &u.try_amount(-1000).unwrap())
-            .credit("store1/receivables/sale_1", &u.try_amount(1000).unwrap())
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer1/sale_1", &b.try_amount(5))
+            .credit("customer1/sale_1", &u.try_amount(-1000))
+            .credit("store1/receivables/sale_1", &u.try_amount(1000))
             .build()
             .expect("build tx");
         ledger.commit(sale).await.expect("commit sale");
@@ -410,7 +410,7 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let five_b = b.try_amount(5).unwrap();
+        let five_b = b.try_amount(5);
 
         let t1 = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &five_b)
@@ -420,15 +420,15 @@ mod tests {
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("credit-sale-001")
-            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer1/sale_1", &b.try_amount(5).unwrap())
-            .credit("customer1/sale_1", &u.try_amount(-1000).unwrap())
-            .credit("store1/receivables/sale_1", &u.try_amount(1000).unwrap())
+            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer1/sale_1", &b.try_amount(5))
+            .credit("customer1/sale_1", &u.try_amount(-1000))
+            .credit("store1/receivables/sale_1", &u.try_amount(1000))
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
-        let cash_1000 = u.try_amount(1000).unwrap();
+        let cash_1000 = u.try_amount(1000);
         let t3 = TransactionBuilder::new("cash-in-001")
             .credit("customer1/cash", &cash_1000)
             .credit("@world", &cash_1000.negate())
@@ -437,18 +437,13 @@ mod tests {
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
         let t4 = TransactionBuilder::new("partial-pay-001")
-            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(1000).unwrap())
-            .debit(&t2_id, 1, "customer1/sale_1", &u.try_amount(-1000).unwrap())
-            .debit(
-                &t2_id,
-                2,
-                "store1/receivables/sale_1",
-                &u.try_amount(1000).unwrap(),
-            )
-            .credit("store1/cash", &u.try_amount(600).unwrap())
-            .credit("customer1/cash", &u.try_amount(400).unwrap())
-            .credit("customer1/sale_1", &u.try_amount(-400).unwrap())
-            .credit("store1/receivables/sale_1", &u.try_amount(400).unwrap())
+            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(1000))
+            .debit(&t2_id, 1, "customer1/sale_1", &u.try_amount(-1000))
+            .debit(&t2_id, 2, "store1/receivables/sale_1", &u.try_amount(1000))
+            .credit("store1/cash", &u.try_amount(600))
+            .credit("customer1/cash", &u.try_amount(400))
+            .credit("customer1/sale_1", &u.try_amount(-400))
+            .credit("store1/receivables/sale_1", &u.try_amount(400))
             .build()
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
@@ -483,15 +478,10 @@ mod tests {
         );
 
         let t5 = TransactionBuilder::new("final-pay-001")
-            .debit(&t4_id, 1, "customer1/cash", &u.try_amount(400).unwrap())
-            .debit(&t4_id, 2, "customer1/sale_1", &u.try_amount(-400).unwrap())
-            .debit(
-                &t4_id,
-                3,
-                "store1/receivables/sale_1",
-                &u.try_amount(400).unwrap(),
-            )
-            .credit("store1/cash", &u.try_amount(400).unwrap())
+            .debit(&t4_id, 1, "customer1/cash", &u.try_amount(400))
+            .debit(&t4_id, 2, "customer1/sale_1", &u.try_amount(-400))
+            .debit(&t4_id, 3, "store1/receivables/sale_1", &u.try_amount(400))
+            .credit("store1/cash", &u.try_amount(400))
             .build()
             .expect("build tx");
         ledger.commit(t5).await.expect("commit t5");
@@ -537,8 +527,8 @@ mod tests {
     async fn prefix_query() {
         let ledger = setup_ledger().await;
         let u = usd(&ledger);
-        let six_hundred = u.try_amount(600).unwrap();
-        let four_hundred = u.try_amount(400).unwrap();
+        let six_hundred = u.try_amount(600);
+        let four_hundred = u.try_amount(400);
 
         let t1 = TransactionBuilder::new("k1")
             .credit("store1/cash", &six_hundred)
@@ -567,7 +557,7 @@ mod tests {
     async fn double_spend_rejected() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
-        let five_b = b.try_amount(5).unwrap();
+        let five_b = b.try_amount(5);
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &five_b)
@@ -577,15 +567,15 @@ mod tests {
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let spend1 = TransactionBuilder::new("spend-1")
-            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer1", &b.try_amount(5).unwrap())
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer1", &b.try_amount(5))
             .build()
             .expect("build tx");
         ledger.commit(spend1).await.expect("commit spend1");
 
         let spend2 = TransactionBuilder::new("spend-2")
-            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer2", &b.try_amount(5).unwrap())
+            .debit(&issue_id, 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer2", &b.try_amount(5))
             .build()
             .expect("build tx");
         assert!(matches!(
@@ -599,8 +589,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer1", &b.try_amount(10).unwrap())
+            .debit("fake-tx", 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer1", &b.try_amount(10))
             .build();
         assert!(matches!(
             result,
@@ -613,7 +603,7 @@ mod tests {
         let u = usd(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .credit("customer1", &u.try_amount(-1000).unwrap())
+            .credit("customer1", &u.try_amount(-1000))
             .build();
         assert!(matches!(
             result,
@@ -625,8 +615,8 @@ mod tests {
     async fn duplicate_idempotency_key_rejected() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
-        let five_b = b.try_amount(5).unwrap();
-        let three_b = b.try_amount(3).unwrap();
+        let five_b = b.try_amount(5);
+        let three_b = b.try_amount(3);
 
         let tx1 = TransactionBuilder::new("same-key")
             .credit("store1/inventory", &five_b)
@@ -653,8 +643,8 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let ten_b = b.try_amount(10).unwrap();
-        let five_k = u.try_amount(5000).unwrap();
+        let ten_b = b.try_amount(10);
+        let five_k = u.try_amount(5000);
 
         let tx = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &ten_b)
@@ -685,7 +675,7 @@ mod tests {
     async fn transfer_conserves_unsigned_asset() {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
-        let ten_b = b.try_amount(10).unwrap();
+        let ten_b = b.try_amount(10);
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("a", &ten_b)
@@ -695,10 +685,10 @@ mod tests {
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let split = TransactionBuilder::new("split-001")
-            .debit(&issue_id, 0, "a", &b.try_amount(10).unwrap())
-            .credit("b", &b.try_amount(3).unwrap())
-            .credit("c", &b.try_amount(5).unwrap())
-            .credit("a", &b.try_amount(2).unwrap())
+            .debit(&issue_id, 0, "a", &b.try_amount(10))
+            .credit("b", &b.try_amount(3))
+            .credit("c", &b.try_amount(5))
+            .credit("a", &b.try_amount(2))
             .build()
             .expect("build tx");
         ledger.commit(split).await.expect("commit split");
@@ -722,8 +712,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "a", &b.try_amount(10).unwrap())
-            .credit("b", &b.try_amount(7).unwrap())
+            .debit("fake-tx", 0, "a", &b.try_amount(10))
+            .credit("b", &b.try_amount(7))
             .build();
         assert!(matches!(
             result,
@@ -736,8 +726,8 @@ mod tests {
         let b = brush(&setup_ledger().await);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake-tx", 0, "a", &b.try_amount(5).unwrap())
-            .credit("b", &b.try_amount(8).unwrap())
+            .debit("fake-tx", 0, "a", &b.try_amount(5))
+            .credit("b", &b.try_amount(8))
             .build();
         assert!(matches!(
             result,
@@ -749,7 +739,7 @@ mod tests {
     async fn signed_asset_conservation_across_transfer() {
         let ledger = setup_ledger().await;
         let u = usd(&ledger);
-        let ten_k = u.try_amount(10000).unwrap();
+        let ten_k = u.try_amount(10000);
 
         let issue = TransactionBuilder::new("issue-001")
             .credit("a", &ten_k)
@@ -759,9 +749,9 @@ mod tests {
         let issue_id = ledger.commit(issue).await.expect("commit issue");
 
         let transfer = TransactionBuilder::new("xfer-001")
-            .debit(&issue_id, 0, "a", &u.try_amount(10000).unwrap())
-            .credit("b", &u.try_amount(4000).unwrap())
-            .credit("a", &u.try_amount(6000).unwrap())
+            .debit(&issue_id, 0, "a", &u.try_amount(10000))
+            .credit("b", &u.try_amount(4000))
+            .credit("a", &u.try_amount(6000))
             .build()
             .expect("build tx");
         ledger.commit(transfer).await.expect("commit transfer");
@@ -777,8 +767,8 @@ mod tests {
         let u = usd(&ledger);
 
         let tx = TransactionBuilder::new("debt-001")
-            .credit("debtor", &u.try_amount(-5000).unwrap())
-            .credit("creditor", &u.try_amount(5000).unwrap())
+            .credit("debtor", &u.try_amount(-5000))
+            .credit("creditor", &u.try_amount(5000))
             .build()
             .expect("build tx");
         ledger.commit(tx).await.expect("commit tx");
@@ -814,13 +804,13 @@ mod tests {
         let u = usd(&ledger);
 
         let t1 = TransactionBuilder::new("debt-001")
-            .credit("debtor", &u.try_amount(-5000).unwrap())
-            .credit("creditor", &u.try_amount(5000).unwrap())
+            .credit("debtor", &u.try_amount(-5000))
+            .credit("creditor", &u.try_amount(5000))
             .build()
             .expect("build tx");
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
-        let five_k = u.try_amount(5000).unwrap();
+        let five_k = u.try_amount(5000);
         let t2 = TransactionBuilder::new("cash-in")
             .credit("debtor", &five_k)
             .credit("@world", &five_k.negate())
@@ -829,10 +819,10 @@ mod tests {
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let t3 = TransactionBuilder::new("settle-001")
-            .debit(&t1_id, 0, "debtor", &u.try_amount(-5000).unwrap())
-            .debit(&t2_id, 0, "debtor", &u.try_amount(5000).unwrap())
-            .debit(&t1_id, 1, "creditor", &u.try_amount(5000).unwrap())
-            .credit("creditor/cash", &u.try_amount(5000).unwrap())
+            .debit(&t1_id, 0, "debtor", &u.try_amount(-5000))
+            .debit(&t2_id, 0, "debtor", &u.try_amount(5000))
+            .debit(&t1_id, 1, "creditor", &u.try_amount(5000))
+            .credit("creditor/cash", &u.try_amount(5000))
             .build()
             .expect("build tx");
         ledger.commit(t3).await.expect("commit t3");
@@ -858,8 +848,8 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let ten_b = b.try_amount(10).unwrap();
-        let two_k = u.try_amount(2000).unwrap();
+        let ten_b = b.try_amount(10);
+        let two_k = u.try_amount(2000);
 
         let t1 = TransactionBuilder::new("issue-001")
             .credit("a", &ten_b)
@@ -876,10 +866,10 @@ mod tests {
         let t2_id = ledger.commit(t2).await.expect("commit t2");
 
         let xfer = TransactionBuilder::new("xfer-001")
-            .debit(&t1_id, 0, "a", &b.try_amount(10).unwrap())
-            .debit(&t2_id, 0, "a", &u.try_amount(2000).unwrap())
-            .credit("b", &b.try_amount(10).unwrap())
-            .credit("b", &u.try_amount(2000).unwrap())
+            .debit(&t1_id, 0, "a", &b.try_amount(10))
+            .debit(&t2_id, 0, "a", &u.try_amount(2000))
+            .credit("b", &b.try_amount(10))
+            .credit("b", &u.try_amount(2000))
             .build()
             .expect("build tx");
         ledger.commit(xfer).await.expect("commit xfer");
@@ -906,10 +896,10 @@ mod tests {
         let u = usd(&ledger);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake1", 0, "a", &b.try_amount(10).unwrap())
-            .debit("fake2", 0, "a", &u.try_amount(2000).unwrap())
-            .credit("b", &b.try_amount(10).unwrap())
-            .credit("b", &u.try_amount(1500).unwrap())
+            .debit("fake1", 0, "a", &b.try_amount(10))
+            .debit("fake2", 0, "a", &u.try_amount(2000))
+            .credit("b", &b.try_amount(10))
+            .credit("b", &u.try_amount(1500))
             .build();
         let err = result.expect_err("should fail with conservation error");
         match err {
@@ -933,9 +923,9 @@ mod tests {
         let u = usd(&ledger);
 
         let result = TransactionBuilder::new("bad-001")
-            .debit("fake", 0, "a", &b.try_amount(5).unwrap())
-            .credit("b", &b.try_amount(5).unwrap())
-            .credit("b", &u.try_amount(1000).unwrap())
+            .debit("fake", 0, "a", &b.try_amount(5))
+            .credit("b", &b.try_amount(5))
+            .credit("b", &u.try_amount(1000))
             .build();
         assert!(matches!(
             result,
@@ -948,7 +938,7 @@ mod tests {
         let ledger = setup_ledger().await;
         let b = brush(&ledger);
         let u = usd(&ledger);
-        let five_b = b.try_amount(5).unwrap();
+        let five_b = b.try_amount(5);
         let t1 = TransactionBuilder::new("issue-001")
             .credit("store1/inventory", &five_b)
             .credit("@world", &five_b.negate())
@@ -957,11 +947,11 @@ mod tests {
         let t1_id = ledger.commit(t1).await.expect("commit t1");
 
         let t2 = TransactionBuilder::new("sale-001")
-            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5).unwrap())
-            .credit("customer1", &b.try_amount(2).unwrap())
-            .credit("store1/inventory", &b.try_amount(3).unwrap())
-            .credit("customer1", &u.try_amount(-1000).unwrap())
-            .credit("store1/receivables", &u.try_amount(1000).unwrap())
+            .debit(&t1_id, 0, "store1/inventory", &b.try_amount(5))
+            .credit("customer1", &b.try_amount(2))
+            .credit("store1/inventory", &b.try_amount(3))
+            .credit("customer1", &u.try_amount(-1000))
+            .credit("store1/receivables", &u.try_amount(1000))
             .build()
             .expect("build tx");
         let t2_id = ledger.commit(t2).await.expect("commit t2");
@@ -981,7 +971,7 @@ mod tests {
             2
         );
 
-        let five_hundred = u.try_amount(500).unwrap();
+        let five_hundred = u.try_amount(500);
         let t3 = TransactionBuilder::new("cash-in-001")
             .credit("customer1/cash", &five_hundred)
             .credit("@world", &five_hundred.negate())
@@ -990,17 +980,12 @@ mod tests {
         let t3_id = ledger.commit(t3).await.expect("commit t3");
 
         let t4 = TransactionBuilder::new("pay-partial")
-            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(500).unwrap())
-            .debit(&t2_id, 2, "customer1", &u.try_amount(-1000).unwrap())
-            .debit(
-                &t2_id,
-                3,
-                "store1/receivables",
-                &u.try_amount(1000).unwrap(),
-            )
-            .credit("store1/cash", &u.try_amount(500).unwrap())
-            .credit("customer1", &u.try_amount(-500).unwrap())
-            .credit("store1/receivables", &u.try_amount(500).unwrap())
+            .debit(&t3_id, 0, "customer1/cash", &u.try_amount(500))
+            .debit(&t2_id, 2, "customer1", &u.try_amount(-1000))
+            .debit(&t2_id, 3, "store1/receivables", &u.try_amount(1000))
+            .credit("store1/cash", &u.try_amount(500))
+            .credit("customer1", &u.try_amount(-500))
+            .credit("store1/receivables", &u.try_amount(500))
             .build()
             .expect("build tx");
         let t4_id = ledger.commit(t4).await.expect("commit t4");
@@ -1020,7 +1005,7 @@ mod tests {
             1000
         );
 
-        let five_hundred_2 = u.try_amount(500).unwrap();
+        let five_hundred_2 = u.try_amount(500);
         let t5 = TransactionBuilder::new("cash-in-002")
             .credit("customer1/cash", &five_hundred_2)
             .credit("@world", &five_hundred_2.negate())
@@ -1029,10 +1014,10 @@ mod tests {
         let t5_id = ledger.commit(t5).await.expect("commit t5");
 
         let t6 = TransactionBuilder::new("pay-final")
-            .debit(&t5_id, 0, "customer1/cash", &u.try_amount(500).unwrap())
-            .debit(&t4_id, 1, "customer1", &u.try_amount(-500).unwrap())
-            .debit(&t4_id, 2, "store1/receivables", &u.try_amount(500).unwrap())
-            .credit("store1/cash", &u.try_amount(500).unwrap())
+            .debit(&t5_id, 0, "customer1/cash", &u.try_amount(500))
+            .debit(&t4_id, 1, "customer1", &u.try_amount(-500))
+            .debit(&t4_id, 2, "store1/receivables", &u.try_amount(500))
+            .credit("store1/cash", &u.try_amount(500))
             .build()
             .expect("build tx");
         ledger.commit(t6).await.expect("commit t6");

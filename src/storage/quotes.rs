@@ -1,9 +1,9 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::booking::Booking;
 use crate::models::quote::*;
 use crate::version;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_quotes(
@@ -52,11 +52,10 @@ impl Db {
     }
 
     pub async fn get_quote_lines(&self, quote_id: i64) -> Result<Vec<QuoteLine>, AppError> {
-        let lines =
-            sqlx::query_as::<_, QuoteLine>("SELECT * FROM quote_lines WHERE quote_id = ?")
-                .bind(quote_id)
-                .fetch_all(&self.pool)
-                .await?;
+        let lines = sqlx::query_as::<_, QuoteLine>("SELECT * FROM quote_lines WHERE quote_id = ?")
+            .bind(quote_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(lines)
     }
 
@@ -168,11 +167,7 @@ impl Tx {
         Ok(quote)
     }
 
-    pub async fn update_quote_status(
-        &mut self,
-        id: i64,
-        status: &str,
-    ) -> Result<Quote, AppError> {
+    pub async fn update_quote_status(&mut self, id: i64, status: &str) -> Result<Quote, AppError> {
         sqlx::query_as::<_, Quote>(
             "UPDATE quotes SET status = ?, updated_at = datetime('now') WHERE id = ? RETURNING *",
         )

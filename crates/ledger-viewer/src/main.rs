@@ -71,7 +71,7 @@ async fn list_balances(State(ledger): State<Arc<Ledger>>) -> Json<Vec<BalanceRes
             account: e.account,
             asset_name: e.amount.asset_name().to_string(),
             raw: e.amount.raw(),
-            display: e.amount.to_decimal_string(),
+            display: e.amount.to_string(),
         })
         .collect();
     Json(balances)
@@ -101,7 +101,7 @@ async fn list_transactions(State(ledger): State<Arc<Ledger>>) -> Json<Vec<Transa
                         account: d.from,
                         asset_name: d.amount.asset_name().to_string(),
                         raw: d.amount.raw(),
-                        display: d.amount.to_decimal_string(),
+                        display: d.amount.to_string(),
                         ref_tx_id: d.tx_id,
                         ref_entry_index: d.entry_index,
                     })
@@ -113,7 +113,7 @@ async fn list_transactions(State(ledger): State<Arc<Ledger>>) -> Json<Vec<Transa
                         account: c.to,
                         asset_name: c.amount.asset_name().to_string(),
                         raw: c.amount.raw(),
-                        display: c.amount.to_decimal_string(),
+                        display: c.amount.to_string(),
                     })
                     .collect(),
                 movements,
@@ -138,7 +138,7 @@ async fn list_tokens(State(ledger): State<Arc<Ledger>>) -> Json<Vec<TokenRespons
                     owner: c.to.clone(),
                     asset_name: c.amount.asset_name().to_string(),
                     raw: c.amount.raw(),
-                    display: c.amount.to_decimal_string(),
+                    display: c.amount.to_string(),
                     spent_by: None,
                 },
             );

@@ -217,7 +217,7 @@ impl TransactionBuilder {
             // Auto-generate change credit if needed.
             if total > req.amount.raw() {
                 let change = total - req.amount.raw();
-                let change_amount = req.amount.asset().amount_unchecked(change);
+                let change_amount = req.amount.asset().from_cents(change);
                 low = low.credit(&req.account, &change_amount);
             }
         }
@@ -303,8 +303,8 @@ mod tests {
     async fn auto_token_selection_single_token() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
-        let b10 = brush.try_amount(10).unwrap();
-        let b5 = brush.try_amount(5).unwrap();
+        let b10 = brush.try_amount(10);
+        let b5 = brush.try_amount(5);
 
         issue(&ledger, "issue-001", "store1/inventory", &b10).await;
 
@@ -330,11 +330,11 @@ mod tests {
         let brush = ledger.asset("brush").unwrap();
 
         for (i, qty) in [(1, 2), (2, 3), (3, 4)] {
-            let amt = brush.try_amount(qty).unwrap();
+            let amt = brush.try_amount(qty);
             issue(&ledger, &format!("issue-{i}"), "store1/inventory", &amt).await;
         }
 
-        let b6 = brush.try_amount(6).unwrap();
+        let b6 = brush.try_amount(6);
         let tx = ledger
             .transaction("sale-001")
             .debit("store1/inventory", &b6)
@@ -355,7 +355,7 @@ mod tests {
     async fn exact_match_no_change() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
-        let b5 = brush.try_amount(5).unwrap();
+        let b5 = brush.try_amount(5);
 
         issue(&ledger, "issue-001", "store1/inventory", &b5).await;
 
@@ -381,8 +381,8 @@ mod tests {
     async fn insufficient_balance_rejected() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
-        let b3 = brush.try_amount(3).unwrap();
-        let b10 = brush.try_amount(10).unwrap();
+        let b3 = brush.try_amount(3);
+        let b10 = brush.try_amount(10);
 
         issue(&ledger, "issue-001", "store1/inventory", &b3).await;
 
@@ -400,7 +400,7 @@ mod tests {
     async fn issuance_via_issue() {
         let ledger = setup_ledger().await;
         let brush = ledger.asset("brush").unwrap();
-        let b10 = brush.try_amount(10).unwrap();
+        let b10 = brush.try_amount(10);
 
         let tx = ledger
             .transaction("issue-001")
@@ -425,10 +425,10 @@ mod tests {
         let brush = ledger.asset("brush").unwrap();
         let usd = ledger.asset("usd").unwrap();
 
-        let b10 = brush.try_amount(10).unwrap();
-        let b3 = brush.try_amount(3).unwrap();
-        let u10000 = usd.try_amount(10000).unwrap();
-        let u2500 = usd.try_amount(2500).unwrap();
+        let b10 = brush.try_amount(10);
+        let b3 = brush.try_amount(3);
+        let u10000 = usd.try_amount(10000);
+        let u2500 = usd.try_amount(2500);
 
         issue(&ledger, "issue-brush", "store1/inventory", &b10).await;
         issue(&ledger, "issue-usd", "store1/cash", &u10000).await;
@@ -459,10 +459,10 @@ mod tests {
         let brush = ledger.asset("brush").unwrap();
         let usd = ledger.asset("usd").unwrap();
 
-        let b5 = brush.try_amount(5).unwrap();
-        let b2 = brush.try_amount(2).unwrap();
-        let neg_usd = usd.try_amount(-1000).unwrap();
-        let pos_usd = usd.try_amount(1000).unwrap();
+        let b5 = brush.try_amount(5);
+        let b2 = brush.try_amount(2);
+        let neg_usd = usd.try_amount(-1000);
+        let pos_usd = usd.try_amount(1000);
 
         issue(&ledger, "issue-001", "store1/inventory", &b5).await;
 

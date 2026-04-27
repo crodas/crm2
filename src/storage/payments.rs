@@ -1,7 +1,7 @@
+use super::{Db, Tx};
 use crate::amount::Amount;
 use crate::error::AppError;
 use crate::models::quote::*;
-use super::{Db, Tx};
 
 #[derive(sqlx::FromRow)]
 struct OwesPaid {
@@ -117,9 +117,7 @@ impl Tx {
             .ledger
             .asset("gs")
             .ok_or_else(|| AppError::Internal("gs asset not registered".into()))?;
-        let gs_amount = gs
-            .try_amount(amount_cents as i128)
-            .map_err(|e| AppError::Internal(format!("gs amount: {e}")))?;
+        let gs_amount = gs.try_amount(amount_cents as i128);
 
         let ledger_tx = self
             .ledger

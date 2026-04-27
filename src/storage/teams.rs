@@ -1,6 +1,6 @@
+use super::{Db, Tx};
 use crate::error::AppError;
 use crate::models::team::*;
-use super::{Db, Tx};
 
 impl Db {
     pub async fn list_teams(&self) -> Result<Vec<Team>, AppError> {

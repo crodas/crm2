@@ -74,7 +74,7 @@ mod tests {
     async fn issue_credits_destination_and_debits_world() {
         let ledger = setup_ledger().await;
         let strategy = TemplateIssuanceStrategy::new("@world");
-        let amount = gs().try_amount(5000).unwrap();
+        let amount = gs().try_amount(5000);
 
         let builder = ledger.transaction("deposit-001");
         let builder = strategy.apply(builder, "store/cash", &amount).unwrap();
@@ -90,11 +90,11 @@ mod tests {
         let ledger = setup_ledger().await;
         let strategy = TemplateIssuanceStrategy::new("@world");
 
-        let zero = gs().try_amount(0).unwrap();
+        let zero = gs().try_amount(0);
         let result = strategy.apply(ledger.transaction("bad"), "store/cash", &zero);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
 
-        let neg = gs().try_amount(-100).unwrap();
+        let neg = gs().try_amount(-100);
         let result = strategy.apply(ledger.transaction("bad2"), "store/cash", &neg);
         assert!(matches!(result, Err(Error::NonPositiveAmount)));
     }

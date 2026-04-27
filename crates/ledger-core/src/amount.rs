@@ -9,7 +9,6 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::asset::Asset;
-use crate::error::LedgerError;
 
 /// A quantity of a specific asset, stored as a scaled `i128`.
 ///
@@ -20,8 +19,8 @@ use crate::error::LedgerError;
 /// ```
 /// # use ledger_core::Asset;
 /// let usd = Asset::new("usd", 2);
-/// let ten_bucks = usd.try_amount(1050).unwrap();
-/// assert_eq!(ten_bucks.to_decimal_string(), "10.50");
+/// let ten_bucks = usd.try_amount(1050);
+/// assert_eq!(ten_bucks.to_string(), "10.50");
 /// assert_eq!(ten_bucks.raw(), 1050);
 /// assert_eq!(ten_bucks.asset_name(), "usd");
 /// ```
@@ -33,27 +32,8 @@ pub struct Amount {
 
 impl Amount {
     /// Create a new amount for the given asset.
-    ///
-    /// Prefer using [`Asset::try_amount`] instead.
-    pub(crate) fn new(asset: Asset, raw: i128) -> Result<Self, LedgerError> {
-        Ok(Self { asset, raw })
-    }
-
-    /// Create without sign validation.
-    ///
-    /// Use when the value is already known to be valid (e.g. read from storage).
-    pub(crate) fn new_unchecked(asset: Asset, raw: i128) -> Self {
+    pub(crate) fn new(asset: Asset, raw: i128) -> Self {
         Self { asset, raw }
-    }
-
-    /// Parse a decimal string into an Amount.
-    ///
-    /// Prefer using [`Asset::parse_amount`] instead.
-    pub(crate) fn parse(asset: Asset, s: &str) -> Result<Self, LedgerError> {
-        let raw = asset
-            .parse_qty(s)
-            .map_err(|_| LedgerError::InvalidQty(s.to_string()))?;
-        Self::new(asset, raw)
     }
 
     /// The scaled integer value.
@@ -71,11 +51,6 @@ impl Amount {
         self.asset.name()
     }
 
-    /// Format as a decimal string with correct precision.
-    pub fn to_decimal_string(&self) -> String {
-        self.asset.from_cents(self.raw)
-    }
-
     /// Negate the amount (for debt modeling / issuance).
     pub fn negate(&self) -> Self {
         Self {
@@ -87,7 +62,21 @@ impl Amount {
 
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {}", self.to_decimal_string(), self.asset.name())
+        let raw = self.raw;
+        let precision = self.asset.precision();
+        if precision == 0 {
+            return write!(f, "{raw}");
+        }
+        let scale = 10_i128.pow(precision as u32);
+        let sign = if raw < 0 { "-" } else { "" };
+        let abs = raw.unsigned_abs();
+        let whole = abs / scale as u128;
+        let frac = abs % scale as u128;
+        write!(
+            f,
+            "{sign}{whole}.{frac:0>width$}",
+            width = precision as usize
+        )
     }
 }
 
@@ -117,7 +106,7 @@ impl<'de> Deserialize<'de> for Amount {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let wire = AmountWire::deserialize(deserializer)?;
         let asset = Asset::new(wire.asset_name, wire.precision);
-        Ok(Amount::new_unchecked(asset, wire.raw))
+        Ok(Amount::new(asset, wire.raw))
     }
 }
 
@@ -143,59 +132,60 @@ mod tests {
 
     #[test]
     fn allows_negative() {
-        let amt = Amount::new(usd(), -1050).unwrap();
+        let amt = Amount::new(usd(), -1050);
         assert_eq!(amt.raw(), -1050);
-        assert_eq!(amt.to_decimal_string(), "-10.50");
+        assert_eq!(amt.to_string(), "-10.50");
     }
 
     #[test]
     fn allows_negative_any_asset() {
-        let amt = Amount::new(brush(), -5).unwrap();
+        let amt = Amount::new(brush(), -5);
         assert_eq!(amt.raw(), -5);
     }
 
     #[test]
     fn parse_valid() {
-        let amt = Amount::parse(usd(), "10.50").unwrap();
+        let amt = usd().parse_qty("10.50").unwrap();
         assert_eq!(amt.raw(), 1050);
         assert_eq!(amt.asset_name(), "usd");
     }
 
     #[test]
     fn parse_invalid_precision() {
-        assert!(Amount::parse(usd(), "10.5").is_err());
+        assert!(usd().parse_qty("10.5").is_err());
     }
 
     #[test]
     fn negate() {
-        let amt = Amount::new(usd(), 1050).unwrap();
+        let amt = Amount::new(usd(), 1050);
         let neg = amt.negate();
         assert_eq!(neg.raw(), -1050);
     }
 
     #[test]
     fn negate_zero() {
-        let amt = Amount::new(brush(), 0).unwrap();
+        let amt = Amount::new(brush(), 0);
         let neg = amt.negate();
         assert_eq!(neg.raw(), 0);
     }
 
     #[test]
     fn negate_any_asset() {
-        let amt = Amount::new(brush(), 5).unwrap();
+        let amt = Amount::new(brush(), 5);
         let neg = amt.negate();
         assert_eq!(neg.raw(), -5);
     }
 
     #[test]
     fn display_format() {
-        let amt = Amount::new(usd(), 1050).unwrap();
-        assert_eq!(format!("{amt}"), "10.50 usd");
+        let amt = Amount::new(usd(), 1050);
+        // Display only shows the decimal value, no asset name
+        assert_eq!(amt.to_string(), "10.50");
     }
 
     #[test]
     fn serde_roundtrip() {
-        let amt = Amount::new(usd(), 1050).unwrap();
+        let amt = Amount::new(usd(), 1050);
         let json = serde_json::to_string(&amt).unwrap();
         let restored: Amount = serde_json::from_str(&json).unwrap();
         assert_eq!(restored.raw(), 1050);

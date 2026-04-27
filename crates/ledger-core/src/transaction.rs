@@ -113,7 +113,7 @@ impl Transaction {
 /// ```
 /// # use ledger_core::*;
 /// let brush = Asset::new("brush", 0);
-/// let five = brush.try_amount(5).unwrap();
+/// let five = brush.try_amount(5);
 /// let neg_five = five.negate();
 ///
 /// let tx = TransactionBuilder::new("issue-brush-001")
@@ -277,7 +277,7 @@ fn canonical_preimage(debits: &[DebitRef], credits: &[Credit], idempotency_key: 
         out.push('\0');
         out.push_str(d.amount.asset_name());
         out.push('\0');
-        out.push_str(&d.amount.to_decimal_string());
+        out.push_str(&d.amount.to_string());
         out.push('\0');
     }
 
@@ -287,7 +287,7 @@ fn canonical_preimage(debits: &[DebitRef], credits: &[Credit], idempotency_key: 
         out.push('\0');
         out.push_str(c.amount.asset_name());
         out.push('\0');
-        out.push_str(&c.amount.to_decimal_string());
+        out.push_str(&c.amount.to_string());
         out.push('\0');
     }
 
@@ -319,7 +319,7 @@ mod tests {
 
     #[test]
     fn issuance_tx_id_is_deterministic() {
-        let five_brush = brush().try_amount(5).unwrap();
+        let five_brush = brush().try_amount(5);
         let neg_five = five_brush.negate();
         let tx1 = TransactionBuilder::new("test-key")
             .credit("store1/inventory", &five_brush)
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn different_keys_produce_different_ids() {
-        let five_brush = brush().try_amount(5).unwrap();
+        let five_brush = brush().try_amount(5);
         let neg_five = five_brush.negate();
         let tx1 = TransactionBuilder::new("key-a")
             .credit("store1/inventory", &five_brush)
@@ -354,9 +354,9 @@ mod tests {
 
     #[test]
     fn debit_order_matters_for_tx_id() {
-        let usd1 = usd().try_amount(100).unwrap();
-        let usd2 = usd().try_amount(200).unwrap();
-        let usd3 = usd().try_amount(300).unwrap();
+        let usd1 = usd().try_amount(100);
+        let usd2 = usd().try_amount(200);
+        let usd3 = usd().try_amount(300);
         let tx1 = TransactionBuilder::new("k")
             .debit("aaa", 0, "x", &usd1)
             .debit("bbb", 0, "y", &usd2)
@@ -380,8 +380,8 @@ mod tests {
 
     #[test]
     fn conservation_rejected_at_build() {
-        let five_brush = brush().try_amount(5).unwrap();
-        let ten_brush = brush().try_amount(10).unwrap();
+        let five_brush = brush().try_amount(5);
+        let ten_brush = brush().try_amount(10);
         let result = TransactionBuilder::new("bad")
             .debit("aaa", 0, "x", &five_brush)
             .credit("y", &ten_brush)
@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn unbalanced_issuance_rejected() {
-        let five_brush = brush().try_amount(5).unwrap();
+        let five_brush = brush().try_amount(5);
         let result = TransactionBuilder::new("bad")
             .credit("store1/inventory", &five_brush)
             .build();
@@ -409,9 +409,9 @@ mod tests {
         // Negative credit (-1000) is larger than positive credit (+500) for
         // the same asset. Conservation passes (both net to zero via debits)
         // but dangling debt check catches it.
-        let neg_usd = usd().try_amount(-1000).unwrap();
-        let pos_usd = usd().try_amount(500).unwrap();
-        let b5 = brush().try_amount(5).unwrap();
+        let neg_usd = usd().try_amount(-1000);
+        let pos_usd = usd().try_amount(500);
+        let b5 = brush().try_amount(5);
         let result = TransactionBuilder::new("bad")
             .debit("tx1", 0, "a", &neg_usd)
             .debit("tx2", 0, "b", &pos_usd)
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn standalone_negative_credit_violates_conservation() {
-        let neg_usd = usd().try_amount(-1000).unwrap();
+        let neg_usd = usd().try_amount(-1000);
         let result = TransactionBuilder::new("bad").credit("x", &neg_usd).build();
         assert!(matches!(
             result,

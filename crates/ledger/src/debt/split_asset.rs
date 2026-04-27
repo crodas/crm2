@@ -95,10 +95,8 @@ impl DebtStrategy for SplitAssetDebt {
         let debtor = resolve_template(&self.debtor_template, from, to);
         let creditor = resolve_template(&self.creditor_template, from, to);
         let debt_asset = Self::debt_asset(amount.asset());
-        let neg = debt_asset
-            .try_amount(-amount.raw())
-            .map_err(Error::Ledger)?;
-        let pos = debt_asset.try_amount(amount.raw()).map_err(Error::Ledger)?;
+        let neg = debt_asset.try_amount(-amount.raw());
+        let pos = debt_asset.try_amount(amount.raw());
 
         Ok(builder.credit(&debtor, &neg).credit(&creditor, &pos))
     }
@@ -155,11 +153,11 @@ impl DebtStrategy for SplitAssetDebt {
 
         // Add change credits if partial consumption.
         if let Some(change_raw) = debtor_change {
-            let change = debt_asset.try_amount(change_raw).map_err(Error::Ledger)?;
+            let change = debt_asset.try_amount(change_raw);
             b = b.credit(&debtor, &change);
         }
         if let Some(change_raw) = creditor_change {
-            let change = debt_asset.try_amount(change_raw).map_err(Error::Ledger)?;
+            let change = debt_asset.try_amount(change_raw);
             b = b.credit(&creditor, &change);
         }
 
@@ -255,7 +253,7 @@ mod tests {
     }
 
     fn gs_amount(raw: i128) -> Amount {
-        gs().try_amount(raw).unwrap()
+        gs().try_amount(raw)
     }
 
     async fn setup() -> Ledger {
@@ -403,8 +401,8 @@ mod tests {
     async fn mixed_tx_with_product_debits() {
         let ledger = setup().await;
         let brush = ledger.asset("brush").unwrap();
-        let b10 = brush.try_amount(10).unwrap();
-        let b3 = brush.try_amount(3).unwrap();
+        let b10 = brush.try_amount(10);
+        let b3 = brush.try_amount(3);
 
         let tx = ledger
             .transaction("issue-inv")
@@ -436,7 +434,7 @@ mod tests {
     async fn settle_with_cash_leg() {
         let ledger = setup().await;
         let gs_asset = ledger.asset("gs").unwrap();
-        let gs5000 = gs_asset.try_amount(5000).unwrap();
+        let gs5000 = gs_asset.try_amount(5000);
 
         let tx = ledger
             .transaction("debt-001")

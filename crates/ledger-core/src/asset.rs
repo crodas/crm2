@@ -47,7 +47,7 @@ impl Asset {
     /// Useful when you want all unspent tokens for an asset without a
     /// specific minimum threshold.
     pub fn max(&self) -> crate::Amount {
-        crate::Amount::new_unchecked(self.clone(), i128::MAX)
+        crate::Amount::new(self.clone(), i128::MAX)
     }
 
     pub fn name(&self) -> &str {
@@ -63,18 +63,30 @@ impl Asset {
     /// ```
     /// # use ledger_core::Asset;
     /// let usd = Asset::new("usd", 2);
-    /// let amt = usd.try_amount(1050).unwrap();
+    /// let amt = usd.try_amount(1050);
     /// assert_eq!(amt.raw(), 1050);
     /// ```
-    pub fn try_amount(&self, raw: i128) -> Result<crate::Amount, crate::LedgerError> {
+    pub fn try_amount(&self, raw: i128) -> crate::Amount {
         crate::Amount::new(self.clone(), raw)
     }
 
-    /// Create an [`Amount`] from a raw scaled integer without validation.
+    /// Create an [`Amount`] from a raw scaled integer.
     ///
-    /// Use when the value is already known to be valid (e.g. read from storage).
-    pub fn amount_unchecked(&self, raw: i128) -> crate::Amount {
-        crate::Amount::new_unchecked(self.clone(), raw)
+    /// Amounts are stored internally as integers scaled by `10^precision`
+    /// (e.g., 1050 cents → `"10.50"` for a precision-2 asset).
+    ///
+    /// ```
+    /// # use ledger_core::Asset;
+    /// let usd = Asset::new("usd", 2);
+    /// let amt = usd.from_cents(1050);
+    /// assert_eq!(amt.to_string(), "10.50");
+    /// assert_eq!(amt.raw(), 1050);
+    ///
+    /// let brush = Asset::new("brush", 0);
+    /// assert_eq!(brush.from_cents(5).to_string(), "5");
+    /// ```
+    pub fn from_cents(&self, raw: i128) -> crate::Amount {
+        crate::Amount::new(self.clone(), raw)
     }
 
     /// Parse a decimal string into a validated [`Amount`].
@@ -86,52 +98,22 @@ impl Asset {
     /// assert_eq!(amt.raw(), 1050);
     /// ```
     pub fn parse_amount(&self, s: &str) -> Result<crate::Amount, crate::LedgerError> {
-        crate::Amount::parse(self.clone(), s)
+        self.parse_qty(s)
+            .map_err(|_| crate::LedgerError::InvalidQty(s.to_string()))
     }
 
-    /// Convert a scaled integer amount to its decimal string representation.
-    ///
-    /// Amounts are stored internally as integers scaled by `10^precision`
-    /// (e.g., 1050 cents → `"10.50"` for a precision-2 asset). This method
-    /// converts back to the human-readable decimal form expected by the
-    /// transaction builder.
+    /// Parse a decimal string into a validated [`Amount`].
     ///
     /// ```
     /// # use ledger_core::Asset;
     /// let usd = Asset::new("usd", 2);
-    /// assert_eq!(usd.from_cents(1050), "10.50");
-    /// assert_eq!(usd.from_cents(-1050), "-10.50");
+    /// assert_eq!(usd.parse_qty("10.50").unwrap().raw(), 1050);
+    /// assert_eq!(usd.parse_qty("-10.00").unwrap().raw(), -1000);
     ///
     /// let brush = Asset::new("brush", 0);
-    /// assert_eq!(brush.from_cents(5), "5");
+    /// assert_eq!(brush.parse_qty("5").unwrap().raw(), 5);
     /// ```
-    pub fn from_cents(&self, raw: i128) -> String {
-        if self.precision == 0 {
-            return raw.to_string();
-        }
-        let scale = 10_i128.pow(self.precision as u32);
-        let sign = if raw < 0 { "-" } else { "" };
-        let abs = raw.unsigned_abs();
-        let whole = abs / scale as u128;
-        let frac = abs % scale as u128;
-        format!(
-            "{sign}{whole}.{frac:0>width$}",
-            width = self.precision as usize
-        )
-    }
-
-    /// Parse a decimal string into the scaled integer representation.
-    ///
-    /// ```
-    /// # use ledger_core::Asset;
-    /// let usd = Asset::new("usd", 2);
-    /// assert_eq!(usd.parse_qty("10.50").unwrap(), 1050);
-    /// assert_eq!(usd.parse_qty("-10.00").unwrap(), -1000);
-    ///
-    /// let brush = Asset::new("brush", 0);
-    /// assert_eq!(brush.parse_qty("5").unwrap(), 5);
-    /// ```
-    pub fn parse_qty(&self, s: &str) -> Result<i128, ParseQtyError> {
+    pub fn parse_qty(&self, s: &str) -> Result<crate::Amount, ParseQtyError> {
         let negative = s.starts_with('-');
         let s = s.strip_prefix('-').unwrap_or(s);
 
@@ -160,7 +142,8 @@ impl Asset {
             whole * scale + frac
         };
 
-        Ok(if negative { -raw } else { raw })
+        let raw = if negative { -raw } else { raw };
+        Ok(crate::Amount::new(self.clone(), raw))
     }
 }
 
@@ -222,9 +205,12 @@ mod tests {
     fn format_and_parse_roundtrip() {
         let usd = Asset::new("usd", 2);
         for raw in [-1050, -100, 0, 100, 1050, 999999] {
-            let s = usd.from_cents(raw);
+            let amt = usd.from_cents(raw);
+            let s = amt.to_string();
             assert_eq!(
-                usd.parse_qty(&s).expect("roundtrip parse should succeed"),
+                usd.parse_qty(&s)
+                    .expect("roundtrip parse should succeed")
+                    .raw(),
                 raw,
                 "roundtrip failed for {raw}"
             );
@@ -234,8 +220,8 @@ mod tests {
     #[test]
     fn zero_precision() {
         let brush = Asset::new("brush", 0);
-        assert_eq!(brush.from_cents(42), "42");
-        assert_eq!(brush.parse_qty("42").expect("parse whole number"), 42);
+        assert_eq!(brush.from_cents(42).to_string(), "42");
+        assert_eq!(brush.parse_qty("42").expect("parse whole number").raw(), 42);
         assert!(brush.parse_qty("4.2").is_err());
     }
 
