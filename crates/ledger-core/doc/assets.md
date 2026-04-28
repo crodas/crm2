@@ -60,9 +60,10 @@ Parses a decimal string into an `Amount`. Validates that the string does not exc
 
 ```rust
 let usd = Asset::new("usd", 2, AssetKind::Signed);
-assert_eq!(usd.parse_qty("10.50")?, 1050);
-assert_eq!(usd.parse_qty("10")?, 1000);    // Trailing zeros implied
-assert_eq!(usd.parse_qty("-5.00")?, -500);
+let amt = usd.parse_qty("10.50")?;
+assert_eq!(amt.to_string(), "10.50");
+assert_eq!(usd.parse_qty("10")?.to_string(), "10.00");    // Trailing zeros implied
+assert_eq!(usd.parse_qty("-5.00")?.to_string(), "-5.00");
 ```
 
 ### ParseQtyError

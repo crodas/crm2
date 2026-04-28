@@ -108,6 +108,22 @@ The `Storage` trait defines the persistence contract. All operations are async t
 
 The key invariant is that `commit_tx()` must be atomic: either all writes (transaction record, new tokens, spent markers) succeed, or none do. This is the storage layer's responsibility to guarantee.
 
+The storage layer has no concept of prefix queries or account aliases. It exposes `accounts()` (distinct account names with unspent tokens), `unspent_by_account()`, and `get_token()` for querying. Alias resolution happens in the `Ledger` before storage is queried.
+
 Two implementations are provided:
 - `MemoryStorage` (in this crate) -- for testing and single-process use
 - `SqliteStorage` (in `ledger-sqlite`) -- for persistent, concurrent use
+
+## Account Aliases
+
+The `AliasRegistry` (in `alias.rs`) provides template-based account aliases. Templates use `{name}` placeholders matching a single path segment. Both sides of a rule must have the same set of placeholders.
+
+```rust
+let mut aliases = AliasRegistry::new();
+aliases.register(
+    "user/{user_id}/to_pay/{sale_id}",     // canonical
+    "sale/{sale_id}/receivables/{user_id}", // alias
+).unwrap();
+```
+
+The `Ledger` holds an optional `AliasRegistry` (set via `with_aliases()`). Account arguments to query methods (`balance`, `unspent_tokens`) are resolved through the registry before hitting storage. Storage itself has no alias awareness -- this is a pure resolution layer in the `Ledger`.

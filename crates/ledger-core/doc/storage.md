@@ -18,10 +18,7 @@ pub trait Storage: Send + Sync + Debug {
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
     async fn unspent_by_account(&self, account: &str, requested_amount: Option<&Amount>)
         -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn unspent_by_prefix(&self, prefix: &str, requested_amount: Option<&Amount>)
-        -> Result<Vec<SpendingToken>, LedgerError>;
-    async fn balances_by_prefix(&self, prefix: &str)
-        -> Result<Vec<BalanceEntry>, LedgerError>;
+    async fn accounts(&self) -> Result<Vec<String>, LedgerError>;
 
     // Transaction persistence
     async fn commit_tx(
@@ -60,17 +57,10 @@ pub trait Storage: Send + Sync + Debug {
 - `None` — returns all unspent tokens for the account across all assets
 - Must **not** include descendant accounts (e.g., `store` does not include `store/cash`)
 
-#### `unspent_by_prefix`
+#### `accounts`
 
-- `Some(amount)` — returns all tokens with `status == Unspent` where the owner matches the prefix **or** is a descendant, filtered by the amount's asset
-- `None` — same but across all assets
-- Prefix matching: owner == prefix OR owner starts with `{prefix}/`
-
-#### `balances_by_prefix`
-
-- Returns aggregated sums grouped by (account, asset)
-- Only includes groups with non-zero balances
-- Sorted by account, then asset name
+- Returns all distinct account names that currently have unspent tokens
+- Useful for enumerating active accounts without loading token data
 
 #### `commit_tx`
 
@@ -159,10 +149,9 @@ The `storage_tests!` macro generates 45+ test functions covering:
 | **Idempotency** | Empty check, key recorded after commit, absent for uncommitted |
 | **Token queries** | Nonexistent lookup, lookup after commit, spent status |
 | **Unspent by account** | Empty, matching, excludes spent, excludes other assets, excludes children |
-| **Unspent by prefix** | Empty, includes descendants, includes exact, excludes spent, excludes other assets, excludes non-descendants |
+| **Accounts** | Empty, returns owners with unspent tokens, excludes spent |
 | **Transactions** | Empty load, empty count, commit and load, order preservation |
 | **Atomicity** | Token and key creation, spend and create in same commit |
-| **Balances by prefix** | Empty, grouping by account/asset, summing multiple tokens, excludes spent, excludes non-descendants, omits zero balances |
 
 ### Implementing a New Backend
 

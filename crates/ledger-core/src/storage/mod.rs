@@ -10,11 +10,10 @@ use std::sync::RwLock;
 
 use async_trait::async_trait;
 
-use crate::account::is_prefix_of;
 use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
-use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
+use crate::token::{EntryRef, SpendingToken, TokenStatus};
 use crate::transaction::Transaction;
 
 /// Async storage backend for the ledger.
@@ -42,10 +41,9 @@ pub trait Storage: Send + Sync + Debug {
     /// Fetch a single spending token by its entry reference.
     async fn get_token(&self, eref: &EntryRef) -> Result<Option<SpendingToken>, LedgerError>;
 
-    /// Return unspent tokens owned by `account`.
+    /// Return unspent tokens owned by `account` (exact match).
     ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
+    /// - `Some(amount)` — only tokens matching the amount's asset.
     /// - `None` — all unspent tokens across all assets.
     async fn unspent_by_account(
         &self,
@@ -53,20 +51,8 @@ pub trait Storage: Send + Sync + Debug {
         requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError>;
 
-    /// Return unspent tokens under `prefix`.
-    ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
-    async fn unspent_by_prefix(
-        &self,
-        prefix: &str,
-        requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError>;
-
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under `prefix`.
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError>;
+    /// Return all distinct account names that have unspent tokens.
+    async fn accounts(&self) -> Result<Vec<String>, LedgerError>;
 
     // ── Transactions ───────────────────────────────────────────────
 
@@ -183,50 +169,18 @@ impl Storage for MemoryStorage {
             .collect())
     }
 
-    async fn unspent_by_prefix(
-        &self,
-        prefix: &str,
-        requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
+    async fn accounts(&self) -> Result<Vec<String>, LedgerError> {
         let state = self.state.read().map_err(lock_err)?;
-        Ok(state
+        let mut names: Vec<String> = state
             .tokens
             .values()
-            .filter(|t| {
-                t.status == TokenStatus::Unspent
-                    && is_prefix_of(prefix, &t.owner)
-                    && requested_amount.map_or(true, |a| t.amount.asset_name() == a.asset_name())
-            })
-            .cloned()
-            .collect())
-    }
-
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        let state = self.state.read().map_err(lock_err)?;
-        let mut map: HashMap<(String, String), (crate::asset::Asset, i128)> = HashMap::new();
-        for t in state.tokens.values() {
-            if t.status == TokenStatus::Unspent && is_prefix_of(prefix, &t.owner) {
-                let key = (t.owner.clone(), t.amount.asset_name().to_string());
-                let entry = map
-                    .entry(key)
-                    .or_insert_with(|| (t.amount.asset().clone(), 0));
-                entry.1 += t.amount.raw();
-            }
-        }
-        let mut entries: Vec<BalanceEntry> = map
+            .filter(|t| t.status == TokenStatus::Unspent)
+            .map(|t| t.owner.clone())
+            .collect::<std::collections::HashSet<_>>()
             .into_iter()
-            .filter(|(_, (_, balance))| *balance != 0)
-            .map(|((account, _asset_name), (asset, balance))| BalanceEntry {
-                account,
-                amount: Amount::new(asset, balance),
-            })
             .collect();
-        entries.sort_by(|a, b| {
-            a.account
-                .cmp(&b.account)
-                .then(a.amount.asset_name().cmp(b.amount.asset_name()))
-        });
-        Ok(entries)
+        names.sort();
+        Ok(names)
     }
 
     async fn commit_tx(
@@ -237,7 +191,6 @@ impl Storage for MemoryStorage {
     ) -> Result<(), LedgerError> {
         let mut state = self.state.write().map_err(lock_err)?;
 
-        // Mark spent tokens.
         let tx_index = state.transactions.len();
         for eref in spent_refs {
             if let Some(token) = state.tokens.get_mut(eref) {
@@ -245,7 +198,6 @@ impl Storage for MemoryStorage {
             }
         }
 
-        // Insert new tokens.
         for token in new_tokens {
             state.tokens.insert(token.entry_ref.clone(), token.clone());
         }

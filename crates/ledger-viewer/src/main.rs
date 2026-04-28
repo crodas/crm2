@@ -64,16 +64,34 @@ struct TokenResponse {
 }
 
 async fn list_balances(State(ledger): State<Arc<Ledger>>) -> Json<Vec<BalanceResponse>> {
-    let entries = ledger.balances_by_prefix("").await.unwrap_or_default();
-    let balances = entries
-        .into_iter()
-        .map(|e| BalanceResponse {
-            account: e.account,
-            asset_name: e.amount.asset_name().to_string(),
-            raw: e.amount.raw(),
-            display: e.amount.to_string(),
-        })
-        .collect();
+    let accounts = ledger.accounts().await.unwrap_or_default();
+    let mut balances = Vec::new();
+
+    for account in accounts {
+        let tokens = ledger.unspent_tokens(&account, None).await.unwrap_or_default();
+        // Group tokens by asset and sum raw values
+        let mut by_asset: HashMap<String, (i128, Option<Asset>)> = HashMap::new();
+        for token in &tokens {
+            let entry = by_asset
+                .entry(token.amount.asset_name().to_string())
+                .or_insert((0, Some(token.amount.asset().clone())));
+            entry.0 += token.amount.raw();
+        }
+        for (asset_name, (raw, asset)) in by_asset {
+            let display = if let Some(a) = asset {
+                a.try_amount(raw).to_string()
+            } else {
+                raw.to_string()
+            };
+            balances.push(BalanceResponse {
+                account: account.clone(),
+                asset_name,
+                raw,
+                display,
+            });
+        }
+    }
+
     Json(balances)
 }
 

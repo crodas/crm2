@@ -61,46 +61,39 @@ WHERE owner = ? AND asset_name = ? AND spent_by_tx IS NULL
 
 Uses the `idx_ledger_tokens_unspent_account` partial index for efficient lookup. Returns only unspent tokens for the exact account (no descendants).
 
-### Unspent Tokens by Prefix
+### All Unspent Tokens (by Asset)
 
 ```sql
 SELECT tx_id, entry_index, owner, asset_name, qty
 FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND asset_name = ?
+WHERE asset_name = ?
   AND spent_by_tx IS NULL
 ```
 
-The two conditions handle:
-- `owner = ?` → exact match (e.g., `store`)
-- `owner LIKE ?` → descendant match (e.g., `store/%`)
+Returns all unspent tokens for a specific asset across all accounts.
 
-The LIKE pattern is constructed as `{prefix}/%` in Rust code.
-
-### Unspent Tokens by Prefix (All Assets)
+### All Unspent Tokens (All Assets)
 
 ```sql
 SELECT tx_id, entry_index, owner, asset_name, qty
 FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND spent_by_tx IS NULL
+WHERE spent_by_tx IS NULL
 ```
 
-Same as above but without the `asset_name` filter. Returns all unspent tokens across all assets under the prefix.
+Returns all unspent tokens across all accounts and all assets.
 
-### Aggregated Balances by Prefix
+### All Aggregated Balances
 
 ```sql
 SELECT owner, asset_name, SUM(qty) as balance
 FROM ledger_tokens
-WHERE (owner = ? OR owner LIKE ?)
-  AND spent_by_tx IS NULL
+WHERE spent_by_tx IS NULL
 GROUP BY owner, asset_name
 HAVING SUM(qty) != 0
 ORDER BY owner, asset_name
 ```
 
-Groups unspent tokens by (account, asset) and sums their quantities. The `HAVING` clause excludes zero-balance groups (which can occur when positive and negative tokens cancel out). Results are sorted for deterministic output.
+Groups all unspent tokens by (account, asset) and sums their quantities. The `HAVING` clause excludes zero-balance groups (which can occur when positive and negative tokens cancel out). Results are sorted for deterministic output. Callers filter for specific accounts or hierarchies in application code.
 
 ## Transaction Persistence
 

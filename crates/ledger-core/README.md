@@ -9,7 +9,7 @@ Low-level append-only UTXO ledger engine for modeling the movement of value -- i
 ## Key Concepts
 
 - **Spending Tokens**: Immutable units of value owned by an account. Once spent, they cannot be reused (double-spend prevention).
-- **Accounts**: String identifiers (e.g., `store1/inventory`, `customer1/cash`) that support prefix-based aggregation queries.
+- **Accounts**: String identifiers (e.g., `store1/inventory`, `customer1/cash`) with optional template-based aliases for transparent account resolution.
 - **Assets**: Named quantities with configurable decimal precision and signedness. Signed assets support negative quantities for debt modeling.
 - **Transactions**: Atomic operations that consume existing tokens and produce new ones, enforcing per-asset conservation invariants.
 - **Deterministic IDs**: Transaction IDs are derived from a canonical preimage via double SHA-256, making them reproducible and tamper-evident.
@@ -23,7 +23,8 @@ ledger-core/
     ledger.rs           # Core engine: commit, balance, query
     transaction.rs      # Transaction types and builder with validation
     asset.rs            # Asset definitions, quantity parsing
-    account.rs          # Account identifier helpers and prefix matching
+    account.rs          # Account module (conventions only)
+    alias.rs            # AliasRegistry: template-based account aliases
     token.rs            # SpendingToken, EntryRef, BalanceEntry
     error.rs            # LedgerError enum
     storage/
@@ -61,7 +62,7 @@ See [`doc/`](doc/) for detailed technical documentation:
 
 - [Architecture](doc/architecture.md) -- design principles, UTXO model, data flow
 - [Assets & Quantities](doc/assets.md) -- asset kinds, precision, quantity parsing
-- [Accounts](doc/accounts.md) -- path hierarchy, prefix queries
+- [Accounts](doc/accounts.md) -- path hierarchy, global queries, account aliases
 - [Transactions](doc/transactions.md) -- builder pattern, validation rules, ID derivation
 - [Tokens](doc/tokens.md) -- spending tokens, status lifecycle, balance entries
 - [Storage](doc/storage.md) -- trait contract, MemoryStorage, conformance tests

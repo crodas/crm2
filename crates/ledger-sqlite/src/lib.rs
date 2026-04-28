@@ -9,8 +9,7 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
-    Transaction,
+    Amount, Asset, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -182,105 +181,15 @@ impl Storage for SqliteStorage {
         rows_to_tokens(rows)
     }
 
-    async fn unspent_by_prefix(
-        &self,
-        prefix: &str,
-        requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        let rows = if prefix.is_empty() {
-            if let Some(req) = requested_amount {
-                let sql =
-                    format!("{TOKEN_SELECT} WHERE t.asset_name = ? AND t.spent_by_tx IS NULL");
-                sqlx::query(&sql)
-                    .bind(req.asset_name())
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(db_err)?
-            } else {
-                let sql = format!("{TOKEN_SELECT} WHERE t.spent_by_tx IS NULL");
-                sqlx::query(&sql)
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(db_err)?
-            }
-        } else {
-            let like_pattern = format!("{prefix}/%");
-            if let Some(req) = requested_amount {
-                let sql = format!(
-                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-                       AND t.asset_name = ?
-                       AND t.spent_by_tx IS NULL"
-                );
-                sqlx::query(&sql)
-                    .bind(prefix)
-                    .bind(&like_pattern)
-                    .bind(req.asset_name())
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(db_err)?
-            } else {
-                let sql = format!(
-                    "{TOKEN_SELECT} WHERE (t.owner = ? OR t.owner LIKE ?)
-                       AND t.spent_by_tx IS NULL"
-                );
-                sqlx::query(&sql)
-                    .bind(prefix)
-                    .bind(&like_pattern)
-                    .fetch_all(&self.pool)
-                    .await
-                    .map_err(db_err)?
-            }
-        };
+    async fn accounts(&self) -> Result<Vec<String>, LedgerError> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT owner FROM ledger_tokens WHERE spent_by_tx IS NULL ORDER BY owner",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db_err)?;
 
-        rows_to_tokens(rows)
-    }
-
-    async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        let rows = if prefix.is_empty() {
-            sqlx::query(
-                "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
-                        a.precision
-                 FROM ledger_tokens t
-                 JOIN ledger_assets a ON a.name = t.asset_name
-                 WHERE t.spent_by_tx IS NULL
-                 GROUP BY t.owner, t.asset_name
-                 HAVING SUM(t.qty) != 0
-                 ORDER BY t.owner, t.asset_name",
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?
-        } else {
-            let like_pattern = format!("{prefix}/%");
-            sqlx::query(
-                "SELECT t.owner, t.asset_name, SUM(t.qty) as balance,
-                        a.precision
-                 FROM ledger_tokens t
-                 JOIN ledger_assets a ON a.name = t.asset_name
-                 WHERE (t.owner = ? OR t.owner LIKE ?)
-                   AND t.spent_by_tx IS NULL
-                 GROUP BY t.owner, t.asset_name
-                 HAVING SUM(t.qty) != 0
-                 ORDER BY t.owner, t.asset_name",
-            )
-            .bind(prefix)
-            .bind(&like_pattern)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(db_err)?
-        };
-
-        rows.into_iter()
-            .map(|row| {
-                let owner: String = row.get("owner");
-                let balance: i64 = row.get("balance");
-                let asset = asset_from_row(&row);
-                Ok(BalanceEntry {
-                    account: owner,
-                    amount: asset.from_cents(balance as i128),
-                })
-            })
-            .collect()
+        Ok(rows.iter().map(|row| row.get("owner")).collect())
     }
 
     async fn commit_tx(

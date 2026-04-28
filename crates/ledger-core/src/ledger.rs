@@ -12,11 +12,12 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 
+use crate::alias::AliasRegistry;
 use crate::amount::Amount;
 use crate::asset::Asset;
 use crate::error::LedgerError;
 use crate::storage::Storage;
-use crate::token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
+use crate::token::{EntryRef, SpendingToken, TokenStatus};
 use crate::transaction::{compute_tx_id, Transaction};
 
 /// The append-only UTXO ledger engine.
@@ -64,6 +65,8 @@ pub struct Ledger {
     storage: Arc<dyn Storage>,
     /// Cached asset definitions, swapped atomically on registration.
     assets: Arc<ArcSwap<HashMap<String, Asset>>>,
+    /// Alias rules — resolved before querying storage.
+    aliases: Arc<AliasRegistry>,
 }
 
 impl Ledger {
@@ -72,7 +75,14 @@ impl Ledger {
         Self {
             storage,
             assets: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            aliases: Arc::new(AliasRegistry::new()),
         }
+    }
+
+    /// Set the alias registry for this ledger.
+    pub fn with_aliases(mut self, aliases: AliasRegistry) -> Self {
+        self.aliases = Arc::new(aliases);
+        self
     }
 
     /// Register an asset definition.
@@ -200,63 +210,36 @@ impl Ledger {
     }
 
     /// Return the balance of a specific account for a given asset.
+    ///
+    /// Alias rules are applied: if `account` matches an alias template,
+    /// the canonical form is queried instead.
     pub async fn balance(&self, account: &str, asset_name: &str) -> Result<i128, LedgerError> {
+        let resolved = self.aliases.resolve(account);
         let filter = Asset::new(asset_name, 0).max();
         let tokens = self
             .storage
-            .unspent_by_account(account, Some(&filter))
-            .await?;
-        Ok(tokens.iter().map(|t| t.amount.raw()).sum())
-    }
-
-    /// Return the aggregate balance of all accounts under a prefix.
-    pub async fn balance_prefix(
-        &self,
-        prefix: &str,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
-        let filter = Asset::new(asset_name, 0).max();
-        let tokens = self
-            .storage
-            .unspent_by_prefix(prefix, Some(&filter))
+            .unspent_by_account(&resolved, Some(&filter))
             .await?;
         Ok(tokens.iter().map(|t| t.amount.raw()).sum())
     }
 
     /// Return unspent tokens owned by the given account.
     ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
+    /// Alias rules are applied before querying storage.
     pub async fn unspent_tokens(
         &self,
         account: &str,
         requested_amount: Option<&Amount>,
     ) -> Result<Vec<SpendingToken>, LedgerError> {
+        let resolved = self.aliases.resolve(account);
         self.storage
-            .unspent_by_account(account, requested_amount)
+            .unspent_by_account(&resolved, requested_amount)
             .await
     }
 
-    /// Return unspent tokens under a prefix.
-    ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
-    pub async fn unspent_tokens_prefix(
-        &self,
-        prefix: &str,
-        requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.storage
-            .unspent_by_prefix(prefix, requested_amount)
-            .await
-    }
-
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under a prefix.
-    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        self.storage.balances_by_prefix(prefix).await
+    /// Return all distinct account names that have unspent tokens.
+    pub async fn accounts(&self) -> Result<Vec<String>, LedgerError> {
+        self.storage.accounts().await
     }
 
     /// Return all committed transactions in append order.
@@ -298,6 +281,18 @@ mod tests {
     /// Helper: get the usd asset from the ledger.
     fn usd(ledger: &Ledger) -> Asset {
         ledger.asset("usd").expect("usd registered")
+    }
+
+    /// Helper: sum balances matching a prefix for a specific asset.
+    async fn balance_search(ledger: &Ledger, prefix: &str, asset_name: &str) -> i128 {
+        let accounts = ledger.accounts().await.unwrap();
+        let mut sum = 0i128;
+        for account in accounts {
+            if account == prefix || account.starts_with(&format!("{prefix}/")) {
+                sum += ledger.balance(&account, asset_name).await.unwrap();
+            }
+        }
+        sum
     }
 
     #[tokio::test]
@@ -544,13 +539,7 @@ mod tests {
             .expect("build tx");
         ledger.commit(t2).await.expect("commit t2");
 
-        assert_eq!(
-            ledger
-                .balance_prefix("store1", "usd")
-                .await
-                .expect("prefix usd prefix balance"),
-            1000
-        );
+        assert_eq!(balance_search(&ledger, "store1", "usd").await, 1000);
     }
 
     #[tokio::test]
@@ -834,13 +823,7 @@ mod tests {
                 .expect("debtor usd balance"),
             0
         );
-        assert_eq!(
-            ledger
-                .balance_prefix("creditor", "usd")
-                .await
-                .expect("creditor_prefix usd prefix balance"),
-            5000
-        );
+        assert_eq!(balance_search(&ledger, "creditor", "usd").await, 5000);
     }
 
     #[tokio::test]
@@ -997,13 +980,7 @@ mod tests {
                 .expect("cust usd balance"),
             -500
         );
-        assert_eq!(
-            ledger
-                .balance_prefix("store1", "usd")
-                .await
-                .expect("store usd prefix balance"),
-            1000
-        );
+        assert_eq!(balance_search(&ledger, "store1", "usd").await, 1000);
 
         let five_hundred_2 = u.try_amount(500);
         let t5 = TransactionBuilder::new("cash-in-002")
@@ -1036,12 +1013,6 @@ mod tests {
                 .expect("cust brush balance"),
             2
         );
-        assert_eq!(
-            ledger
-                .balance_prefix("store1", "usd")
-                .await
-                .expect("store usd prefix balance"),
-            1000
-        );
+        assert_eq!(balance_search(&ledger, "store1", "usd").await, 1000);
     }
 }

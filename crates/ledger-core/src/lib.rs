@@ -5,6 +5,7 @@
 //! and hierarchical accounts.
 
 mod account;
+mod alias;
 mod amount;
 mod asset;
 mod error;
@@ -16,11 +17,11 @@ mod storage;
 mod token;
 mod transaction;
 
-pub use account::is_prefix_of;
+pub use alias::AliasRegistry;
 pub use amount::Amount;
 pub use asset::Asset;
 pub use error::LedgerError;
 pub use ledger::Ledger;
 pub use storage::{MemoryStorage, Storage};
-pub use token::{BalanceEntry, EntryRef, SpendingToken, TokenStatus};
+pub use token::{EntryRef, SpendingToken, TokenStatus};
 pub use transaction::{Credit, DebitRef, NetMovement, Transaction, TransactionBuilder};

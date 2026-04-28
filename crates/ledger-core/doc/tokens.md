@@ -69,7 +69,7 @@ pub struct BalanceEntry {
 }
 ```
 
-Returned by `balances_by_prefix()` queries. Zero-balance entries are excluded.
+Returned by balance queries. Zero-balance entries are excluded.
 
 ## Token Lifecycle
 
@@ -120,40 +120,15 @@ let balance: i128 = ledger.balance(
 
 Single account queries match **exactly** -- `store` does not include `store/cash`.
 
-### Prefix Queries
+### Listing Accounts
 
 ```rust
-// All unspent tokens under a prefix for a specific asset
-let usd = Asset::new("usd", 2);
-let tokens = ledger.unspent_tokens_prefix(
-    "store",
-    Some(&usd.max())
-).await?;
-// Includes: store, store/cash, store/receivables/sale_1, etc.
-
-// All unspent tokens under a prefix across ALL assets
-let all = ledger.unspent_tokens_prefix(
-    "store",
-    None
-).await?;
-
-// Aggregated prefix balance for one asset
-let total = ledger.balance_prefix(
-    "store",
-    "usd"
-).await?;
-
-// Grouped balances by (account, asset) under prefix
-let entries: Vec<BalanceEntry> = ledger.balances_by_prefix(
-    "store"
-).await?;
-// Returns: [
-//   BalanceEntry { account: "store/cash", asset: "usd", balance: 10000 },
-//   BalanceEntry { account: "store/inventory", asset: "brush", balance: 50 },
-// ]
+// All distinct accounts that have unspent tokens
+let accts: Vec<String> = ledger.accounts().await?;
+// Returns: ["store/cash", "store/inventory", "customer1/cash"]
 ```
 
-Prefix queries include the exact account **and** all descendants (paths starting with `prefix/`).
+The `accounts()` method returns only accounts that currently hold unspent tokens.
 
 ## Negative Tokens
 

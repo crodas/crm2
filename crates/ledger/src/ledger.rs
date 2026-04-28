@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ledger_core::{
-    Amount, Asset, BalanceEntry, LedgerError, SpendingToken, Storage, Transaction,
+    Amount, Asset, LedgerError, SpendingToken, Storage, Transaction,
     TransactionBuilder as LowLevelBuilder,
 };
 
@@ -119,20 +119,7 @@ impl Ledger {
         self.inner.balance(account, asset_name).await
     }
 
-    /// Return the aggregate balance of all accounts under a prefix.
-    pub async fn balance_prefix(
-        &self,
-        prefix: &str,
-        asset_name: &str,
-    ) -> Result<i128, LedgerError> {
-        self.inner.balance_prefix(prefix, asset_name).await
-    }
-
     /// Return unspent tokens owned by the given account.
-    ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
     pub async fn unspent_tokens(
         &self,
         account: &str,
@@ -141,25 +128,9 @@ impl Ledger {
         self.inner.unspent_tokens(account, requested_amount).await
     }
 
-    /// Return unspent tokens under a prefix.
-    ///
-    /// - `Some(amount)` — only tokens matching the amount's asset; errors if
-    ///   the available sum is less than `amount.raw()`.
-    /// - `None` — all unspent tokens across all assets.
-    pub async fn unspent_tokens_prefix(
-        &self,
-        prefix: &str,
-        requested_amount: Option<&Amount>,
-    ) -> Result<Vec<SpendingToken>, LedgerError> {
-        self.inner
-            .unspent_tokens_prefix(prefix, requested_amount)
-            .await
-    }
-
-    /// Return aggregated balances grouped by (account, asset) for all
-    /// unspent tokens under a prefix.
-    pub async fn balances_by_prefix(&self, prefix: &str) -> Result<Vec<BalanceEntry>, LedgerError> {
-        self.inner.balances_by_prefix(prefix).await
+    /// Return all account names that have unspent tokens.
+    pub async fn accounts(&self) -> Result<Vec<String>, LedgerError> {
+        self.inner.accounts().await
     }
 
     /// Return all committed transactions in append order.

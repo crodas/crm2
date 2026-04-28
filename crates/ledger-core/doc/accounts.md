@@ -24,7 +24,7 @@ Accounts use `/` as a path separator to form a logical hierarchy. The hierarchy 
 store1                         # Top-level store account
 store1/inventory               # Inventory sub-account
 store1/cash                    # Cash holdings
-store1/receivables             # Aggregate receivables prefix
+store1/receivables             # Receivables parent account
 store1/receivables/sale_1      # Receivable for a specific sale
 store1/receivables/sale_2      # Receivable for another sale
 
@@ -37,35 +37,55 @@ customer1/goods                # Goods received by customer
 
 Issuance is represented by credit-only transactions (transactions with no debits). These create tokens from nothing -- no special source account is needed. The conservation check is skipped for issuance transactions.
 
-## Prefix Queries
+## Listing Accounts
 
-The prefix-based query methods enable hierarchical aggregation.
-
-### Prefix Matching
-
-An account A is a prefix of account B if B starts with A followed by `/`:
+The ledger provides an `accounts()` method that returns all distinct account names with unspent tokens.
 
 ```rust
-// "store1" is a prefix of "store1/inventory" and "store1/cash"
-// "store1" is NOT a prefix of "store2"
-// "store1/inventory" is NOT a prefix of "store1" (child is not prefix of parent)
+let accts: Vec<String> = ledger.accounts().await?;
+// Returns: ["store1/cash", "store1/inventory", "customer1/cash"]
 ```
 
-### Prefix-Based Ledger Queries
+To query a specific account's balance or tokens, use the per-account methods:
 
 ```rust
-// Balance across all accounts under store1
-let total = ledger.balance_prefix("store1", "usd").await?;
-
-// All unspent tokens under store1 for a specific asset
-let usd = Asset::new("usd", 2);
-let tokens = ledger.unspent_tokens_prefix("store1", Some(&usd.max())).await?;
-
-// All unspent tokens under store1 across all assets
-let all = ledger.unspent_tokens_prefix("store1", None).await?;
-
-// Aggregated balances grouped by (account, asset)
-let entries = ledger.balances_by_prefix("store1").await?;
+let bal: i128 = ledger.balance("store1/cash", "usd").await?;
+let tokens: Vec<SpendingToken> = ledger.unspent_tokens("store1/cash", "usd").await?;
 ```
 
-Prefix queries always include the exact account itself **and** all descendants. For example, querying `store1` returns tokens owned by `store1`, `store1/cash`, `store1/inventory`, `store1/receivables/sale_1`, etc.
+## Account Aliases
+
+The `AliasRegistry` (in `ledger-core::alias`) provides template-based account aliases that are resolved transparently before querying storage. This is a pure resolution layer in the `Ledger` -- the storage layer has no alias awareness.
+
+### Template Syntax
+
+Templates use `{name}` placeholders that match a single path segment. Both sides of a rule must declare the same set of placeholders.
+
+```rust
+let mut aliases = AliasRegistry::new();
+aliases.register(
+    "user/{user_id}/to_pay/{sale_id}",     // canonical form
+    "sale/{sale_id}/receivables/{user_id}", // alias form
+).unwrap();
+```
+
+### Resolution
+
+`resolve(account)` converts an alias-form path to canonical form. If no rule matches, the input is returned unchanged.
+
+```rust
+aliases.resolve("sale/1/receivables/42")  // → "user/42/to_pay/1"
+aliases.resolve("warehouse/1")            // → "warehouse/1" (no match)
+```
+
+### Integration with Ledger
+
+The `Ledger` holds an optional `AliasRegistry` set via `with_aliases()`. Account arguments to `balance()`, `unspent_tokens()`, and similar methods are resolved through the registry before hitting storage.
+
+```rust
+let ledger = Ledger::new(storage).with_aliases(aliases);
+
+// Both of these query the same canonical account:
+ledger.balance("user/42/to_pay/1", "usd").await?;
+ledger.balance("sale/1/receivables/42", "usd").await?;
+```

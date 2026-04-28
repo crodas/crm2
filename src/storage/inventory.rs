@@ -60,74 +60,117 @@ impl Db {
         product_id: Option<i64>,
         warehouse_id: Option<i64>,
     ) -> Result<Vec<StockLevel>, AppError> {
-        let entries = self
+        let accounts = self
             .ledger
-            .balances_by_prefix("store")
+            .accounts()
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        let stock: Vec<StockLevel> = entries
-            .iter()
-            .filter(|e| e.amount.asset_name().starts_with("product:"))
-            .filter_map(|e| {
-                let path = e.account.as_str();
-                let parts: Vec<&str> = path.split('/').collect();
+        // Filter to store/{wh_id} accounts, optionally by warehouse_id
+        let store_accounts: Vec<(String, i64)> = accounts
+            .into_iter()
+            .filter_map(|acct| {
+                let parts: Vec<&str> = acct.split('/').collect();
                 if parts.len() != 2 || parts[0] != "store" {
                     return None;
                 }
                 let wh_id: i64 = parts[1].parse().ok()?;
-                let pid: i64 = e
-                    .amount
-                    .asset_name()
-                    .strip_prefix("product:")?
-                    .parse()
-                    .ok()?;
-
-                if let Some(filter_pid) = product_id {
-                    if pid != filter_pid {
-                        return None;
-                    }
-                }
                 if let Some(filter_wid) = warehouse_id {
                     if wh_id != filter_wid {
                         return None;
                     }
                 }
+                Some((acct, wh_id))
+            })
+            .collect();
 
-                let precision = e.amount.asset().precision() as u32;
+        let mut stock = Vec::new();
+
+        for (account, wh_id) in store_accounts {
+            let tokens = self
+                .ledger
+                .unspent_tokens(&account, None)
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+
+            // Group by asset, sum raw values
+            let mut by_asset: std::collections::HashMap<String, (i128, u8)> =
+                std::collections::HashMap::new();
+            for token in &tokens {
+                let name = token.amount.asset_name().to_string();
+                if !name.starts_with("product:") {
+                    continue;
+                }
+                let entry = by_asset
+                    .entry(name)
+                    .or_insert((0, token.amount.asset().precision()));
+                entry.0 += token.amount.raw();
+            }
+
+            for (asset_name, (raw, precision)) in by_asset {
+                let pid: i64 = match asset_name.strip_prefix("product:") {
+                    Some(s) => match s.parse() {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    },
+                    None => continue,
+                };
+                if let Some(filter_pid) = product_id {
+                    if pid != filter_pid {
+                        continue;
+                    }
+                }
+
                 let divisor = 10_f64.powi(precision as i32);
-                let total_quantity = e.amount.raw() as f64 / divisor;
+                let total_quantity = raw as f64 / divisor;
 
-                Some(StockLevel {
+                stock.push(StockLevel {
                     product_id: pid,
                     warehouse_id: wh_id,
                     total_quantity,
-                })
-            })
-            .collect();
+                });
+            }
+        }
 
         Ok(stock)
     }
 
     /// Get supplier balance from unspent ledger tokens.
     pub async fn supplier_balance(&self) -> Result<SupplierBalance, AppError> {
-        let filter = ledger::Asset::new("gs", 0).max();
-        let tokens = self
+        let accounts = self
             .ledger
-            .unspent_tokens_prefix("warehouse/payables", Some(&filter))
+            .accounts()
             .await
             .map_err(|e| AppError::Internal(e.to_string()))?;
 
-        let total_owed: i64 = tokens
-            .iter()
-            .filter(|t| t.amount.raw() > 0)
-            .map(|t| t.amount.raw() as i64)
-            .sum();
-        let total_paid_offset: i64 = tokens
-            .iter()
-            .filter(|t| t.amount.raw() < 0)
-            .map(|t| t.amount.raw() as i64)
-            .sum();
+        let payable_accounts: Vec<String> = accounts
+            .into_iter()
+            .filter(|a| a.starts_with("warehouse/payables/"))
+            .collect();
+
+        let mut total_owed: i64 = 0;
+        let mut total_paid_offset: i64 = 0;
+
+        for account in &payable_accounts {
+            let tokens = self
+                .ledger
+                .unspent_tokens(account, None)
+                .await
+                .map_err(|e| AppError::Internal(e.to_string()))?;
+
+            for t in &tokens {
+                if t.amount.asset_name() != "gs" {
+                    continue;
+                }
+                let raw = t.amount.raw() as i64;
+                if raw > 0 {
+                    total_owed += raw;
+                } else {
+                    total_paid_offset += raw;
+                }
+            }
+        }
+
         let outstanding = total_owed + total_paid_offset;
 
         Ok(SupplierBalance {
