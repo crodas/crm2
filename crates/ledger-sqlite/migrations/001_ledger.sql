@@ -26,3 +26,9 @@ CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_account
 
 CREATE INDEX IF NOT EXISTS idx_ledger_tokens_unspent_prefix
     ON ledger_tokens (asset_name) WHERE spent_by_tx IS NULL;
+
+CREATE TABLE IF NOT EXISTS ledger_aliases (
+    canonical TEXT NOT NULL,
+    alias     TEXT NOT NULL,
+    PRIMARY KEY (canonical, alias)
+);

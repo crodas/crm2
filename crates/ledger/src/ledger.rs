@@ -65,6 +65,12 @@ impl Ledger {
         self
     }
 
+    /// Set the alias registry for this ledger.
+    pub fn with_aliases(mut self, aliases: ledger_core::AliasRegistry) -> Self {
+        self.inner = self.inner.with_aliases(aliases);
+        self
+    }
+
     /// Set the issuance strategy for this ledger.
     pub fn with_issuance_strategy(mut self, strategy: impl IssuanceStrategy + 'static) -> Self {
         self.issuance_strategy = Arc::new(strategy);

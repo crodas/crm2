@@ -79,9 +79,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ledger_url =
         std::env::var("LEDGER_URL").unwrap_or_else(|_| "sqlite:ledger.db?mode=rwc".into());
     let ledger_storage = ledger_sqlite::SqliteStorage::connect(&ledger_url).await?;
-    let ledger = ledger::Ledger::new(Arc::new(ledger_storage)).with_debt_strategy(
-        SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
-    );
+    let aliases = ledger_storage.load_aliases().await?;
+    let ledger = ledger::Ledger::new(Arc::new(ledger_storage))
+        .with_aliases(aliases)
+        .with_debt_strategy(
+            SignedPositionDebt::new("customer/{from}", "warehouse/{to}/receivables/{from}"),
+        );
 
     let store_id = std::env::var("STORE_ID").unwrap_or_else(|_| "1".into());
     let db = storage::Db::new(pool, ledger, store_id);

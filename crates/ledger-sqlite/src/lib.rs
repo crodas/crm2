@@ -9,7 +9,8 @@ use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 use sqlx::{Acquire, Row};
 
 use ledger_core::{
-    Amount, Asset, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus, Transaction,
+    AliasRegistry, Amount, Asset, EntryRef, LedgerError, SpendingToken, Storage, TokenStatus,
+    Transaction,
 };
 
 const MIGRATION: &str = include_str!("../migrations/001_ledger.sql");
@@ -43,6 +44,33 @@ impl SqliteStorage {
         sqlx::query(MIGRATION).execute(&pool).await?;
 
         Ok(Self { pool })
+    }
+
+    /// Load all stored alias pairs and build an [`AliasRegistry`].
+    pub async fn load_aliases(&self) -> Result<AliasRegistry, sqlx::Error> {
+        let rows = sqlx::query("SELECT canonical, alias FROM ledger_aliases")
+            .fetch_all(&self.pool)
+            .await?;
+
+        let mut registry = AliasRegistry::new();
+        for row in rows {
+            let canonical: String = row.get("canonical");
+            let alias: String = row.get("alias");
+            registry
+                .register(&canonical, &alias)
+                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        }
+        Ok(registry)
+    }
+
+    /// Persist an alias pair. Idempotent — duplicates are ignored.
+    pub async fn save_alias(&self, canonical: &str, alias: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("INSERT OR IGNORE INTO ledger_aliases (canonical, alias) VALUES (?, ?)")
+            .bind(canonical)
+            .bind(alias)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     /// Create storage from an existing connection pool and run migrations.
@@ -299,6 +327,39 @@ mod tests {
             .await
             .expect("connect")
     });
+
+    #[tokio::test]
+    async fn alias_round_trip() {
+        let storage = SqliteStorage::connect("sqlite::memory:")
+            .await
+            .expect("connect");
+
+        // Initially empty — no resolution
+        let reg = storage.load_aliases().await.expect("load empty");
+        assert_eq!(reg.resolve("sale/1/receivables/42"), "sale/1/receivables/42");
+
+        // Save an alias
+        storage
+            .save_alias(
+                "user/{user_id}/to_pay/{sale_id}",
+                "sale/{sale_id}/receivables/{user_id}",
+            )
+            .await
+            .expect("save alias");
+
+        // Reload and verify resolution
+        let reg = storage.load_aliases().await.expect("load after save");
+        assert_eq!(reg.resolve("sale/1/receivables/42"), "user/42/to_pay/1");
+
+        // Duplicate save is idempotent
+        storage
+            .save_alias(
+                "user/{user_id}/to_pay/{sale_id}",
+                "sale/{sale_id}/receivables/{user_id}",
+            )
+            .await
+            .expect("duplicate save");
+    }
 
     #[tokio::test]
     async fn from_pool_works() {
