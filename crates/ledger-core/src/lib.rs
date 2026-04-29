@@ -17,7 +17,7 @@ mod storage;
 mod token;
 mod transaction;
 
-pub use alias::AliasRegistry;
+pub use alias::{AliasError, AliasMatcher, AliasRegistry, Match as AliasMatch};
 pub use amount::Amount;
 pub use asset::Asset;
 pub use error::LedgerError;
