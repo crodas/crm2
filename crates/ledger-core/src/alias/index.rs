@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn exact_index() {
         let mut idx = RuleIndex::new();
-        let p = CompiledPattern::parse("/exact");
+        let p = CompiledPattern::parse("/exact").unwrap();
         idx.insert(0, &p);
         assert_eq!(idx.candidates("/exact"), vec![0]);
         assert!(idx.candidates("/other").is_empty());
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn prefix_index() {
         let mut idx = RuleIndex::new();
-        let p = CompiledPattern::parse("/foo/{x}");
+        let p = CompiledPattern::parse("/foo/{x}").unwrap();
         idx.insert(0, &p);
         assert_eq!(idx.candidates("/foo/bar"), vec![0]);
         assert!(idx.candidates("/bar/x").is_empty());
@@ -157,7 +157,7 @@ mod tests {
     #[test]
     fn suffix_index() {
         let mut idx = RuleIndex::new();
-        let p = CompiledPattern::parse("{x}-end");
+        let p = CompiledPattern::parse("{x}-end").unwrap();
         idx.insert(0, &p);
         assert_eq!(idx.candidates("hello-end"), vec![0]);
         assert!(idx.candidates("hello-start").is_empty());
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn contains_index() {
         let mut idx = RuleIndex::new();
-        let p = CompiledPattern::parse("{a}-mid-{b}");
+        let p = CompiledPattern::parse("{a}-mid-{b}").unwrap();
         idx.insert(0, &p);
         assert_eq!(idx.candidates("x-mid-y"), vec![0]);
         assert!(idx.candidates("x-other-y").is_empty());
@@ -175,7 +175,7 @@ mod tests {
     #[test]
     fn fallback_always_included() {
         let mut idx = RuleIndex::new();
-        let p = CompiledPattern::parse("{anything}");
+        let p = CompiledPattern::parse("{anything}").unwrap();
         idx.insert(0, &p);
         assert_eq!(idx.candidates("literally anything"), vec![0]);
     }
@@ -183,9 +183,9 @@ mod tests {
     #[test]
     fn candidates_sorted_by_rule_id() {
         let mut idx = RuleIndex::new();
-        idx.insert(0, &CompiledPattern::parse("{anything}"));
-        idx.insert(1, &CompiledPattern::parse("/foo/{x}"));
-        idx.insert(2, &CompiledPattern::parse("{a}-foo-{b}"));
+        idx.insert(0, &CompiledPattern::parse("{anything}").unwrap());
+        idx.insert(1, &CompiledPattern::parse("/foo/{x}").unwrap());
+        idx.insert(2, &CompiledPattern::parse("{a}-foo-{b}").unwrap());
 
         let c = idx.candidates("/foo/bar");
         // rule 0 (fallback) and rule 1 (prefix) should both appear, sorted

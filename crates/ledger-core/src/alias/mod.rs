@@ -90,8 +90,16 @@ impl AliasMatcher {
     ///
     /// Both templates must contain the same set of `{name}` placeholders.
     pub fn register(&mut self, canonical: &str, alias: &str) -> Result<(), AliasError> {
-        let source = CompiledPattern::parse(alias);
-        let target = CompiledPattern::parse(canonical);
+        let source = CompiledPattern::parse(alias).map_err(|msg| AliasError {
+            canonical: canonical.to_string(),
+            alias: alias.to_string(),
+            message: msg,
+        })?;
+        let target = CompiledPattern::parse(canonical).map_err(|msg| AliasError {
+            canonical: canonical.to_string(),
+            alias: alias.to_string(),
+            message: msg,
+        })?;
 
         let sn = source.placeholder_names();
         let tn = target.placeholder_names();
@@ -375,5 +383,12 @@ mod tests {
         assert_eq!(r.captures.len(), 2);
         assert_eq!(r.captures["a"], "hello");
         assert_eq!(r.captures["b"], "world");
+    }
+
+    #[test]
+    fn register_rejects_unmatched_brace() {
+        let mut m = AliasMatcher::new();
+        let err = m.register("target/{x}", "foo-{bar").expect_err("should fail");
+        assert!(err.message.contains("unmatched"));
     }
 }

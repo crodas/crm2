@@ -18,7 +18,9 @@ pub(crate) struct CompiledPattern {
 
 impl CompiledPattern {
     /// Parse a template string like `foo-{bar}` or `/foo/{path}` into tokens.
-    pub fn parse(template: &str) -> Self {
+    ///
+    /// Returns an error if a `{` has no matching `}`.
+    pub fn parse(template: &str) -> Result<Self, String> {
         let mut tokens = Vec::new();
         let mut rest = template;
 
@@ -29,7 +31,7 @@ impl CompiledPattern {
                 }
                 let close = rest[open..]
                     .find('}')
-                    .expect("unmatched '{' in template")
+                    .ok_or_else(|| format!("unmatched '{{' in template: {template}"))?
                     + open;
                 let name = &rest[open + 1..close];
                 tokens.push(Token::Placeholder(name.to_string()));
@@ -42,13 +44,13 @@ impl CompiledPattern {
 
         let (min_len, prefix, suffix, must_contain) = Self::compute_guards(&tokens);
 
-        Self {
+        Ok(Self {
             tokens,
             min_len,
             prefix,
             suffix,
             must_contain,
-        }
+        })
     }
 
     fn compute_guards(tokens: &[Token]) -> (usize, Option<String>, Option<String>, Vec<String>) {
@@ -251,7 +253,7 @@ mod tests {
 
     #[test]
     fn parse_literal_only() {
-        let p = CompiledPattern::parse("/exact/path");
+        let p = CompiledPattern::parse("/exact/path").unwrap();
         assert!(!p.has_placeholders());
         assert_eq!(p.literal_text(), Some("/exact/path"));
         assert_eq!(p.min_len, 11);
@@ -259,7 +261,7 @@ mod tests {
 
     #[test]
     fn parse_prefix_pattern() {
-        let p = CompiledPattern::parse("/foo/{path}");
+        let p = CompiledPattern::parse("/foo/{path}").unwrap();
         assert_eq!(p.prefix, Some("/foo/".into()));
         assert_eq!(p.suffix, None);
         assert!(p.must_contain.is_empty());
@@ -268,7 +270,7 @@ mod tests {
 
     #[test]
     fn parse_suffix_pattern() {
-        let p = CompiledPattern::parse("{bar}-anything");
+        let p = CompiledPattern::parse("{bar}-anything").unwrap();
         assert_eq!(p.prefix, None);
         assert_eq!(p.suffix, Some("-anything".into()));
         assert!(p.must_contain.is_empty());
@@ -277,7 +279,7 @@ mod tests {
 
     #[test]
     fn parse_interior_literal() {
-        let p = CompiledPattern::parse("{foo}-bar-{xxx}");
+        let p = CompiledPattern::parse("{foo}-bar-{xxx}").unwrap();
         assert_eq!(p.prefix, None);
         assert_eq!(p.suffix, None);
         assert_eq!(p.must_contain, vec!["-bar-"]);
@@ -285,52 +287,57 @@ mod tests {
     }
 
     #[test]
+    fn parse_unmatched_brace_returns_error() {
+        assert!(CompiledPattern::parse("foo-{bar").is_err());
+    }
+
+    #[test]
     fn guard_rejects_too_short() {
-        let p = CompiledPattern::parse("/foo/{path}");
+        let p = CompiledPattern::parse("/foo/{path}").unwrap();
         assert!(p.fast_reject("/fo"));
     }
 
     #[test]
     fn guard_rejects_wrong_prefix() {
-        let p = CompiledPattern::parse("/foo/{path}");
+        let p = CompiledPattern::parse("/foo/{path}").unwrap();
         assert!(p.fast_reject("/bar/something"));
     }
 
     #[test]
     fn guard_rejects_wrong_suffix() {
-        let p = CompiledPattern::parse("{bar}-anything");
+        let p = CompiledPattern::parse("{bar}-anything").unwrap();
         assert!(p.fast_reject("hello-something"));
     }
 
     #[test]
     fn guard_rejects_missing_interior() {
-        let p = CompiledPattern::parse("{foo}-bar-{xxx}");
+        let p = CompiledPattern::parse("{foo}-bar-{xxx}").unwrap();
         assert!(p.fast_reject("abc-baz-def"));
     }
 
     #[test]
     fn guard_accepts_valid() {
-        let p = CompiledPattern::parse("{foo}-bar-{xxx}");
+        let p = CompiledPattern::parse("{foo}-bar-{xxx}").unwrap();
         assert!(!p.fast_reject("abc-bar-def"));
     }
 
     #[test]
     fn try_match_prefix() {
-        let p = CompiledPattern::parse("/foo/{path}");
+        let p = CompiledPattern::parse("/foo/{path}").unwrap();
         let caps = p.try_match("/foo/abc").unwrap();
         assert_eq!(caps["path"], "abc");
     }
 
     #[test]
     fn try_match_suffix() {
-        let p = CompiledPattern::parse("{bar}-anything");
+        let p = CompiledPattern::parse("{bar}-anything").unwrap();
         let caps = p.try_match("hello-anything").unwrap();
         assert_eq!(caps["bar"], "hello");
     }
 
     #[test]
     fn try_match_interior() {
-        let p = CompiledPattern::parse("{foo}-bar-{xxx}");
+        let p = CompiledPattern::parse("{foo}-bar-{xxx}").unwrap();
         let caps = p.try_match("abc-bar-def").unwrap();
         assert_eq!(caps["foo"], "abc");
         assert_eq!(caps["xxx"], "def");
@@ -338,26 +345,26 @@ mod tests {
 
     #[test]
     fn try_match_no_match() {
-        let p = CompiledPattern::parse("/foo/{path}");
+        let p = CompiledPattern::parse("/foo/{path}").unwrap();
         assert!(p.try_match("/bar/abc").is_none());
     }
 
     #[test]
     fn try_match_rejects_empty_capture() {
-        let p = CompiledPattern::parse("foo-{bar}");
+        let p = CompiledPattern::parse("foo-{bar}").unwrap();
         assert!(p.try_match("foo-").is_none());
     }
 
     #[test]
     fn try_match_exact() {
-        let p = CompiledPattern::parse("/exact/path");
+        let p = CompiledPattern::parse("/exact/path").unwrap();
         assert!(p.try_match("/exact/path").is_some());
         assert!(p.try_match("/exact/other").is_none());
     }
 
     #[test]
     fn substitute_works() {
-        let p = CompiledPattern::parse("/real/{foo}/{xxx}");
+        let p = CompiledPattern::parse("/real/{foo}/{xxx}").unwrap();
         let mut caps = HashMap::new();
         caps.insert("foo".to_string(), "abc");
         caps.insert("xxx".to_string(), "def");
@@ -366,7 +373,7 @@ mod tests {
 
     #[test]
     fn try_match_segment_based() {
-        let p = CompiledPattern::parse("sale/{sale_id}/receivables/{user_id}");
+        let p = CompiledPattern::parse("sale/{sale_id}/receivables/{user_id}").unwrap();
         let caps = p.try_match("sale/1/receivables/42").unwrap();
         assert_eq!(caps["sale_id"], "1");
         assert_eq!(caps["user_id"], "42");
